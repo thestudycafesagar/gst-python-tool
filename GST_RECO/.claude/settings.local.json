@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pyinstaller --version)",
+      "Bash(pip install:*)",
+      "Bash(pyinstaller --version)"
+    ]
+  }
+}

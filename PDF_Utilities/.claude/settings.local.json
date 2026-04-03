@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile main.py)",
+      "Bash(python main.py)",
+      "Bash(python -c \"from PIL import Image; print\\(''PIL available''\\)\")",
+      "Bash(python -c \"import pikepdf; print\\(''pikepdf'', pikepdf.__version__\\)\")",
+      "Bash(python -c \"import pypdf; print\\(''pypdf'', pypdf.__version__\\)\")",
+      "Bash(where gswin64c)",
+      "Bash(where gswin32c)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(pip install pikepdf)",
+      "Bash(python -c \"import PyInstaller; print\\(PyInstaller.__version__\\)\")"
+    ]
+  }
+}

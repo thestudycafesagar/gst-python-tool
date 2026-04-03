@@ -1,0 +1,1 @@
+pyinstaller GST_Suite.spec --noconfirm --clean

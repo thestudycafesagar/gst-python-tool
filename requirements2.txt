@@ -1,0 +1,11 @@
+customtkinter
+pandas
+numpy
+Pillow
+selenium
+webdriver-manager
+pdfplumber
+openpyxl
+PyMuPDF
+pypdf
+pywin32

@@ -1,0 +1,16 @@
+Folder PATH listing
+Volume serial number is C208-BBDE
+C:.
+    bank of india.pdf
+    bank_statements_combined.xlsx
+    equatis.pdf
+    hdfc fy 25-26.pdf
+    icici.pdf
+    idfc.pdf
+    kotak.pdf
+    ot.txt
+    uco bank.pdf
+    yes bank.pdf
+    
+No subfolders exist 
+

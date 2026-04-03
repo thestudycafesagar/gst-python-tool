@@ -1,0 +1,10 @@
+ Tally Our Data 
+Party GSTIN/UIN
+Available Only in Books
+Vch No. , Doc No.
+Taxable Amount
+IGST
+CGST
+SGST/UTGST
+Cess
+Invoice Amount

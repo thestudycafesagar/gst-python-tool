@@ -1,0 +1,10 @@
+B2B    		  
+GSTIN of supplier
+Trade/Legal name
+Invoice number
+Taxable Value (₹)
+Integrated Tax(₹)
+Central Tax(₹)
+State/UT Tax(₹)
+Cess(₹)
+Invoice Value(₹)

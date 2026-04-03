@@ -1,0 +1,7 @@
+['Date', 'Narration', 'Chq./Ref.No.', 'Value Dt', 'Withdrawal Amt.', 'Deposit Amt.']
+
+       Date                        Narration  ... Withdrawal Amt. Deposit Amt.
+0  08/04/25  CHQDEP-MICRCLG-NOIDAWBO:RADHIKA  ...                    60,000.00
+1                           KAUR:AXISBANKLTD  ...                             
+
+[2 rows x 6 columns]

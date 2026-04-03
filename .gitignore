@@ -1,0 +1,27 @@
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging outputs
+build/
+dist/
+output/
+*.pkg
+*.exe
+*.dll
+*.msi
+*.bin
+
+# Common generated metadata
+*.egg-info/
+pip-wheel-metadata/
+
+# Editor/OS files
+.vscode/
+Thumbs.db
+.DS_Store

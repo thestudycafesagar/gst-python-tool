@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \":*)",
+      "Read(//c/Users/rc240/Downloads/rohit combo/rohit combo/**)",
+      "Bash(python -c \"import bank_detector; print\\(''bank_detector OK''\\); print\\(''Banks:'', list\\(bank_detector.BANK_REGISTRY.keys\\(\\)\\)\\); print\\(''ColMaps:'', list\\(bank_detector.BANK_COLUMN_MAP.keys\\(\\)\\)\\)\")",
+      "Bash(python -c \"import transaction_extractor; print\\(''transaction_extractor OK''\\)\")",
+      "Bash(python -c \"import data_cleaner; print\\(''data_cleaner OK''\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''bank_to_excel.py'', doraise=True\\); print\\(''Syntax OK''\\)\")",
+      "Bash(grep -n '\"\"DEFAULT\"\"' bank_to_excel.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''bank_to_excel.py'',encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(timeout 15 python -c \":*)",
+      "Bash(timeout 30 python -c \":*)"
+    ]
+  }
+}

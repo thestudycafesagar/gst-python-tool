@@ -1,0 +1,9 @@
+{
+    "venvPath": "C:\\Users\\rc240\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\LocalCache\\local-packages",
+    "pythonVersion": "3.13",
+    "extraPaths": [
+        "C:\\Users\\rc240\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\LocalCache\\local-packages\\Python313\\site-packages"
+    ],
+    "reportMissingImports": false,
+    "reportMissingModuleSource": false
+}

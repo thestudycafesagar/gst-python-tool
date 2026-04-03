@@ -1,0 +1,2 @@
+Shape of df_raw: (62, 8)
+Jul dates: 0

@@ -1,0 +1,17 @@
+streamlit>=1.28.0
+pandas>=2.0.0
+pdfplumber>=0.9.0
+openpyxl>=3.1.0
+Pillow>=10.0.0
+pdf2image>=1.16.0
+pytesseract>=0.3.10
+numpy>=1.24.0
+opencv-python-headless>=4.8.0
+xlsxwriter>=3.1.0
+
+# Optional - for better table extraction (requires ghostscript)
+# camelot-py[cv]>=0.11.0
+
+# Optional - for advanced OCR
+# paddlepaddle>=2.5.0
+# paddleocr>=2.7.0
