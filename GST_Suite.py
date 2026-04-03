@@ -1,4 +1,4 @@
-"""
+r"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║         GST & INCOME TAX AUTOMATION SUITE  —  Unified Launcher               ║
 ║                                                                              ║
@@ -8,6 +8,7 @@
 
 import sys
 import os
+import importlib
 import importlib.util
 import traceback
 import tkinter as _tk
@@ -31,6 +32,16 @@ VERSION            = "1.0.6"
 # !! REPLACE 'YOURNAME' and 'YOURREPO' with your actual GitHub username and
 #    the public releases repo you created (e.g. gst-suite-releases).
 UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/thestudycafesagar/gst-suite-releases/main/latest.json"
+
+_MISSING_MODULE_PACKAGES = {
+    "fitz": "PyMuPDF",
+    "win32com": "pywin32",
+    "pythoncom": "pywin32",
+    "pywintypes": "pywin32",
+    "win32api": "pywin32",
+    "win32con": "pywin32",
+    "win32gui": "pywin32",
+}
 
 try:
     from PIL import Image as _PILImage
@@ -59,6 +70,30 @@ def _suite_debug_log(msg: str):
             f.write(f"[{ts}] {msg}\n")
     except Exception:
         pass
+
+
+def _cancel_all_after_callbacks(widget):
+    """Cancel all pending Tcl 'after' callbacks for a widget/app."""
+    try:
+        pending = widget.tk.call("after", "info")
+    except Exception:
+        return
+
+    if isinstance(pending, str):
+        pending = [pending] if pending else []
+
+    for job_id in pending:
+        try:
+            widget.after_cancel(job_id)
+        except Exception:
+            pass
+
+
+def _missing_package_for_module(module_name: str):
+    root = (module_name or "").split(".", 1)[0].strip()
+    if not root:
+        return None
+    return _MISSING_MODULE_PACKAGES.get(root)
 
 _AUTH_CONFIG = os.path.join(_get_app_data_dir(), "auth_config.json")
 API_BASE_URL  = "https://studycafe-tools-api-bthzgsfvfggjd6gt.centralindia-01.azurewebsites.net"
@@ -442,6 +477,7 @@ class GSTSuite(_RealCTk):
         self._trial_expired  = False      # set True only if trial expires mid-session
         self._is_closing     = False
         self._after_jobs     = set()
+        self._restart_to_login = False
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -496,26 +532,21 @@ class GSTSuite(_RealCTk):
                 pass
         self._after_jobs.clear()
 
-        # Also cancel callbacks scheduled by CTk internals (dpi/update polling).
-        try:
-            pending = self.tk.call("after", "info")
-        except Exception:
-            return
-
-        if isinstance(pending, str):
-            pending = [pending] if pending else []
-
-        for job_id in pending:
-            try:
-                self.after_cancel(job_id)
-            except Exception:
-                pass
+        # Also cancel callbacks scheduled by CTk internals/tool frames.
+        _cancel_all_after_callbacks(self)
 
     def _on_close(self):
         if self._is_closing:
             return
         self._is_closing = True
         self._active_poll = None
+
+        # Force mainloop exit even if hidden toplevels/dialogs still exist.
+        try:
+            self.quit()
+        except Exception:
+            pass
+
         self._cancel_after_jobs()
 
         try:
@@ -537,6 +568,46 @@ class GSTSuite(_RealCTk):
                     _suite_debug_log(f"warmup fail {mod_name}: {e}")
             _suite_debug_log("dependency warmup done")
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _import_tool_module(self, module_path: str, uid: str):
+        spec = importlib.util.spec_from_file_location(uid, module_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Unable to create module spec for: {module_path}")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def _try_auto_install_missing_dependency(self, missing_module: str, tab_name: str) -> bool:
+        package = _missing_package_for_module(missing_module)
+        if not package:
+            return False
+        if getattr(sys, "frozen", False):
+            # Frozen EXEs should already ship dependencies; don't mutate environment.
+            return False
+
+        _suite_debug_log(
+            f"auto_install start tab={tab_name} module={missing_module} package={package}"
+        )
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "pip", "install", package],
+                capture_output=True,
+                text=True,
+                timeout=240,
+                check=False,
+            )
+        except Exception as e:
+            _suite_debug_log(f"auto_install exception tab={tab_name} package={package}: {e}")
+            return False
+
+        if proc.returncode != 0:
+            out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+            _suite_debug_log(f"auto_install failed tab={tab_name} package={package}: {out[-800:]}")
+            return False
+
+        importlib.invalidate_caches()
+        _suite_debug_log(f"auto_install success tab={tab_name} package={package}")
+        return True
 
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -644,8 +715,8 @@ class GSTSuite(_RealCTk):
 
         def _do_logout():
             _clear_auth()
+            self._restart_to_login = True
             self._on_close()
-            LoginWindow().mainloop()
 
         ctk.CTkButton(
             h_right, text="⏏  Logout",
@@ -1481,11 +1552,24 @@ class GSTSuite(_RealCTk):
                         sys.path.insert(0, tool_dir)
                     uid  = f"_suite_mod_{len(self._module_cache)}_{os.path.basename(tool_dir).replace(' ', '_')}"
                     _suite_debug_log(f"main_import begin tab={name} uid={uid}")
-                    spec = importlib.util.spec_from_file_location(uid, module_path)
-                    if spec is None or spec.loader is None:
-                        raise ImportError(f"Unable to create module spec for: {module_path}")
-                    mod  = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(mod)
+                    try:
+                        mod = self._import_tool_module(module_path, uid)
+                    except ModuleNotFoundError as mnf:
+                        missing_mod = getattr(mnf, "name", "")
+                        missing_pkg = _missing_package_for_module(missing_mod)
+                        if missing_pkg:
+                            status_label.configure(text=f"Installing dependency: {missing_pkg}…")
+                            info_label.configure(text="One-time setup in progress. Please wait…")
+                            self.update_idletasks()
+                            if self._try_auto_install_missing_dependency(missing_mod, name):
+                                status_label.configure(text="Retrying tool load…")
+                                info_label.configure(text="Dependency installed. Re-importing module…")
+                                self.update_idletasks()
+                                mod = self._import_tool_module(module_path, uid)
+                            else:
+                                raise
+                        else:
+                            raise
                     self._module_cache[module_path] = mod
                     _suite_debug_log(f"main_import success tab={name} class={tool['class']}")
                 else:
@@ -1505,8 +1589,24 @@ class GSTSuite(_RealCTk):
                 if inst and hasattr(inst, "set_theme"):
                     try: inst.set_theme(self._current_theme)
                     except: pass
-            except Exception:
+            except Exception as e:
                 err_msg = traceback.format_exc()
+                if isinstance(e, ModuleNotFoundError):
+                    missing_mod = getattr(e, "name", "") or "unknown"
+                    pkg = _missing_package_for_module(missing_mod) or missing_mod
+                    if getattr(sys, "frozen", False):
+                        hint = (
+                            f"Missing dependency '{missing_mod}'.\n"
+                            f"This bundled EXE is missing package '{pkg}'.\n"
+                            "Rebuild/reinstall the suite with complete dependencies."
+                        )
+                    else:
+                        hint = (
+                            f"Missing dependency '{missing_mod}'.\n"
+                            f"Install package '{pkg}' and reopen this tab:\n"
+                            f"  {sys.executable} -m pip install {pkg}"
+                        )
+                    err_msg = f"{hint}\n\n{err_msg}"
                 print(f"[ERROR] Failed to load tool '{name}': {err_msg}")
                 _suite_debug_log(f"load error tab={name}: {err_msg.splitlines()[-1] if err_msg else 'unknown'}")
                 try:
@@ -1643,7 +1743,10 @@ class DeviceManagerDialog(ctk.CTkToplevel):
             })
             if resp.get("status") == "SUCCESS":
                 self.destroy()
-                self._on_success()
+                try:
+                    self.after(0, self._on_success)
+                except Exception:
+                    self._on_success()
             else:
                 self._err_lbl.configure(text=f"Error: {resp.get('status')}")
         except Exception as e:
@@ -1661,6 +1764,8 @@ class LoginWindow(_RealCTk):
         self.title("GST Suite — Login")
         self.geometry("420x520")
         self.resizable(False, False)
+        self.protocol("WM_DELETE_WINDOW", self._close_window)
+        self._auth_result = None
 
         _ico = os.path.join(_ASSETS_BASE, "studycafelogo.ico")
         if os.path.exists(_ico):
@@ -1674,6 +1779,25 @@ class LoginWindow(_RealCTk):
 
         self._hw = _get_hardware_id()
         self._build()
+
+    def _close_window(self):
+        try:
+            self.quit()
+        except Exception:
+            pass
+
+        _cancel_all_after_callbacks(self)
+
+        try:
+            self.destroy()
+        except Exception:
+            try:
+                _tk.Tk.destroy(self)
+            except Exception:
+                pass
+
+    def get_auth_result(self):
+        return self._auth_result
 
     def _build(self):
         # Accent stripe
@@ -1782,8 +1906,9 @@ class LoginWindow(_RealCTk):
 
         if status == "SUCCESS":
             _save_auth(email, password)
-            self.destroy()
-            GSTSuite(user_info=resp).mainloop()
+            self._auth_result = resp
+            self._close_window()
+            return
 
         elif status == "INVALID_CREDENTIALS":
             self._set_status("Invalid email or password. Please try again.")
@@ -1818,10 +1943,51 @@ class LoginWindow(_RealCTk):
 # ══════════════════════════════════════════════════════════════════════════════
 #  ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
+def _relaunch_self():
+    """Restart the current app process for a clean Login→Suite cycle."""
+    try:
+        if getattr(sys, "frozen", False):
+            os.execl(sys.executable, sys.executable)
+        else:
+            os.execl(sys.executable, sys.executable, os.path.abspath(__file__))
+    except Exception as e:
+        _suite_debug_log(f"relaunch failed: {e}")
+
+
+def run_app_lifecycle():
+    """Single top-level event-loop orchestration to avoid nested mainloops."""
+    login = LoginWindow()
+    try:
+        login.mainloop()
+    except KeyboardInterrupt:
+        try:
+            login._close_window()
+        except Exception:
+            pass
+        return
+
+    user_info = login.get_auth_result()
+    if not user_info:
+        return
+
+    suite = GSTSuite(user_info=user_info)
+    try:
+        suite.mainloop()
+    except KeyboardInterrupt:
+        try:
+            suite._on_close()
+        except Exception:
+            pass
+        return
+
+    if getattr(suite, "_restart_to_login", False):
+        _relaunch_self()
+
+
 if __name__ == "__main__":
     try:
         if _SPLASH is not None:
             _SPLASH.destroy()
     except Exception:
         pass
-    LoginWindow().mainloop()
+    run_app_lifecycle()

@@ -38,7 +38,7 @@ echo         OK
 echo.
 
 echo  [2/5] Installing dependencies...
-pip install --quiet customtkinter Pillow numpy pandas openpyxl selenium webdriver-manager pdfplumber pdfminer.six PyMuPDF reportlab pikepdf pypdf pyinstaller
+pip install --quiet customtkinter Pillow numpy pandas openpyxl selenium webdriver-manager pdfplumber pdfminer.six PyMuPDF pywin32 reportlab pikepdf pypdf pyinstaller
 echo         OK
 echo.
 

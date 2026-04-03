@@ -136,7 +136,7 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-# ── Single-file EXE (console=True so CMD window shows while loading) ──────────
+# ── Single-file EXE (windowed GUI; no console window) ───────────────────────
 exe = EXE(
     pyz,
     a.scripts,
@@ -150,7 +150,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
