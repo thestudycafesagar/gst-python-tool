@@ -297,3 +297,67 @@
 [2026-04-04 11:19:51] activate_tab start cat=pdf tab=⊕  Merge module=c:\Users\user\Desktop\rohit tool\gst-python-tool\PDF_Utilities\main.py exists=True tk=True
 [2026-04-04 11:19:51] main_import cache_hit tab=⊕  Merge module=c:\Users\user\Desktop\rohit tool\gst-python-tool\PDF_Utilities\main.py
 [2026-04-04 11:19:51] instantiate success tab=⊕  Merge instance=MergeApp
+[2026-04-04 12:24:53] dependency warmup start
+[2026-04-04 12:24:56] warmup ok pandas
+[2026-04-04 12:24:56] warmup ok numpy
+[2026-04-04 12:24:56] warmup ok openpyxl
+[2026-04-04 12:24:57] warmup ok fitz
+[2026-04-04 13:08:18] dependency warmup start
+[2026-04-04 13:08:21] warmup ok pandas
+[2026-04-04 13:08:21] warmup ok numpy
+[2026-04-04 13:08:22] warmup ok openpyxl
+[2026-04-04 13:08:22] warmup ok fitz
+[2026-04-04 13:08:23] warmup ok pdfplumber
+[2026-04-04 13:08:23] warmup ok pdfminer
+[2026-04-04 13:08:23] warmup ok selenium
+[2026-04-04 13:08:23] warmup ok webdriver_manager
+[2026-04-04 13:08:23] warmup ok PIL
+[2026-04-04 13:08:23] dependency warmup done
+[2026-04-04 13:14:10] activate_tab start cat=it tab=📊  Refund Checker module=c:\Users\user\Desktop\rohit tool\gst-python-tool\Income Tax\26 AS Downlaoder\refund_checker_app.py exists=True tk=False
+[2026-04-04 13:14:10] main_import begin tab=📊  Refund Checker uid=_suite_mod_0_26_AS_Downlaoder
+[2026-04-04 13:14:10] main_import success tab=📊  Refund Checker class=RefundCheckerApp
+[2026-04-04 13:14:10] instantiate success tab=📊  Refund Checker instance=RefundCheckerApp
+[2026-04-04 13:39:26] dependency warmup start
+[2026-04-04 13:39:26] warmup ok pandas
+[2026-04-04 13:39:26] warmup ok numpy
+[2026-04-04 13:39:26] warmup ok openpyxl
+[2026-04-04 13:39:27] warmup ok fitz
+[2026-04-04 13:39:27] warmup ok pdfplumber
+[2026-04-04 13:39:27] warmup ok pdfminer
+[2026-04-04 13:39:27] warmup ok selenium
+[2026-04-04 13:39:27] warmup ok webdriver_manager
+[2026-04-04 13:39:27] warmup ok requests
+[2026-04-04 13:39:27] warmup ok PIL
+[2026-04-04 13:39:27] dependency warmup done
+[2026-04-04 13:40:15] dependency warmup start
+[2026-04-04 13:40:15] warmup ok pandas
+[2026-04-04 13:40:15] warmup ok numpy
+[2026-04-04 13:40:15] warmup ok openpyxl
+[2026-04-04 13:40:16] warmup ok fitz
+[2026-04-04 13:40:16] warmup ok pdfplumber
+[2026-04-04 13:40:16] warmup ok pdfminer
+[2026-04-04 13:40:16] warmup ok selenium
+[2026-04-04 13:40:16] warmup ok webdriver_manager
+[2026-04-04 13:40:16] warmup ok requests
+[2026-04-04 13:40:16] warmup ok PIL
+[2026-04-04 13:40:16] dependency warmup done
+[2026-04-04 13:45:50] dependency warmup start
+[2026-04-04 13:45:50] warmup ok pandas
+[2026-04-04 13:45:50] warmup ok numpy
+[2026-04-04 13:45:50] warmup ok openpyxl
+[2026-04-04 13:45:51] warmup ok fitz
+[2026-04-04 13:45:51] warmup ok pdfplumber
+[2026-04-04 13:45:51] warmup ok pdfminer
+[2026-04-04 13:45:51] warmup ok selenium
+[2026-04-04 13:45:51] warmup ok webdriver_manager
+[2026-04-04 13:45:51] warmup ok requests
+[2026-04-04 13:45:51] warmup ok PIL
+[2026-04-04 13:45:51] dependency warmup done
+[2026-04-04 13:46:22] activate_tab start cat=reco tab=🔄  GST Reconciliation module=c:\Users\user\Desktop\rohit tool\gst-python-tool\GST_RECO\mainpy-reco-speqtra.py exists=True tk=False
+[2026-04-04 13:46:22] main_import begin tab=🔄  GST Reconciliation uid=_suite_mod_0_GST_RECO
+[2026-04-04 13:46:22] main_import success tab=🔄  GST Reconciliation class=App
+[2026-04-04 13:46:22] instantiate success tab=🔄  GST Reconciliation instance=_Handle
+[2026-04-04 13:46:26] activate_tab start cat=email tab=📋  GST Return Request module=c:\Users\user\Desktop\rohit tool\gst-python-tool\Email-Tools\main.py exists=True tk=True
+[2026-04-04 13:46:26] main_import begin tab=📋  GST Return Request uid=_suite_mod_1_Email-Tools
+[2026-04-04 13:46:26] main_import success tab=📋  GST Return Request class=GSTReturnMailApp
+[2026-04-04 13:46:26] instantiate success tab=📋  GST Return Request instance=GSTReturnMailApp

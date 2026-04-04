@@ -53,6 +53,7 @@ def collect_tool_sources(tool_dir, dest_name):
 datas = [
     ('studycafelogo.ico', '.'),
     ('studycafelogo.png', '.'),
+    ('bootloader_splash.png', '.'),
     ('dist/StudyCafeSuite_Updater.exe', '.'),   # bundled updater for auto-update
 ]
 
@@ -64,6 +65,7 @@ for _tool_dir, _dest in [
     ('Bank Statement To Excel', 'Bank Statement To Excel'),
     ('Email-Tools',             'Email-Tools'),
     ('GST_RECO',                'GST_RECO'),
+    ('tally tool',              'tally tool'),
 ]:
     datas += collect_tool_sources(_tool_dir, _dest)
 
@@ -73,6 +75,7 @@ hiddenimports = [
     'customtkinter', 'darkdetect',
     'PIL', 'PIL.Image', 'PIL.ImageTk',
     'fitz', 'pdfplumber', 'pdfminer',
+    'requests',
     'selenium', 'webdriver_manager',
     'pandas', 'numpy', 'openpyxl',
     'win32com', 'win32com.client', 'pythoncom', 'pywintypes', 'win32api', 'win32con', 'win32gui',
@@ -86,7 +89,7 @@ hiddenimports = [
     'tkinter.font',
 ]
 for pkg in ('customtkinter', 'darkdetect', 'selenium', 'webdriver_manager',
-            'pdfplumber', 'pdfminer', 'fitz'):
+        'pdfplumber', 'pdfminer', 'fitz', 'requests'):
     tmp = collect_all(pkg)
     datas += tmp[0]; binaries += tmp[1]; hiddenimports += tmp[2]
 
@@ -136,18 +139,32 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# Native PyInstaller splash appears during onefile extraction,
+# so users see an immediate loader right after double-click.
+splash = Splash(
+    'bootloader_splash.png',
+    binaries=a.binaries,
+    datas=a.datas,
+    text_pos=None,
+    text_size=12,
+    minify_script=True,
+    always_on_top=True,
+)
+
 # ── Single-file EXE (windowed GUI; no console window) ───────────────────────
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.datas,
+    splash,
+    splash.binaries,
     [],
     name='GST_Suite',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

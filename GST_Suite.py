@@ -12,11 +12,18 @@ import importlib
 import importlib.util
 import traceback
 import tkinter as _tk
+import tkinter.ttk as _ttk
 
 _SPLASH = None  # no splash screen
 
 _BOOT_SPLASH = None
 _BOOT_STATUS_VAR = None
+_BOOT_PROGRESS = None
+
+try:
+    import pyi_splash as _pyi_splash
+except Exception:
+    _pyi_splash = None
 
 
 def _boot_assets_base():
@@ -25,8 +32,26 @@ def _boot_assets_base():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def _update_native_bootloader_splash(message: str):
+    if _pyi_splash is None:
+        return
+    try:
+        _pyi_splash.update_text(message)
+    except Exception:
+        pass
+
+
+def _close_native_bootloader_splash():
+    if _pyi_splash is None:
+        return
+    try:
+        _pyi_splash.close()
+    except Exception:
+        pass
+
+
 def _show_boot_splash():
-    global _BOOT_SPLASH, _BOOT_STATUS_VAR
+    global _BOOT_SPLASH, _BOOT_STATUS_VAR, _BOOT_PROGRESS
     if _BOOT_SPLASH is not None:
         return
     try:
@@ -111,15 +136,22 @@ def _show_boot_splash():
             justify="center",
         ).pack(pady=(0, 14))
 
+        _BOOT_PROGRESS = _ttk.Progressbar(content, mode="indeterminate", length=330)
+        _BOOT_PROGRESS.pack(pady=(0, 14))
+        _BOOT_PROGRESS.start(10)
+
         splash.update_idletasks()
         splash.update()
         _BOOT_SPLASH = splash
+        _close_native_bootloader_splash()
     except Exception:
         _BOOT_SPLASH = None
         _BOOT_STATUS_VAR = None
+        _BOOT_PROGRESS = None
 
 
 def _update_boot_splash(message: str):
+    _update_native_bootloader_splash(message)
     if _BOOT_SPLASH is None or _BOOT_STATUS_VAR is None:
         return
     try:
@@ -131,10 +163,16 @@ def _update_boot_splash(message: str):
 
 
 def _close_boot_splash():
-    global _BOOT_SPLASH, _BOOT_STATUS_VAR
+    global _BOOT_SPLASH, _BOOT_STATUS_VAR, _BOOT_PROGRESS
+    _close_native_bootloader_splash()
     if _BOOT_SPLASH is None:
         return
     splash_ref = _BOOT_SPLASH
+    if _BOOT_PROGRESS is not None:
+        try:
+            _BOOT_PROGRESS.stop()
+        except Exception:
+            pass
     try:
         _BOOT_SPLASH.destroy()
     except Exception:
@@ -149,6 +187,7 @@ def _close_boot_splash():
 
     _BOOT_SPLASH = None
     _BOOT_STATUS_VAR = None
+    _BOOT_PROGRESS = None
 
 
 _show_boot_splash()
@@ -287,6 +326,7 @@ _PDF_BASE   = os.path.join(_BASE, "PDF_Utilities")
 _BANK_BASE  = os.path.join(_BASE, "Bank Statement To Excel")
 _EMAIL_BASE = os.path.join(_BASE, "Email-Tools")
 _RECO_BASE  = os.path.join(_BASE, "GST_RECO")
+_TALLY_BASE = os.path.join(_BASE, "tally tool")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -309,6 +349,13 @@ class _EmbeddedFrame(ctk.CTkFrame):
     def wm_title(self, t=None):    return ""
     def protocol(self, *a, **k):   pass
     def attributes(self, *a, **k): pass
+    def minsize(self, *a, **k):    pass
+    def maxsize(self, *a, **k):    pass
+    def state(self, *a, **k):      return "normal"
+    def withdraw(self):            pass
+    def deiconify(self):           pass
+    def option_add(self, *a, **k): pass
+    def report_callback_exception(self, *a, **k): pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -390,6 +437,10 @@ _C = {
     "reco_acc":    ("#0f766e", "#2dd4bf"),
     "reco_bg":     ("#ccfbf1", "#042f2e"),
     "reco_hover":  ("#99f6e4", "#064e3b"),
+    # Tally Automation category
+    "tally_acc":   ("#7c2d12", "#fb923c"),
+    "tally_bg":    ("#ffedd5", "#2a1608"),
+    "tally_hover": ("#fed7aa", "#3a1d0a"),
 }
 
 # Per-tool accent colours (light, dark)
@@ -422,6 +473,9 @@ _EMAIL_ACCENTS = [
     ("#d97706", "#fbbf24"),   # GST Return     Amber
     ("#0284c7", "#38bdf8"),   # Invoice Sender Sky
     ("#059669", "#34d399"),   # Payment Remind Emerald
+]
+_TALLY_ACCENTS = [
+    ("#7c2d12", "#fb923c"),   # Tally Automation Orange
 ]
 
 
@@ -469,6 +523,9 @@ EMAIL_TOOLS = [
 
 RECO_TOOLS = [
     {"key": "GST_Reco", "tab": "🔄  GST Reconciliation", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
+]
+TALLY_TOOLS = [
+    {"key": "Tally_Automation", "tab": "🧾  GSTR-2B → Tally", "module": os.path.join(_TALLY_BASE, "main.py"), "class": "GSTR2BTallyApp", "desc": "Convert GSTR-2B and Tally sheets into Tally-ready outputs with XML generation, mapping and automation helpers."},
 ]
 _RECO_ACCENTS = [
     ("#0f766e", "#2dd4bf"),
@@ -586,6 +643,7 @@ class GSTSuite(_RealCTk):
         "pdfminer",
         "selenium",
         "webdriver_manager",
+        "requests",
         "PIL",
     )
 
@@ -605,6 +663,10 @@ class GSTSuite(_RealCTk):
         # None = all modules allowed (enterprise / old API); set = restricted plan
         _raw_allowed = (user_info or {}).get("allowed_modules")
         self._allowed = set(_raw_allowed) if _raw_allowed is not None else None
+        self._allowed_norm = (
+            {str(m).strip().upper() for m in self._allowed}
+            if self._allowed is not None else None
+        )
         self._current_theme  = "Dark"
         self._theme_btn      = None
         self._active_cat     = None       # "gst" | "it" | None
@@ -951,6 +1013,35 @@ class GSTSuite(_RealCTk):
         if self._theme_btn:
             self._theme_btn.set("☀️  Light" if mode == "Light" else "🌙  Dark")
 
+    def _is_tool_allowed(self, tool_key: str) -> bool:
+        if self._allowed is None:
+            return True
+
+        key = str(tool_key or "").strip()
+        if not key:
+            return False
+
+        if key in self._allowed:
+            return True
+
+        norm = self._allowed_norm or set()
+        key_norm = key.upper()
+
+        if key_norm in norm:
+            return True
+
+        # Backward-compatible aliases from older auth payloads.
+        aliases = {
+            "Tally_Automation": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
+        }
+        if key in aliases and any(a in norm for a in aliases[key]):
+            return True
+
+        if any(token in norm for token in {"ALL", "*", "UNLIMITED", "FULL_ACCESS", "FULL"}):
+            return True
+
+        return False
+
     def _refresh_header_left(self, mode: str, cat_key: str = None):
         """Wipe and rebuild the left side of the header."""
         if self._is_closing:
@@ -990,6 +1081,8 @@ class GSTSuite(_RealCTk):
                 acc, icon, label, tools = _C["email_acc"], "📧",  "Email Tools",                 EMAIL_TOOLS
             elif cat_key == "reco":
                 acc, icon, label, tools = _C["reco_acc"],  "🔄",  "GST Reconciliation",          RECO_TOOLS
+            elif cat_key == "tally":
+                acc, icon, label, tools = _C["tally_acc"], "🧾",  "Tally Automation Tools",      TALLY_TOOLS
             else:
                 acc, icon, label, tools = _C["it_acc"],    "💼",  "Income Tax Automation Suite", IT_TOOLS
 
@@ -1061,13 +1154,13 @@ class GSTSuite(_RealCTk):
         def _sub(tools):
             if self._allowed is None:
                 return f"{len(tools)} module{'s' if len(tools) != 1 else ''}"
-            n = sum(1 for t in tools if t.get("key") in self._allowed)
+            n = sum(1 for t in tools if self._is_tool_allowed(t.get("key")))
             return f"{n} of {len(tools)} modules"
 
         def _disabled(tools):
             if self._allowed is None:
                 return False
-            return not any(t.get("key") in self._allowed for t in tools)
+            return not any(self._is_tool_allowed(t.get("key")) for t in tools)
 
         if not _disabled(GST_TOOLS):
             self._make_category_card(
@@ -1151,6 +1244,24 @@ class GSTSuite(_RealCTk):
                 callback=lambda: self._show_category("reco"),
             ).pack(side="left", padx=14)
 
+        # ── Row 3: Tally Automation ─────────────────────────────────────────
+        row3 = ctk.CTkFrame(wrapper, fg_color="transparent")
+        row3.pack(pady=(18, 0))
+
+        tally_locked = _disabled(TALLY_TOOLS)
+        self._make_category_card(
+            parent=row3,
+            icon="🧾",
+            label="Tally Automation Tools",
+            sub_text=_sub(TALLY_TOOLS),
+            desc="Convert GSTR-2B/Tally data\nto Tally-ready Excel and XML.",
+            acc=_C["tally_acc"],
+            normal_fg=_C["tally_bg"],
+            hover_fg=_C["tally_hover"],
+            callback=lambda: self._show_category("tally"),
+            disabled=tally_locked,
+        ).pack(side="left", padx=14)
+
         return page
 
     def _make_category_card(self, parent, icon, label, sub_text, desc,
@@ -1203,7 +1314,7 @@ class GSTSuite(_RealCTk):
 
         # CTA hint
         if disabled:
-            ctk.CTkLabel(card, text="Trial Expired — Locked",
+            ctk.CTkLabel(card, text="Module locked in current plan",
                          font=("Segoe UI", 11, "bold"),
                          text_color=("#94a3b8", "#475569")).pack(pady=(4, 0))
         else:
@@ -1272,6 +1383,8 @@ class GSTSuite(_RealCTk):
             tools, accents = EMAIL_TOOLS, _EMAIL_ACCENTS
         elif key == "reco":
             tools, accents = RECO_TOOLS,  _RECO_ACCENTS
+        elif key == "tally":
+            tools, accents = TALLY_TOOLS, _TALLY_ACCENTS
         else:
             tools, accents = IT_TOOLS,    _IT_ACCENTS
 
@@ -1294,11 +1407,20 @@ class GSTSuite(_RealCTk):
             tv = ctk.CTkTabview(frame, anchor="nw")
 
         # Increase tab label font via the internal segmented button
-        acc_color = (_C["gst_acc"]   if key == "gst"   else
-                     (_C["pdf_acc"]   if key == "pdf"   else
-                      (_C["bank_acc"] if key == "bank"  else
-                       (_C["email_acc"] if key == "email" else
-                        (_C["reco_acc"] if key == "reco" else _C["it_acc"])))))
+        if key == "gst":
+            acc_color = _C["gst_acc"]
+        elif key == "pdf":
+            acc_color = _C["pdf_acc"]
+        elif key == "bank":
+            acc_color = _C["bank_acc"]
+        elif key == "email":
+            acc_color = _C["email_acc"]
+        elif key == "reco":
+            acc_color = _C["reco_acc"]
+        elif key == "tally":
+            acc_color = _C["tally_acc"]
+        else:
+            acc_color = _C["it_acc"]
         try:
             tv._segmented_button.configure(font=("Segoe UI", 13, "bold"))
         except Exception:
@@ -1318,7 +1440,7 @@ class GSTSuite(_RealCTk):
         # Tool tabs (lazy; locked tabs get placeholder immediately)
         for t in tools:
             tv.add(t["tab"])
-            if self._allowed is not None and t.get("key") not in self._allowed:
+            if not self._is_tool_allowed(t.get("key")):
                 self._loaded[t["tab"]] = True   # skip lazy-loader
                 self._build_locked_tab(tv.tab(t["tab"]), t["tab"])
             else:
@@ -1367,6 +1489,8 @@ class GSTSuite(_RealCTk):
             acc, icon, label = _C["email_acc"], "📧",  "Email Tools"
         elif key == "reco":
             acc, icon, label = _C["reco_acc"],  "🔄",  "GST Reconciliation"
+        elif key == "tally":
+            acc, icon, label = _C["tally_acc"], "🧾",  "Tally Automation Tools"
         else:
             acc, icon, label = _C["it_acc"],    "💼",  "Income Tax Automation Suite"
 
@@ -1414,7 +1538,7 @@ class GSTSuite(_RealCTk):
 
         # Tool cards
         for idx, tool in enumerate(tools):
-            is_locked = (self._allowed is not None and tool.get("key") not in self._allowed)
+            is_locked = (not self._is_tool_allowed(tool.get("key")))
             ac    = ("#94a3b8", "#475569") if is_locked else (accents[idx] if idx < len(accents) else acc)
             rn, c = divmod(idx, COLS)
 
@@ -1553,6 +1677,8 @@ class GSTSuite(_RealCTk):
             tools, accents = EMAIL_TOOLS, _EMAIL_ACCENTS
         elif cat_key == "reco":
             tools, accents = RECO_TOOLS,  _RECO_ACCENTS
+        elif cat_key == "tally":
+            tools, accents = TALLY_TOOLS, _TALLY_ACCENTS
         else:
             tools, accents = IT_TOOLS,    _IT_ACCENTS
         tool    = next((t for t in tools if t["tab"] == name), None)
