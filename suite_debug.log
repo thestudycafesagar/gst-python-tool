@@ -241,3 +241,59 @@
 [2026-04-03 19:24:45] main_import begin tab=🔄  GST Reconciliation uid=_suite_mod_5_GST_RECO
 [2026-04-03 19:24:45] main_import success tab=🔄  GST Reconciliation class=App
 [2026-04-03 19:24:46] instantiate success tab=🔄  GST Reconciliation instance=_Handle
+[2026-04-04 11:00:22] dependency warmup start
+[2026-04-04 11:00:25] warmup ok pandas
+[2026-04-04 11:00:25] warmup ok numpy
+[2026-04-04 11:00:26] warmup ok openpyxl
+[2026-04-04 11:00:26] warmup ok fitz
+[2026-04-04 11:00:28] warmup ok pdfplumber
+[2026-04-04 11:00:28] warmup ok pdfminer
+[2026-04-04 11:00:28] warmup ok selenium
+[2026-04-04 11:00:28] warmup ok webdriver_manager
+[2026-04-04 11:00:28] warmup ok PIL
+[2026-04-04 11:00:28] dependency warmup done
+[2026-04-04 11:01:41] dependency warmup start
+[2026-04-04 11:19:26] dependency warmup start
+[2026-04-04 11:19:30] warmup ok pandas
+[2026-04-04 11:19:30] warmup ok numpy
+[2026-04-04 11:19:30] activate_tab start cat=gst tab=📥  GSTR-2B module=c:\Users\user\Desktop\rohit tool\gst-python-tool\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-04-04 11:19:30] warmup ok openpyxl
+[2026-04-04 11:19:30] main_import begin tab=📥  GSTR-2B uid=_suite_mod_0_GST_2B_Downloader
+[2026-04-04 11:19:30] warmup ok fitz
+[2026-04-04 11:19:31] main_import success tab=📥  GSTR-2B class=App
+[2026-04-04 11:19:31] instantiate success tab=📥  GSTR-2B instance=App
+[2026-04-04 11:19:31] warmup ok pdfplumber
+[2026-04-04 11:19:31] warmup ok pdfminer
+[2026-04-04 11:19:31] warmup ok selenium
+[2026-04-04 11:19:31] warmup ok webdriver_manager
+[2026-04-04 11:19:31] warmup ok PIL
+[2026-04-04 11:19:31] dependency warmup done
+[2026-04-04 11:19:32] activate_tab start cat=gst tab=📥  GSTR-3B module=c:\Users\user\Desktop\rohit tool\gst-python-tool\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-04-04 11:19:32] main_import begin tab=📥  GSTR-3B uid=_suite_mod_1_GST_3B_Downloader
+[2026-04-04 11:19:32] main_import success tab=📥  GSTR-3B class=App
+[2026-04-04 11:19:32] instantiate success tab=📥  GSTR-3B instance=App
+[2026-04-04 11:19:35] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\user\Desktop\rohit tool\gst-python-tool\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-04-04 11:19:35] main_import begin tab=💰  Challan Downloader uid=_suite_mod_2_Challan_Downloader
+[2026-04-04 11:19:35] main_import success tab=💰  Challan Downloader class=App
+[2026-04-04 11:19:35] instantiate success tab=💰  Challan Downloader instance=App
+[2026-04-04 11:19:40] activate_tab start cat=bank tab=🏦  Bank → Excel module=c:\Users\user\Desktop\rohit tool\gst-python-tool\Bank Statement To Excel\bank_to_excel.py exists=True tk=True
+[2026-04-04 11:19:40] main_import begin tab=🏦  Bank → Excel uid=_suite_mod_3_Bank_Statement_To_Excel
+[2026-04-04 11:19:40] main_import success tab=🏦  Bank → Excel class=App
+[2026-04-04 11:19:40] instantiate success tab=🏦  Bank → Excel instance=App
+[2026-04-04 11:19:43] activate_tab start cat=email tab=🧾  Invoice Sender module=c:\Users\user\Desktop\rohit tool\gst-python-tool\Email-Tools\main.py exists=True tk=True
+[2026-04-04 11:19:43] main_import begin tab=🧾  Invoice Sender uid=_suite_mod_4_Email-Tools
+[2026-04-04 11:19:44] main_import success tab=🧾  Invoice Sender class=InvoiceSenderMailApp
+[2026-04-04 11:19:44] instantiate success tab=🧾  Invoice Sender instance=InvoiceSenderMailApp
+[2026-04-04 11:19:49] activate_tab start cat=pdf tab=⬛  Redact module=c:\Users\user\Desktop\rohit tool\gst-python-tool\PDF_Utilities\main.py exists=True tk=True
+[2026-04-04 11:19:49] main_import begin tab=⬛  Redact uid=_suite_mod_5_PDF_Utilities
+[2026-04-04 11:19:49] main_import success tab=⬛  Redact class=RedactApp
+[2026-04-04 11:19:49] instantiate success tab=⬛  Redact instance=RedactApp
+[2026-04-04 11:19:50] activate_tab start cat=pdf tab=⊜  Compress module=c:\Users\user\Desktop\rohit tool\gst-python-tool\PDF_Utilities\main.py exists=True tk=True
+[2026-04-04 11:19:50] main_import cache_hit tab=⊜  Compress module=c:\Users\user\Desktop\rohit tool\gst-python-tool\PDF_Utilities\main.py
+[2026-04-04 11:19:50] instantiate success tab=⊜  Compress instance=CompressApp
+[2026-04-04 11:19:50] activate_tab start cat=pdf tab=✂  Split module=c:\Users\user\Desktop\rohit tool\gst-python-tool\PDF_Utilities\main.py exists=True tk=True
+[2026-04-04 11:19:50] main_import cache_hit tab=✂  Split module=c:\Users\user\Desktop\rohit tool\gst-python-tool\PDF_Utilities\main.py
+[2026-04-04 11:19:50] instantiate success tab=✂  Split instance=SplitApp
+[2026-04-04 11:19:51] activate_tab start cat=pdf tab=⊕  Merge module=c:\Users\user\Desktop\rohit tool\gst-python-tool\PDF_Utilities\main.py exists=True tk=True
+[2026-04-04 11:19:51] main_import cache_hit tab=⊕  Merge module=c:\Users\user\Desktop\rohit tool\gst-python-tool\PDF_Utilities\main.py
+[2026-04-04 11:19:51] instantiate success tab=⊕  Merge instance=MergeApp

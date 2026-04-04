@@ -15,6 +15,145 @@ import tkinter as _tk
 
 _SPLASH = None  # no splash screen
 
+_BOOT_SPLASH = None
+_BOOT_STATUS_VAR = None
+
+
+def _boot_assets_base():
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _show_boot_splash():
+    global _BOOT_SPLASH, _BOOT_STATUS_VAR
+    if _BOOT_SPLASH is not None:
+        return
+    try:
+        splash = _tk.Tk()
+        splash.overrideredirect(True)
+        splash.configure(bg="#0b1220")
+        splash.attributes("-topmost", True)
+
+        width, height = 500, 280
+        sw = splash.winfo_screenwidth()
+        sh = splash.winfo_screenheight()
+        x = max((sw - width) // 2, 0)
+        y = max((sh - height) // 2, 0)
+        splash.geometry(f"{width}x{height}+{x}+{y}")
+
+        panel = _tk.Frame(
+            splash,
+            bg="#111827",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground="#1f2937",
+        )
+        panel.pack(fill="both", expand=True, padx=10, pady=10)
+
+        content = _tk.Frame(panel, bg="#111827")
+        content.pack(fill="both", expand=True)
+
+        logo_path = os.path.join(_boot_assets_base(), "studycafelogo.png")
+        if os.path.exists(logo_path):
+            try:
+                logo_img = None
+                try:
+                    from PIL import Image as _SplashImage, ImageTk as _SplashImageTk
+
+                    pil = _SplashImage.open(logo_path).convert("RGBA")
+                    resample = getattr(_SplashImage, "LANCZOS", _SplashImage.BICUBIC)
+                    pil.thumbnail((250, 110), resample)
+                    logo_img = _SplashImageTk.PhotoImage(pil)
+                except Exception:
+                    fallback = _tk.PhotoImage(file=logo_path)
+                    scale_x = max(fallback.width() // 250, 1)
+                    scale_y = max(fallback.height() // 110, 1)
+                    logo_img = fallback.subsample(scale_x, scale_y)
+
+                content._logo_img = logo_img
+                _tk.Label(content, image=logo_img, text="", bg="#111827").pack(pady=(18, 8))
+            except Exception:
+                pass
+
+        _tk.Label(
+            content,
+            text="StudyCafe GST Suite",
+            font=("Segoe UI", 16, "bold"),
+            fg="#e2e8f0",
+            bg="#111827",
+        ).pack()
+
+        _tk.Label(
+            content,
+            text="GST & Income Tax Automation Suite",
+            font=("Segoe UI", 10),
+            fg="#94a3b8",
+            bg="#111827",
+        ).pack(pady=(2, 10))
+
+        _tk.Label(
+            content,
+            text="Loading, please wait...",
+            font=("Segoe UI", 10, "bold"),
+            fg="#cbd5e1",
+            bg="#111827",
+        ).pack(pady=(0, 2))
+
+        _BOOT_STATUS_VAR = _tk.StringVar(value="Starting...")
+        _tk.Label(
+            content,
+            textvariable=_BOOT_STATUS_VAR,
+            font=("Segoe UI", 10),
+            fg="#93c5fd",
+            bg="#111827",
+            wraplength=440,
+            justify="center",
+        ).pack(pady=(0, 14))
+
+        splash.update_idletasks()
+        splash.update()
+        _BOOT_SPLASH = splash
+    except Exception:
+        _BOOT_SPLASH = None
+        _BOOT_STATUS_VAR = None
+
+
+def _update_boot_splash(message: str):
+    if _BOOT_SPLASH is None or _BOOT_STATUS_VAR is None:
+        return
+    try:
+        _BOOT_STATUS_VAR.set(message)
+        _BOOT_SPLASH.update_idletasks()
+        _BOOT_SPLASH.update()
+    except Exception:
+        pass
+
+
+def _close_boot_splash():
+    global _BOOT_SPLASH, _BOOT_STATUS_VAR
+    if _BOOT_SPLASH is None:
+        return
+    splash_ref = _BOOT_SPLASH
+    try:
+        _BOOT_SPLASH.destroy()
+    except Exception:
+        pass
+
+    # Avoid image handle issues by clearing tkinter's default root reference.
+    try:
+        if getattr(_tk, "_default_root", None) is splash_ref:
+            _tk._default_root = None
+    except Exception:
+        pass
+
+    _BOOT_SPLASH = None
+    _BOOT_STATUS_VAR = None
+
+
+_show_boot_splash()
+_update_boot_splash("Loading UI engine...")
+
 import customtkinter as ctk
 import json
 import uuid
@@ -47,6 +186,8 @@ try:
     from PIL import Image as _PILImage
 except ImportError:
     _PILImage = None
+
+_update_boot_splash("Preparing login screen...")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  LICENSING / AUTH
@@ -1956,6 +2097,12 @@ def _relaunch_self():
 
 def run_app_lifecycle():
     """Single top-level event-loop orchestration to avoid nested mainloops."""
+    _update_boot_splash("Opening login screen...")
+    _close_boot_splash()
+    try:
+        _tk._default_root = None
+    except Exception:
+        pass
     login = LoginWindow()
     try:
         login.mainloop()
@@ -1970,6 +2117,13 @@ def run_app_lifecycle():
     if not user_info:
         return
 
+    _show_boot_splash()
+    _update_boot_splash("Opening automation suite...")
+    _close_boot_splash()
+    try:
+        _tk._default_root = None
+    except Exception:
+        pass
     suite = GSTSuite(user_info=user_info)
     try:
         suite.mainloop()
@@ -1990,4 +2144,7 @@ if __name__ == "__main__":
             _SPLASH.destroy()
     except Exception:
         pass
-    run_app_lifecycle()
+    try:
+        run_app_lifecycle()
+    finally:
+        _close_boot_splash()
