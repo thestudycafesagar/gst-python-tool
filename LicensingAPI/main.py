@@ -137,6 +137,54 @@ def remove_device(req: RemoveRequest):
         conn.close()
 
 
+@app.post("/check_session", response_model=AuthResponse)
+def check_session(req: AuthRequest):
+    """
+    Silently verifies that the device is still registered for the user.
+    Used for auto-login on app startup. Returns SESSION_VALID or SESSION_INVALID.
+    Never auto-registers a new device — admin remote logout is respected.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        query = "{CALL sp_CheckDeviceSession(?, ?, ?)}"
+        cursor.execute(query, (req.email, req.password, req.hardware_id))
+
+        if cursor.description is None:
+            raise HTTPException(status_code=500, detail="No result set returned from SP")
+
+        row = cursor.fetchone()
+        if not row:
+            return AuthResponse(status="SESSION_INVALID")
+
+        columns = [column[0] for column in cursor.description]
+        result_dict = dict(zip(columns, row))
+        resp_status = result_dict.get("Response")
+
+        raw_modules = result_dict.get("AllowedModules")
+        allowed_modules = None
+        if raw_modules:
+            try:
+                allowed_modules = json.loads(raw_modules)
+            except Exception:
+                allowed_modules = None
+
+        conn.commit()
+        return AuthResponse(
+            status=resp_status,
+            is_premium=result_dict.get("IsPremium"),
+            user_id=result_dict.get("UserID"),
+            plan_name=result_dict.get("PlanName"),
+            allowed_modules=allowed_modules,
+        )
+    except Exception as e:
+        print(f"Error detail: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @app.post("/register_trial", response_model=RegisterTrialResponse)
 def register_trial(req: RegisterTrialRequest):
     """

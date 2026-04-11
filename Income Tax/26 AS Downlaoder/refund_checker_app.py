@@ -153,6 +153,7 @@ class FiledReturnWorker:
         driver = None
         try:
             options = webdriver.ChromeOptions()
+            options.add_argument("--start-maximized")
             options.add_argument("--disable-gpu")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -515,7 +516,9 @@ class RefundCheckerApp(ctk.CTk):
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
         self.entry_file_filed = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Assessment Year, etc.)...")
         self.entry_file_filed.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(f_frame, text="BROWSE", command=self.browse_file, width=100).pack(side="right")
+        ctk.CTkButton(f_frame, text="BROWSE", command=self.browse_file, width=80).pack(side="right")
+        ctk.CTkButton(f_frame, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
+        ctk.CTkButton(f_frame, text="📥 Sample", command=self.download_sample, width=100, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
 
         pref_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 15))
@@ -544,14 +547,46 @@ class RefundCheckerApp(ctk.CTk):
         self.progress_filed.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_filed.set(0)
 
-        self.btn_start_filed = ctk.CTkButton(
-            self.content, text="GENERATE REPORT",
-            font=ctk.CTkFont(size=16, weight="bold"), height=50,
-            command=self.start_process
-        )
-        self.btn_start_filed.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
+        btn_footer = ctk.CTkFrame(self.content, fg_color="transparent")
+        btn_footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
+        btn_footer.grid_columnconfigure(0, weight=1)
+        self.btn_start_filed = ctk.CTkButton(btn_footer, text="GENERATE REPORT",
+                                             font=ctk.CTkFont(size=16, weight="bold"), height=50,
+                                             command=self.start_process)
+        self.btn_start_filed.grid(row=0, column=0, sticky="ew")
+        self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"),
+                                      height=50, fg_color="#c62828", hover_color="#8e0000",
+                                      command=self.stop_process, width=150)
+        self.btn_stop.grid(row=0, column=1, padx=(10, 0))
+        self.btn_stop.grid_remove()
 
     # --- GUI Handlers ---
+    def download_sample(self):
+        sample_path = os.path.join(os.path.dirname(__file__), "Income Tax Sample File.xlsx")
+        if not os.path.exists(sample_path):
+            messagebox.showerror("Error", f"Sample file not found:\n{sample_path}")
+            return
+
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            initialfile="Income Tax Sample File.xlsx",
+            filetypes=[("Excel", "*.xlsx"), ("All Files", "*.*")],
+        )
+        if not save_path:
+            return
+
+        try:
+            import shutil
+
+            shutil.copy2(sample_path, save_path)
+            messagebox.showinfo("Success", f"Sample downloaded to:\n{save_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to download sample:\n{e}")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
+
     def browse_file(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
         if filename:
@@ -564,9 +599,15 @@ class RefundCheckerApp(ctk.CTk):
         if not self.excel_file_path_filed:
             return messagebox.showwarning("Error", "Select file first")
         self.btn_start_filed.configure(state="disabled", text="GENERATING...", fg_color="gray")
+        self.btn_stop.grid()
         self.progress_filed.set(0)
         self.worker = FiledReturnWorker(self, self.excel_file_path_filed, self.combo_years_filed.get())
         threading.Thread(target=self.worker.run, daemon=True).start()
+
+    def stop_process(self):
+        if self.worker:
+            self.worker.keep_running = False
+        self.btn_stop.configure(state="disabled", text="Stopping...")
 
     def trigger_year_selection(self, years_list, user_id, callback):
         self.after(0, lambda: YearSelectionPopup(self, years_list, user_id, callback))
@@ -585,10 +626,13 @@ class RefundCheckerApp(ctk.CTk):
         self.after(0, lambda: self.progress_filed.set(val))
 
     def process_finished_safe_filed(self, msg):
-        self.after(0, lambda: self.log_to_gui_filed(f"\nSTATUS: {msg}"))
-        self.after(0, lambda: self.btn_start_filed.configure(
-            state="normal", text="GENERATE REPORT", fg_color="#1f538d"))
-        self.after(0, lambda: messagebox.showinfo("Done", msg))
+        def _finish():
+            self.log_to_gui_filed(f"\nSTATUS: {msg}")
+            self.btn_start_filed.configure(state="normal", text="GENERATE REPORT", fg_color="#1f538d")
+            self.btn_stop.configure(state="normal", text="⏹ STOP")
+            self.btn_stop.grid_remove()
+            messagebox.showinfo("Done", msg)
+        self.after(0, _finish)
 
 
 if __name__ == "__main__":

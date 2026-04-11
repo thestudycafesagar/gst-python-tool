@@ -632,9 +632,9 @@ def launch_gui(embedded=False):
 
     ctk.CTkLabel(files_card, text="Input Files",
                  font=("Arial", 13, "bold"),
-                 ).grid(row=0, column=0, columnspan=3, sticky="w", padx=16, pady=(12, 2))
+                 ).grid(row=0, column=0, columnspan=4, sticky="w", padx=16, pady=(12, 2))
     ctk.CTkFrame(files_card, height=1, fg_color=("gray75", "gray35"),
-                 ).grid(row=1, column=0, columnspan=3, sticky="ew", padx=16, pady=(0, 8))
+                 ).grid(row=1, column=0, columnspan=4, sticky="ew", padx=16, pady=(0, 8))
 
     def _file_row(parent, r, label_text):
         ctk.CTkLabel(parent, text=label_text, font=("Arial", 12), anchor="w",
@@ -655,12 +655,46 @@ def launch_gui(embedded=False):
                 entry.insert(0, f)
         return cb
 
+    def _download_tally_sample():
+        import shutil
+
+        sample_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "Sample",
+            "input2 - sample.xlsx",
+        )
+
+        if not os.path.exists(sample_path):
+            messagebox.showerror(
+                "Sample Not Found",
+                f"Sample file not found:\n{sample_path}"
+            )
+            return
+
+        save_path = filedialog.asksaveasfilename(
+            title="Save Tally/Our Data Sample",
+            initialfile="input2 - sample.xlsx",
+            defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx"), ("All", "*.*")],
+        )
+        if not save_path:
+            return
+
+        try:
+            shutil.copy2(sample_path, save_path)
+            messagebox.showinfo("Success", f"Sample saved to:\n{save_path}")
+        except Exception as exc:
+            messagebox.showerror("Save Failed", f"Could not save sample:\n{exc}")
+
     ctk.CTkButton(files_card, text="Browse", width=90, height=34,
                   command=_browse_open(gstr_entry, "Select GSTR-2B File"),
                   ).grid(row=2, column=2, padx=(0, 16), pady=5)
     ctk.CTkButton(files_card, text="Browse", width=90, height=34,
                   command=_browse_open(tally_entry, "Select Tally / Our Data File"),
                   ).grid(row=3, column=2, padx=(0, 16), pady=(5, 14))
+    ctk.CTkButton(files_card, text="Download Sample", width=150, height=34,
+                  command=_download_tally_sample,
+                  ).grid(row=3, column=3, padx=(0, 16), pady=(5, 14))
 
     # ═══════════════════════════════════════════════════
     # CARD 2 — Reconciliation Thresholds
@@ -670,9 +704,9 @@ def launch_gui(embedded=False):
 
     ctk.CTkLabel(thresh_card, text="Reconciliation Thresholds (₹)",
                  font=("Arial", 13, "bold"),
-                 ).grid(row=0, column=0, columnspan=4, sticky="w", padx=16, pady=(12, 2))
+                 ).grid(row=0, column=0, columnspan=5, sticky="w", padx=16, pady=(12, 2))
     ctk.CTkFrame(thresh_card, height=1, fg_color=("gray75", "gray35"),
-                 ).grid(row=1, column=0, columnspan=4, sticky="ew", padx=16, pady=(0, 8))
+                 ).grid(row=1, column=0, columnspan=5, sticky="ew", padx=16, pady=(0, 8))
 
     ctk.CTkLabel(thresh_card, text="Matched up to (₹):", font=("Arial", 12),
                  ).grid(row=2, column=0, sticky="w", padx=(16, 8), pady=(4, 14))
@@ -687,6 +721,21 @@ def launch_gui(embedded=False):
     ctk.CTkEntry(thresh_card, textvariable=nominal_var, width=110, height=34,
                  font=("Arial", 12),
                  ).grid(row=2, column=3, sticky="w", padx=(0, 16), pady=(4, 14))
+
+    run_btn = ctk.CTkButton(
+        thresh_card,
+        text="▶   Run Reconciliation",
+        font=("Arial", 14, "bold"),
+        height=36, width=230, corner_radius=10,
+        fg_color="#2E7D32", hover_color="#1B5E20",
+        text_color="#FFFFFF",
+    )
+    run_btn.grid(row=2, column=4, sticky="e", padx=(8, 16), pady=(4, 14))
+
+    progress_bar = ctk.CTkProgressBar(thresh_card, mode="indeterminate",
+                                      height=8, corner_radius=4)
+    progress_bar.grid(row=3, column=0, columnspan=5, sticky="ew", padx=16, pady=(0, 10))
+    progress_bar.grid_remove()   # hidden until processing starts
 
     # ═══════════════════════════════════════════════════
     # CARD 3 — Summary Dashboard
@@ -718,41 +767,19 @@ def launch_gui(embedded=False):
         _px_l = 16 if _c == 0 else 6
         _px_r = 16 if _c == 2 else 6
         _tile = ctk.CTkFrame(sum_card, corner_radius=10, fg_color=_bg,
-                              border_width=1, border_color=("#C0C0C0", "#505050"))
+                             border_width=1, border_color=("#C0C0C0", "#505050"))
         _tile.grid(row=_r, column=_c, sticky="ew",
-                   padx=(_px_l, _px_r), pady=6)
+                   padx=(_px_l, _px_r), pady=4)
         _tile.columnconfigure(0, weight=1)
         ctk.CTkLabel(_tile, text=_st, font=("Arial", 10, "bold"),
                      text_color="#1F2937", fg_color=_bg, anchor="center",
-                     ).grid(row=0, column=0, sticky="ew", padx=6, pady=(10, 2))
+                     ).grid(row=0, column=0, sticky="ew", padx=6, pady=(8, 1))
         _clbl = ctk.CTkLabel(_tile, text="—", font=("Arial", 22, "bold"),
-                              text_color="#1F2937", fg_color=_bg, anchor="center")
-        _clbl.grid(row=1, column=0, sticky="ew", padx=6, pady=(2, 10))
+                             text_color="#1F2937", fg_color=_bg, anchor="center")
+        _clbl.grid(row=1, column=0, sticky="ew", padx=6, pady=(1, 8))
         sum_labels[_st] = _clbl
     ctk.CTkLabel(sum_card, text="", height=4,
                  ).grid(row=100, column=0, columnspan=3)
-
-    # ═══════════════════════════════════════════════════
-    # ACTION ROW — Progress bar + Run button  (always visible above log)
-    # ═══════════════════════════════════════════════════
-    action_frame = ctk.CTkFrame(main_frame, corner_radius=12)
-    action_frame.grid(row=3, column=0, sticky="ew", padx=20, pady=(10, 0))
-    action_frame.columnconfigure(0, weight=1)
-
-    progress_bar = ctk.CTkProgressBar(action_frame, mode="indeterminate",
-                                       height=8, corner_radius=4)
-    progress_bar.grid(row=0, column=0, sticky="ew", padx=30, pady=(14, 4))
-    progress_bar.grid_remove()   # hidden until processing starts
-
-    run_btn = ctk.CTkButton(
-        action_frame,
-        text="▶   Run Reconciliation",
-        font=("Arial", 16, "bold"),
-        height=54, width=340, corner_radius=10,
-        fg_color="#2E7D32", hover_color="#1B5E20",
-        text_color="#FFFFFF",
-    )
-    run_btn.grid(row=1, column=0, pady=(4, 18))
 
     # ═══════════════════════════════════════════════════
     # CARD 4 — Console Log  (expands to fill remaining height)

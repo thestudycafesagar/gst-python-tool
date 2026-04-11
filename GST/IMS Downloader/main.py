@@ -2,6 +2,7 @@ import threading
 import time
 import os
 import glob
+import base64
 import zipfile
 import pandas as pd
 import customtkinter as ctk
@@ -22,6 +23,11 @@ from selenium.common.exceptions import TimeoutException
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
+try:
+    _CAPTCHA_RESAMPLE = Image.Resampling.NEAREST
+except AttributeError:
+    _CAPTCHA_RESAMPLE = Image.NEAREST
+
 LOGIN_URL = "https://services.gst.gov.in/services/login"
 IMS_DASHBOARD_URL = "https://return.gst.gov.in/imsweb/auth/imsDashboard"
 
@@ -35,6 +41,50 @@ class IMSWorker:
         self.captcha_response = None
         self.captcha_event = threading.Event()
         self.report_data = []
+
+    def _save_captcha_image(self, wait, output_path):
+        """Capture captcha image bytes reliably (avoids DPI crop mismatch on Windows)."""
+        captcha_img = wait.until(EC.presence_of_element_located((By.ID, "imgCaptcha")))
+
+        wait.until(lambda d: d.execute_script(
+            """
+            const img = document.getElementById('imgCaptcha');
+            return !!(img && img.complete && (img.naturalWidth || img.width) > 0 && (img.naturalHeight || img.height) > 0);
+            """
+        ))
+
+        src = captcha_img.get_attribute("src") or ""
+        if src.startswith("data:image"):
+            payload = src.split(",", 1)[1]
+            with open(output_path, "wb") as f:
+                f.write(base64.b64decode(payload))
+            return
+
+        try:
+            data_url = self.driver.execute_script(
+                """
+                const img = document.getElementById('imgCaptcha');
+                if (!img) return null;
+                const w = img.naturalWidth || img.width;
+                const h = img.naturalHeight || img.height;
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+                return canvas.toDataURL('image/png');
+                """
+            )
+            if isinstance(data_url, str) and data_url.startswith("data:image"):
+                payload = data_url.split(",", 1)[1]
+                with open(output_path, "wb") as f:
+                    f.write(base64.b64decode(payload))
+                return
+        except Exception:
+            pass
+
+        with open(output_path, "wb") as f:
+            f.write(captcha_img.screenshot_as_png)
 
     def log(self, message):
         self.app.update_log_safe(message)
@@ -307,8 +357,7 @@ class IMSWorker:
                 self.driver.find_element(By.ID, "user_pass").clear()
                 self.driver.find_element(By.ID, "user_pass").send_keys(password)
 
-                captcha_img = wait.until(EC.visibility_of_element_located((By.ID, "imgCaptcha")))
-                captcha_img.screenshot("temp_captcha.png")
+                self._save_captcha_image(wait, "temp_captcha.png")
 
                 self.log("   Waiting for Captcha...")
                 self.captcha_response = None
@@ -383,7 +432,7 @@ class App(ctk.CTk):
         self.geometry("800x700")
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, weight=1)
 
         self.worker = None
         self.excel_file = ""
@@ -417,11 +466,17 @@ class App(ctk.CTk):
         ctk.CTkButton(
             card, text="Browse File", command=self.browse_file,
             fg_color="#3949ab", hover_color="#283593", height=35
-        ).pack(fill="x", padx=15, pady=(0, 15))
+        ).pack(fill="x", padx=15, pady=(0, 5))
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x", padx=15, pady=(5, 15))
+        self.btn_download = ctk.CTkButton(btn_row, text="📥 Sample Excel", command=self.download_sample, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
+        self.btn_download.pack(side="left", expand=True, fill="x", padx=(0, 5))
+        self.btn_demo = ctk.CTkButton(btn_row, text="▶ View Demo", command=self.open_demo_link, fg_color="#e53935", hover_color="#b71c1c", height=28, font=("Arial", 12, "bold"))
+        self.btn_demo.pack(side="left", expand=True, fill="x", padx=(5, 0))
 
         # LOG BOX
         self.log_frame = ctk.CTkFrame(self)
-        self.log_frame.grid(row=2, column=0, sticky="nsew", padx=20, pady=10)
+        self.log_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
         self.log_frame.grid_columnconfigure(0, weight=1)
         self.log_frame.grid_rowconfigure(1, weight=1)
         ctk.CTkLabel(self.log_frame, text="Execution Logs", font=("Arial", 12, "bold")).grid(
@@ -454,6 +509,13 @@ class App(ctk.CTk):
             command=self.submit_captcha
         )
         self.cap_btn.pack(pady=(10, 0))
+        self.cap_stop_btn = ctk.CTkButton(
+            cap_inner, text="⏹ STOP PROCESS",
+            fg_color="#424242", hover_color="#212121",
+            height=35, width=250, font=("Arial", 11, "bold"),
+            command=self.stop_process
+        )
+        self.cap_stop_btn.pack(pady=(8, 5))
 
         # FOOTER
         self.footer = ctk.CTkFrame(self, fg_color="transparent")
@@ -461,13 +523,35 @@ class App(ctk.CTk):
         self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#00e676")
         self.prog_bar.pack(fill="x", pady=(0, 10))
         self.prog_bar.set(0)
-        self.btn_start = ctk.CTkButton(
-            self.footer, text="START IMS DOWNLOAD",
-            height=50, font=("Arial", 16, "bold"),
-            fg_color="#2e7d32", hover_color="#1b5e20",
-            command=self.start_process
-        )
-        self.btn_start.pack(fill="x")
+        self.btn_row_footer = ctk.CTkFrame(self.footer, fg_color="transparent")
+        self.btn_row_footer.pack(fill="x")
+        self.btn_start = ctk.CTkButton(self.btn_row_footer, text="START IMS DOWNLOAD", height=50, font=("Arial", 16, "bold"),
+                                       fg_color="#2e7d32", hover_color="#1b5e20", command=self.start_process)
+        self.btn_start.pack(side="left", expand=True, fill="x")
+        self.btn_stop = ctk.CTkButton(self.btn_row_footer, text="⏹ STOP", height=50, font=("Arial", 16, "bold"),
+                                      fg_color="#c62828", hover_color="#8e0000", command=self.stop_process, width=150)
+        self.btn_stop.pack(side="left", padx=(10, 0))
+        self.btn_stop.pack_forget()
+    def download_sample(self):
+        import shutil
+        import os
+        from tkinter import messagebox
+        sample_path = os.path.join(os.path.dirname(__file__), "IMS Sample File.xlsx")
+        if not os.path.exists(sample_path):
+            messagebox.showerror("Download Error", f"Sample file not found: {sample_path}")
+            return
+        
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="IMS Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
+        if save_path:
+            try:
+                shutil.copy2(sample_path, save_path)
+                messagebox.showinfo("Success", f"Sample downloaded to {save_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to download: {e}")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
 
     def browse_file(self):
         f = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
@@ -491,20 +575,41 @@ class App(ctk.CTk):
     def process_finished_safe(self, msg):
         self.after(0, lambda: messagebox.showinfo("Done", msg))
         self.after(0, lambda: self.btn_start.configure(state="normal", text="START IMS DOWNLOAD"))
+        self.after(0, lambda: self.btn_stop.pack_forget())
+        self.after(0, lambda: self.btn_stop.configure(state="normal", text="⏹ STOP"))
 
     def request_captcha_safe(self, img_path):
         def show():
-            pil_img = Image.open(img_path)
-            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(160, 60))
-            self.cap_lbl_img.image = ctk_img
-            self.cap_lbl_img.configure(image=ctk_img)
+            with Image.open(img_path) as raw_img:
+                pil_img = raw_img.convert("RGB")
+
+            w, h = pil_img.size
+            if w <= 0 or h <= 0:
+                return
+
+            max_w, max_h = 230, 78
+            scale = min(max_w / float(w), max_h / float(h), 1.0)
+            if scale < 1.0:
+                size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                display_img = pil_img.resize(size, _CAPTCHA_RESAMPLE)
+            else:
+                size = (w, h)
+                display_img = pil_img
+
+            self._captcha_ctk_img = ctk.CTkImage(light_image=display_img, dark_image=display_img, size=size)
+            self.cap_lbl_img.image = self._captcha_ctk_img
+            self.cap_lbl_img.configure(image=self._captcha_ctk_img)
             self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#d32f2f")
-            self.cap_frame.grid(row=3, column=0, sticky="ew", padx=20, pady=10)
+            self.cap_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
             self.cap_ent.delete(0, "end")
-            self.cap_ent.focus_set()
+            self.attributes('-topmost', True)
+            self.deiconify()
             self.lift()
-            self.attributes("-topmost", True)
-            self.after_idle(self.attributes, "-topmost", False)
+            def _focus():
+                self.focus_force()
+                self.cap_ent.focus_set()
+                self.after(1000, lambda: self.attributes('-topmost', False))
+            self.after(200, _focus)
         self.after(0, show)
 
     def submit_captcha(self, event=None):
@@ -523,8 +628,15 @@ class App(ctk.CTk):
             messagebox.showerror("Error", "Please select an Excel file first.")
             return
         self.btn_start.configure(state="disabled", text="RUNNING...")
+        self.btn_stop.pack(side="left", padx=(10, 0))
         self.worker = IMSWorker(self, self.excel_file)
         threading.Thread(target=self.worker.run, daemon=True).start()
+
+    def stop_process(self):
+        if self.worker:
+            self.worker.keep_running = False
+        self.btn_stop.configure(state="disabled", text="STOPPING...")
+        self.update_log_safe("🛑 Stop requested — will halt after current user...")
 
 
 if __name__ == "__main__":

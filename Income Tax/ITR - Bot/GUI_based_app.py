@@ -427,9 +427,17 @@ class App(ctk.CTk):
         self.entry_file = ctk.CTkEntry(self.file_frame, placeholder_text="Select Excel file (Columns: 'PAN' or 'User ID' & 'Password')...")
         self.entry_file.pack(side="left", fill="x", expand=True, padx=(0, 10))
         
-        self.btn_browse = ctk.CTkButton(self.file_frame, text="BROWSE FILE", 
-                                      command=self.browse_file, width=120)
+        self.btn_browse = ctk.CTkButton(self.file_frame, text="BROWSE FILE",
+                                      command=self.browse_file, width=100)
         self.btn_browse.pack(side="right")
+        self.btn_demo = ctk.CTkButton(self.file_frame, text="▶ Demo", command=self.open_demo_link,
+                                      fg_color="#e53935", hover_color="#b71c1c", width=80,
+                                      font=("Arial", 12, "bold"))
+        self.btn_demo.pack(side="right", padx=(0, 5))
+        self.btn_sample = ctk.CTkButton(self.file_frame, text="📥 Sample", command=self.download_sample,
+                                        fg_color="#43a047", hover_color="#2e7d32", width=100,
+                                        font=("Arial", 12, "bold"))
+        self.btn_sample.pack(side="right", padx=(0, 5))
 
         # 1.2 Year Selection
         self.step2_label = ctk.CTkLabel(self.config_frame, text="2. DOWNLOAD SETTINGS", 
@@ -472,11 +480,38 @@ class App(ctk.CTk):
         self.progress_bar.set(0)
 
         # --- 3. CONTROLS ---
-        self.btn_start = ctk.CTkButton(self, text="INITIATE BATCH DOWNLOAD", 
-                                     font=ctk.CTkFont(size=16, weight="bold"),
-                                     height=50, fg_color="#106A43", hover_color="#0C5032",
-                                     command=self.start_process)
-        self.btn_start.grid(row=3, column=0, sticky="ew", padx=20, pady=(10, 20))
+        btn_footer = ctk.CTkFrame(self, fg_color="transparent")
+        btn_footer.grid(row=3, column=0, sticky="ew", padx=20, pady=(10, 20))
+        btn_footer.grid_columnconfigure(0, weight=1)
+        self.btn_start = ctk.CTkButton(btn_footer, text="INITIATE BATCH DOWNLOAD",
+                                       font=ctk.CTkFont(size=16, weight="bold"),
+                                       height=50, fg_color="#106A43", hover_color="#0C5032",
+                                       command=self.start_process)
+        self.btn_start.grid(row=0, column=0, sticky="ew")
+        self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"),
+                                      height=50, fg_color="#c62828", hover_color="#8e0000",
+                                      command=self.stop_process, width=150)
+        self.btn_stop.grid(row=0, column=1, padx=(10, 0))
+        self.btn_stop.grid_remove()
+
+    def download_sample(self):
+        import shutil
+        from tkinter import messagebox
+        sample_path = os.path.join(os.path.dirname(__file__), "Income Tax Sample File.xlsx")
+        if not os.path.exists(sample_path):
+            messagebox.showerror("Not Found", f"Sample file not found:\n{sample_path}")
+            return
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="Income Tax Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
+        if save_path:
+            try:
+                shutil.copy2(sample_path, save_path)
+                messagebox.showinfo("Success", f"Sample file saved to:\n{save_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save: {e}")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
 
     def browse_file(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
@@ -496,16 +531,22 @@ class App(ctk.CTk):
         if not self.excel_file_path:
             messagebox.showwarning("Missing File", "Please select an Excel file first.")
             return
-        
+
         selected_pref = self.combo_years.get()
-        
+
         self.btn_start.configure(state="disabled", text="PROCESSING...", fg_color="gray")
+        self.btn_stop.grid()
         self.progress_bar.set(0)
         self.log_to_gui("-" * 30)
         self.log_to_gui("Starting Worker Thread...")
-        
+
         self.worker = IncomeTaxWorker(self, self.excel_file_path, selected_pref)
         threading.Thread(target=self.worker.run, daemon=True).start()
+
+    def stop_process(self):
+        if self.worker:
+            self.worker.keep_running = False
+        self.btn_stop.configure(state="disabled", text="Stopping...")
 
     # --- THREAD SAFE GUI UPDATES ---
     def update_log_safe(self, message):
@@ -518,6 +559,8 @@ class App(ctk.CTk):
         def _finish():
             self.log_to_gui(f"\nSTATUS: {message}")
             self.btn_start.configure(state="normal", text="INITIATE BATCH DOWNLOAD", fg_color="#106A43")
+            self.btn_stop.configure(state="normal", text="⏹ STOP")
+            self.btn_stop.grid_remove()
             messagebox.showinfo("Process Complete", message)
         self.after(0, _finish)
 

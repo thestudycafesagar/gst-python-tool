@@ -358,6 +358,7 @@ class Tax26ASWorker:
         driver = None
         try:
             options = webdriver.ChromeOptions()
+            options.add_argument("--start-maximized")
             options.add_argument("--disable-gpu")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -785,6 +786,7 @@ class AISWorker:
         driver = None
         try:
             options = webdriver.ChromeOptions()
+            options.add_argument("--start-maximized")
             options.add_argument("--disable-gpu")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -1268,6 +1270,7 @@ class TISWorker:
         driver = None
         try:
             options = webdriver.ChromeOptions()
+            options.add_argument("--start-maximized")
             options.add_argument("--disable-gpu")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -1743,6 +1746,7 @@ class FiledReturnWorker:
         driver = None
         try:
             options = webdriver.ChromeOptions()
+            options.add_argument("--start-maximized")
             options.add_argument("--disable-gpu")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -2160,10 +2164,17 @@ class CombinedWorker:
             user_col, pass_col, dob_col = normalize_columns(df)
             if not user_col or not pass_col:
                 self.log("❌ ERROR: Headers missing.")
-                # Reset all button states
-                self.app.after(0, lambda: self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d"))
-                self.app.after(0, lambda: self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d"))
-                self.app.after(0, lambda: self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d"))
+                def _reset_err():
+                    self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d")
+                    self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d")
+                    self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d")
+                    try: self.app.btn_stop_26as.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_26as.pack_forget()
+                    except: pass
+                    try: self.app.btn_stop_ais.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_ais.pack_forget()
+                    except: pass
+                    try: self.app.btn_stop_tis.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_tis.pack_forget()
+                    except: pass
+                self.app.after(0, _reset_err)
                 return
 
             total_users = len(df)
@@ -2234,17 +2245,32 @@ class CombinedWorker:
                 self.log(f"⚠️ Failed to save combined report: {e}")
 
             # Reset all button states
-            self.app.after(0, lambda: self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d"))
-            self.app.after(0, lambda: self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d"))
-            self.app.after(0, lambda: self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d"))
-            self.app.after(0, lambda: messagebox.showinfo("Done", "Combined download finished"))
+            def _reset_done():
+                self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d")
+                self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d")
+                self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d")
+                try: self.app.btn_stop_26as.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_26as.pack_forget()
+                except: pass
+                try: self.app.btn_stop_ais.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_ais.pack_forget()
+                except: pass
+                try: self.app.btn_stop_tis.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_tis.pack_forget()
+                except: pass
+                messagebox.showinfo("Done", "Combined download finished")
+            self.app.after(0, _reset_done)
 
         except Exception as e:
             self.log(f"❌ CRITICAL ERROR: {e}")
-            # Reset buttons even on error
-            self.app.after(0, lambda: self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d"))
-            self.app.after(0, lambda: self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d"))
-            self.app.after(0, lambda: self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d"))
+            def _reset_crit():
+                self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d")
+                self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d")
+                self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d")
+                try: self.app.btn_stop_26as.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_26as.pack_forget()
+                except: pass
+                try: self.app.btn_stop_ais.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_ais.pack_forget()
+                except: pass
+                try: self.app.btn_stop_tis.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_tis.pack_forget()
+                except: pass
+            self.app.after(0, _reset_crit)
 
 # ============================================================
 #  MAIN APP GUI
@@ -2255,7 +2281,7 @@ class App(ctk.CTk):
         self.title("Automation Suite Pro")
         self.geometry("900x750")
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(1, weight=1)
         self.worker = None
 
         # --- Header ---
@@ -2286,16 +2312,20 @@ class App(ctk.CTk):
     # --- UI BUILDERS ---
     def _build_26as_ui(self):
         self.excel_file_path_26as = ""
-        ctk.CTkCheckBox(self.tab_26as, text="Download all Three documents (26AS, AIS, TIS)", variable=self.chk_download_all_var, onvalue="on", offvalue="off").pack(anchor='nw', padx=10, pady=(6,4))
+        self.tab_26as.grid_columnconfigure(0, weight=1)
+        self.tab_26as.grid_rowconfigure(2, weight=1)
+        ctk.CTkCheckBox(self.tab_26as, text="Download all Three documents (26AS, AIS, TIS)", variable=self.chk_download_all_var, onvalue="on", offvalue="off").grid(row=0, column=0, sticky="w", padx=10, pady=(6,4))
         self.config_26as = ctk.CTkFrame(self.tab_26as)
-        self.config_26as.pack(fill="x", padx=10, pady=(2, 5))
+        self.config_26as.grid(row=1, column=0, sticky="ew", padx=10, pady=(2, 5))
 
         ctk.CTkLabel(self.config_26as, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
         f_frame = ctk.CTkFrame(self.config_26as, fg_color="transparent")
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
         self.entry_file_26as = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
         self.entry_file_26as.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(f_frame, text="BROWSE", command=lambda: self.browse_file("26as"), width=100).pack(side="right")
+        ctk.CTkButton(f_frame, text="BROWSE", command=lambda: self.browse_file("26as"), width=80).pack(side="right")
+        ctk.CTkButton(f_frame, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
+        ctk.CTkButton(f_frame, text="📥 Sample", command=self.download_sample, width=100, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
 
         pref_frame = ctk.CTkFrame(self.config_26as, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
@@ -2305,7 +2335,7 @@ class App(ctk.CTk):
         self.combo_years_26as.pack(side="left")
 
         self.log_frame_26as = ctk.CTkFrame(self.tab_26as)
-        self.log_frame_26as.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        self.log_frame_26as.grid(row=2, column=0, sticky="nsew", padx=10, pady=(5, 5))
         self.log_frame_26as.grid_rowconfigure(1, weight=1)
         self.log_frame_26as.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(self.log_frame_26as, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
@@ -2317,21 +2347,30 @@ class App(ctk.CTk):
         self.progress_26as.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_26as.set(0)
 
-        self.btn_start_26as = ctk.CTkButton(self.tab_26as, text="START 26AS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("26as"))
-        self.btn_start_26as.pack(fill="x", padx=20, pady=(0, 20))
+        btn_footer_26as = ctk.CTkFrame(self.tab_26as, fg_color="transparent")
+        btn_footer_26as.grid(row=3, column=0, sticky="ew", padx=20, pady=(5, 10))
+        self.btn_start_26as = ctk.CTkButton(btn_footer_26as, text="START 26AS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("26as"))
+        self.btn_start_26as.pack(side="left", expand=True, fill="x")
+        self.btn_stop_26as = ctk.CTkButton(btn_footer_26as, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#c62828", hover_color="#8e0000", command=lambda: self.stop_process("26as"), width=150)
+        self.btn_stop_26as.pack(side="left", padx=(10, 0))
+        self.btn_stop_26as.pack_forget()
 
     def _build_ais_ui(self):
         self.excel_file_path_ais = ""
-        ctk.CTkCheckBox(self.tab_ais, text="Download all Three documents (26AS, AIS, TIS)", variable=self.chk_download_all_var, onvalue="on", offvalue="off").pack(anchor='nw', padx=10, pady=(6,4))
+        self.tab_ais.grid_columnconfigure(0, weight=1)
+        self.tab_ais.grid_rowconfigure(2, weight=1)
+        ctk.CTkCheckBox(self.tab_ais, text="Download all Three documents (26AS, AIS, TIS)", variable=self.chk_download_all_var, onvalue="on", offvalue="off").grid(row=0, column=0, sticky="w", padx=10, pady=(6,4))
         self.config_ais = ctk.CTkFrame(self.tab_ais)
-        self.config_ais.pack(fill="x", padx=10, pady=(2, 5))
+        self.config_ais.grid(row=1, column=0, sticky="ew", padx=10, pady=(2, 5))
 
         ctk.CTkLabel(self.config_ais, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
         f_frame = ctk.CTkFrame(self.config_ais, fg_color="transparent")
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
         self.entry_file_ais = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
         self.entry_file_ais.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(f_frame, text="BROWSE", command=lambda: self.browse_file("ais"), width=100).pack(side="right")
+        ctk.CTkButton(f_frame, text="BROWSE", command=lambda: self.browse_file("ais"), width=80).pack(side="right")
+        ctk.CTkButton(f_frame, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
+        ctk.CTkButton(f_frame, text="📥 Sample", command=self.download_sample, width=100, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
 
         pref_frame = ctk.CTkFrame(self.config_ais, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
@@ -2341,7 +2380,7 @@ class App(ctk.CTk):
         self.combo_years_ais.pack(side="left")
 
         self.log_frame_ais = ctk.CTkFrame(self.tab_ais)
-        self.log_frame_ais.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        self.log_frame_ais.grid(row=2, column=0, sticky="nsew", padx=10, pady=(5, 5))
         self.log_frame_ais.grid_rowconfigure(1, weight=1)
         self.log_frame_ais.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(self.log_frame_ais, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
@@ -2353,21 +2392,30 @@ class App(ctk.CTk):
         self.progress_ais.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_ais.set(0)
 
-        self.btn_start_ais = ctk.CTkButton(self.tab_ais, text="START AIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("ais"))
-        self.btn_start_ais.pack(fill="x", padx=20, pady=(0, 20))
+        btn_footer_ais = ctk.CTkFrame(self.tab_ais, fg_color="transparent")
+        btn_footer_ais.grid(row=3, column=0, sticky="ew", padx=20, pady=(5, 10))
+        self.btn_start_ais = ctk.CTkButton(btn_footer_ais, text="START AIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("ais"))
+        self.btn_start_ais.pack(side="left", expand=True, fill="x")
+        self.btn_stop_ais = ctk.CTkButton(btn_footer_ais, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#c62828", hover_color="#8e0000", command=lambda: self.stop_process("ais"), width=150)
+        self.btn_stop_ais.pack(side="left", padx=(10, 0))
+        self.btn_stop_ais.pack_forget()
 
     def _build_tis_ui(self):
         self.excel_file_path_tis = ""
-        ctk.CTkCheckBox(self.tab_tis, text="Download all Three documents (26AS, AIS, TIS)", variable=self.chk_download_all_var, onvalue="on", offvalue="off").pack(anchor='nw', padx=10, pady=(6,4))
+        self.tab_tis.grid_columnconfigure(0, weight=1)
+        self.tab_tis.grid_rowconfigure(2, weight=1)
+        ctk.CTkCheckBox(self.tab_tis, text="Download all Three documents (26AS, AIS, TIS)", variable=self.chk_download_all_var, onvalue="on", offvalue="off").grid(row=0, column=0, sticky="w", padx=10, pady=(6,4))
         self.config_tis = ctk.CTkFrame(self.tab_tis)
-        self.config_tis.pack(fill="x", padx=10, pady=(2, 5))
+        self.config_tis.grid(row=1, column=0, sticky="ew", padx=10, pady=(2, 5))
 
         ctk.CTkLabel(self.config_tis, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
         f_frame = ctk.CTkFrame(self.config_tis, fg_color="transparent")
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
         self.entry_file_tis = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
         self.entry_file_tis.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(f_frame, text="BROWSE", command=lambda: self.browse_file("tis"), width=100).pack(side="right")
+        ctk.CTkButton(f_frame, text="BROWSE", command=lambda: self.browse_file("tis"), width=80).pack(side="right")
+        ctk.CTkButton(f_frame, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
+        ctk.CTkButton(f_frame, text="📥 Sample", command=self.download_sample, width=100, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
 
         pref_frame = ctk.CTkFrame(self.config_tis, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
@@ -2377,7 +2425,7 @@ class App(ctk.CTk):
         self.combo_years_tis.pack(side="left")
 
         self.log_frame_tis = ctk.CTkFrame(self.tab_tis)
-        self.log_frame_tis.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        self.log_frame_tis.grid(row=2, column=0, sticky="nsew", padx=10, pady=(5, 5))
         self.log_frame_tis.grid_rowconfigure(1, weight=1)
         self.log_frame_tis.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(self.log_frame_tis, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
@@ -2389,8 +2437,13 @@ class App(ctk.CTk):
         self.progress_tis.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_tis.set(0)
 
-        self.btn_start_tis = ctk.CTkButton(self.tab_tis, text="START TIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("tis"))
-        self.btn_start_tis.pack(fill="x", padx=20, pady=(0, 20))
+        btn_footer_tis = ctk.CTkFrame(self.tab_tis, fg_color="transparent")
+        btn_footer_tis.grid(row=3, column=0, sticky="ew", padx=20, pady=(5, 10))
+        self.btn_start_tis = ctk.CTkButton(btn_footer_tis, text="START TIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("tis"))
+        self.btn_start_tis.pack(side="left", expand=True, fill="x")
+        self.btn_stop_tis = ctk.CTkButton(btn_footer_tis, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#c62828", hover_color="#8e0000", command=lambda: self.stop_process("tis"), width=150)
+        self.btn_stop_tis.pack(side="left", padx=(10, 0))
+        self.btn_stop_tis.pack_forget()
 
     # --- GUI Handlers ---
     def trigger_year_selection(self, years_list, user_id, callback):
@@ -2398,6 +2451,26 @@ class App(ctk.CTk):
 
     def _show_popup(self, years_list, user_id, callback):
         YearSelectionPopup(self, years_list, user_id, callback)
+    def download_sample(self):
+        import shutil
+        import os
+        from tkinter import messagebox
+        sample_path = os.path.join(os.path.dirname(__file__), "Income Tax Sample File.xlsx")
+        if not os.path.exists(sample_path):
+            messagebox.showerror("Download Error", f"Sample file not found: {sample_path}")
+            return
+        
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="Income Tax Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
+        if save_path:
+            try:
+                shutil.copy2(sample_path, save_path)
+                messagebox.showinfo("Success", f"Sample downloaded to {save_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to download: {e}")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
 
     def browse_file(self, mode):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
@@ -2438,6 +2511,12 @@ class App(ctk.CTk):
             except: pass
             try: self.btn_start_tis.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             except: pass
+            try: self.btn_stop_26as.pack(side="left", padx=(10, 0))
+            except: pass
+            try: self.btn_stop_ais.pack(side="left", padx=(10, 0))
+            except: pass
+            try: self.btn_stop_tis.pack(side="left", padx=(10, 0))
+            except: pass
 
             self.worker = CombinedWorker(self, excel_path, year_mode)
             threading.Thread(target=self.worker.run, daemon=True).start()
@@ -2446,21 +2525,37 @@ class App(ctk.CTk):
         if mode == "26as":
             if not self.excel_file_path_26as: return messagebox.showwarning("Error", "Select file first")
             self.btn_start_26as.configure(state="disabled", text="PROCESSING...", fg_color="gray")
+            self.btn_stop_26as.pack(side="left", padx=(10, 0))
             self.progress_26as.set(0)
             self.worker = Tax26ASWorker(self, self.excel_file_path_26as, self.combo_years_26as.get())
             threading.Thread(target=self.worker.run, daemon=True).start()
         elif mode == "ais":
             if not self.excel_file_path_ais: return messagebox.showwarning("Error", "Select file first")
             self.btn_start_ais.configure(state="disabled", text="PROCESSING...", fg_color="gray")
+            self.btn_stop_ais.pack(side="left", padx=(10, 0))
             self.progress_ais.set(0)
             self.worker = AISWorker(self, self.excel_file_path_ais, self.combo_years_ais.get())
             threading.Thread(target=self.worker.run, daemon=True).start()
         elif mode == "tis":
             if not self.excel_file_path_tis: return messagebox.showwarning("Error", "Select file first")
             self.btn_start_tis.configure(state="disabled", text="PROCESSING...", fg_color="gray")
+            self.btn_stop_tis.pack(side="left", padx=(10, 0))
             self.progress_tis.set(0)
             self.worker = TISWorker(self, self.excel_file_path_tis, self.combo_years_tis.get())
             threading.Thread(target=self.worker.run, daemon=True).start()
+
+    def stop_process(self, mode=None):
+        if self.worker:
+            self.worker.keep_running = False
+        if mode == "26as" or mode is None:
+            try: self.btn_stop_26as.configure(state="disabled", text="Stopping...")
+            except: pass
+        if mode == "ais" or mode is None:
+            try: self.btn_stop_ais.configure(state="disabled", text="Stopping...")
+            except: pass
+        if mode == "tis" or mode is None:
+            try: self.btn_stop_tis.configure(state="disabled", text="Stopping...")
+            except: pass
 
     # --- 26AS SAFE UPDATERS ---
     def log_to_gui_26as(self, msg):
@@ -2472,9 +2567,13 @@ class App(ctk.CTk):
     def update_log_safe_26as(self, msg): self.after(0, lambda: self.log_to_gui_26as(msg))
     def update_progress_safe_26as(self, val): self.after(0, lambda: self.progress_26as.set(val))
     def process_finished_safe_26as(self, msg):
-        self.after(0, lambda: self.log_to_gui_26as(f"\nSTATUS: {msg}"))
-        self.after(0, lambda: self.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d"))
-        self.after(0, lambda: messagebox.showinfo("Done", msg))
+        def _finish():
+            self.log_to_gui_26as(f"\nSTATUS: {msg}")
+            self.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d")
+            self.btn_stop_26as.configure(state="normal", text="⏹ STOP")
+            self.btn_stop_26as.pack_forget()
+            messagebox.showinfo("Done", msg)
+        self.after(0, _finish)
 
     # --- AIS SAFE UPDATERS ---
     def log_to_gui_ais(self, msg):
@@ -2486,9 +2585,13 @@ class App(ctk.CTk):
     def update_log_safe_ais(self, msg): self.after(0, lambda: self.log_to_gui_ais(msg))
     def update_progress_safe_ais(self, val): self.after(0, lambda: self.progress_ais.set(val))
     def process_finished_safe_ais(self, msg):
-        self.after(0, lambda: self.log_to_gui_ais(f"\nSTATUS: {msg}"))
-        self.after(0, lambda: self.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d"))
-        self.after(0, lambda: messagebox.showinfo("Done", msg))
+        def _finish():
+            self.log_to_gui_ais(f"\nSTATUS: {msg}")
+            self.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d")
+            self.btn_stop_ais.configure(state="normal", text="⏹ STOP")
+            self.btn_stop_ais.pack_forget()
+            messagebox.showinfo("Done", msg)
+        self.after(0, _finish)
 
     # --- TIS SAFE UPDATERS ---
     def log_to_gui_tis(self, msg):
@@ -2500,9 +2603,13 @@ class App(ctk.CTk):
     def update_log_safe_tis(self, msg): self.after(0, lambda: self.log_to_gui_tis(msg))
     def update_progress_safe_tis(self, val): self.after(0, lambda: self.progress_tis.set(val))
     def process_finished_safe_tis(self, msg):
-        self.after(0, lambda: self.log_to_gui_tis(f"\nSTATUS: {msg}"))
-        self.after(0, lambda: self.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d"))
-        self.after(0, lambda: messagebox.showinfo("Done", msg))
+        def _finish():
+            self.log_to_gui_tis(f"\nSTATUS: {msg}")
+            self.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d")
+            self.btn_stop_tis.configure(state="normal", text="⏹ STOP")
+            self.btn_stop_tis.pack_forget()
+            messagebox.showinfo("Done", msg)
+        self.after(0, _finish)
 
 
 if __name__ == "__main__":

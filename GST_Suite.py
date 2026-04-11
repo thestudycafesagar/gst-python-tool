@@ -1,4 +1,4 @@
-r"""
+"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║         GST & INCOME TAX AUTOMATION SUITE  —  Unified Launcher               ║
 ║                                                                              ║
@@ -103,7 +103,7 @@ def _show_boot_splash():
 
         _tk.Label(
             content,
-            text="StudyCafe GST Suite",
+            text="AutomationCafe Suite",
             font=("Segoe UI", 16, "bold"),
             fg="#e2e8f0",
             bg="#111827",
@@ -206,7 +206,7 @@ import subprocess
 from datetime import datetime
 
 # ── Version & Update Manifest ─────────────────────────────────────────────────
-VERSION            = "1.0.6"
+VERSION            = "1.0.9"
 # !! REPLACE 'YOURNAME' and 'YOURREPO' with your actual GitHub username and
 #    the public releases repo you created (e.g. gst-suite-releases).
 UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/thestudycafesagar/gst-suite-releases/main/latest.json"
@@ -277,7 +277,7 @@ def _missing_package_for_module(module_name: str):
 
 _AUTH_CONFIG = os.path.join(_get_app_data_dir(), "auth_config.json")
 API_BASE_URL  = "https://studycafe-tools-api-bthzgsfvfggjd6gt.centralindia-01.azurewebsites.net"
-REGISTER_URL  = f"{API_BASE_URL}/register"
+REGISTER_URL  = "https://register.automationcafe.in/Home/Register"
 
 def _get_hardware_id():
     mac = uuid.getnode()
@@ -286,6 +286,15 @@ def _get_hardware_id():
 def _save_auth(email, password):
     with open(_AUTH_CONFIG, 'w') as f:
         json.dump({"email": email, "password": password}, f)
+
+def _load_auth():
+    """Return saved (email, password) tuple or (None, None) if not found."""
+    try:
+        with open(_AUTH_CONFIG, 'r') as f:
+            data = json.load(f)
+        return data.get("email"), data.get("password")
+    except Exception:
+        return None, None
 
 def _clear_auth():
     try:
@@ -324,7 +333,8 @@ _GST_BASE   = os.path.join(_BASE, "GST")
 _IT_BASE    = os.path.join(_BASE, "Income Tax")
 _PDF_BASE   = os.path.join(_BASE, "PDF_Utilities")
 _BANK_BASE  = os.path.join(_BASE, "Bank Statement To Excel")
-_EMAIL_BASE = os.path.join(_BASE, "Email-Tools")
+_GMAIL_BASE = os.path.join(_BASE, "Gmail-Tools")
+_EMAIL_BASE = os.path.join(_BASE, "Outlook Email Tools")
 _RECO_BASE  = os.path.join(_BASE, "GST_RECO")
 _TALLY_BASE = os.path.join(_BASE, "tally tool")
 
@@ -414,7 +424,7 @@ _C = {
     "primary":     ("#4f46e5", "#6366f1"),
     "primary_hov": ("#4338ca", "#4f46e5"),
     # GST category
-    "gst_acc":     ("#4f46e5", "#818cf8"),
+    "gst_acc":     ("#4f46e5", "#818cf8"),  
     "gst_bg":      ("#ede9fe", "#12103a"),
     "gst_hover":   ("#ddd6fe", "#1c1856"),
     # Income Tax category
@@ -433,6 +443,14 @@ _C = {
     "email_acc":   ("#d97706", "#fbbf24"),
     "email_bg":    ("#fef3c7", "#1c1000"),
     "email_hover": ("#fde68a", "#261800"),
+    # Gmail Tools category
+    "gmail_acc":   ("#ea4335", "#f28b82"),
+    "gmail_bg":    ("#fce8e6", "#2f1b1a"),
+    "gmail_hover": ("#fad2cf", "#472725"),
+    # Combined Email Tools category
+    "mail_acc":    ("#7c3aed", "#a78bfa"),
+    "mail_bg":     ("#ede9fe", "#1a0f2e"),
+    "mail_hover":  ("#ddd6fe", "#240f40"),
     # GST Reconciliation category
     "reco_acc":    ("#0f766e", "#2dd4bf"),
     "reco_bg":     ("#ccfbf1", "#042f2e"),
@@ -474,6 +492,23 @@ _EMAIL_ACCENTS = [
     ("#0284c7", "#38bdf8"),   # Invoice Sender Sky
     ("#059669", "#34d399"),   # Payment Remind Emerald
 ]
+_GMAIL_ACCENTS = [
+    ("#ea4335", "#f28b82"),   # GST Return     Red
+    ("#4285f4", "#8ab4f8"),   # Invoice Sender Blue
+    ("#34a853", "#81c995"),   # Payment Remind Green
+]
+_COMBINED_EMAIL_ACCENTS = [
+    ("#d97706", "#fbbf24"),   # Outlook GST Return     Amber
+    ("#0284c7", "#38bdf8"),   # Outlook Invoice Sender Sky
+    ("#059669", "#34d399"),   # Outlook Payment Remind Emerald
+    ("#ea4335", "#f28b82"),   # Gmail GST Return       Red
+    ("#4285f4", "#8ab4f8"),   # Gmail Invoice Sender   Blue
+    ("#34a853", "#81c995"),   # Gmail Payment Remind   Green
+]
+_MAIL_GROUP_ACCENTS = [
+    ("#d97706", "#fbbf24"),   # Outlook suite
+    ("#ea4335", "#f28b82"),   # Gmail suite
+]
 _TALLY_ACCENTS = [
     ("#7c2d12", "#fb923c"),   # Tally Automation Orange
 ]
@@ -493,6 +528,7 @@ GST_TOOLS = [
     {"key": "R1_PDF",       "tab": "🖨️  R1 PDF",       "module": os.path.join(_GST_BASE, "R1 PDF Downloader",     "main.py"),        "class": "App",                "desc": "Bulk download GSTR-1 PDF filed    returns from the GST portal."},
     {"key": "IMS",          "tab": "📲  IMS",          "module": os.path.join(_GST_BASE, "IMS Downloader",        "main.py"),        "class": "App",                "desc": "Download IMS (Invoice Management System) data in bulk from the GST portal."},
     {"key": "GSTR1_Cons",   "tab": "📋  GSTR1 Cons.", "module": os.path.join(_GST_BASE, "GSTR1_Consolidation",  "gst_consolidation.py"), "class": "ChallExtractorApp", "tk": True, "desc": "Consolidate multiple GSTR-1 files into a single unified Excel report."},
+    {"key": "GST_Reco",     "tab": "🔄  GST Reconciliation", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
 ]
 
 IT_TOOLS = [
@@ -521,11 +557,30 @@ EMAIL_TOOLS = [
     {"key": "Email_Payment",     "tab": "💰  Payment Reminder",   "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": True, "desc": "Send outstanding payment reminder emails in bulk via Outlook. Includes interest clause, deadline and per-client amounts."},
 ]
 
-RECO_TOOLS = [
-    {"key": "GST_Reco", "tab": "🔄  GST Reconciliation", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
+GMAIL_TOOLS = [
+    {"key": "Gmail_GST_Request", "tab": "📋  GST Return Request", "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",      "tk": True, "desc": "Send bulk GST return data request emails via Gmail. Auto-fills month, return type, deadlines and contact details."},
+    {"key": "Gmail_Invoice",     "tab": "🧾  Invoice Sender",     "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": True, "desc": "Dispatch personalised invoices to clients in bulk via Gmail. Supports per-row service, period, amount & PDF attachments."},
+    {"key": "Gmail_Payment",     "tab": "💰  Payment Reminder",   "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": True, "desc": "Send outstanding payment reminder emails in bulk via Gmail. Includes interest clause, deadline and per-client amounts."},
 ]
+
+COMBINED_EMAIL_TOOLS = [
+    {"key": "Email_GST_Request", "tab": "📧  Outlook | GST Request",    "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",      "tk": True, "desc": "Send bulk GST return data request emails via Outlook. Auto-fills month, return type, deadlines and contact details."},
+    {"key": "Email_Invoice",     "tab": "📧  Outlook | Invoice Sender",  "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": True, "desc": "Dispatch personalised invoices to clients in bulk via Outlook. Supports per-row service, period, amount & PDF attachments."},
+    {"key": "Email_Payment",     "tab": "📧  Outlook | Payment Reminder","module": os.path.join(_EMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": True, "desc": "Send outstanding payment reminder emails in bulk via Outlook. Includes interest clause, deadline and per-client amounts."},
+    {"key": "Gmail_GST_Request", "tab": "✉  Gmail | GST Request",       "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",      "tk": True, "desc": "Send bulk GST return data request emails via Gmail. Auto-fills month, return type, deadlines and contact details."},
+    {"key": "Gmail_Invoice",     "tab": "✉  Gmail | Invoice Sender",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": True, "desc": "Dispatch personalised invoices to clients in bulk via Gmail. Supports per-row service, period, amount & PDF attachments."},
+    {"key": "Gmail_Payment",     "tab": "✉  Gmail | Payment Reminder",  "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": True, "desc": "Send outstanding payment reminder emails in bulk via Gmail. Includes interest clause, deadline and per-client amounts."},
+]
+
+MAIL_GROUP_TOOLS = [
+    {"key": "Email_Suite", "tab": "📧  Outlook Email Tools", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": True, "desc": "Outlook suite with 3 templates: GST Return Request, Invoice Sender, and Payment Reminder."},
+    {"key": "Gmail_Suite", "tab": "✉  Gmail Email Tools",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": True, "desc": "Gmail suite with 3 templates: GST Return Request, Invoice Sender, and Payment Reminder."},
+]
+
 TALLY_TOOLS = [
     {"key": "Tally_Automation", "tab": "🧾  GSTR-2B → Tally", "module": os.path.join(_TALLY_BASE, "main.py"), "class": "GSTR2BTallyApp", "desc": "Convert GSTR-2B and Tally sheets into Tally-ready outputs with XML generation, mapping and automation helpers."},
+    {"key": "Tally_Bank", "tab": "🏦  Bank Statement → Tally", "module": os.path.join(_TALLY_BASE, "Bank_Statment_to_Tally.py"), "class": "TallyBankApp", "desc": "Convert bank statement Excel to Tally Payment/Receipt vouchers and push XML directly to Tally."},
+    {"key": "Tally_Sales", "tab": "🛒  Tally Entry", "module": os.path.join(_TALLY_BASE, "sale_purchase_entry.py"), "class": "TallySalesApp", "desc": "Automate sales and purchase entries in Tally."},
 ]
 _RECO_ACCENTS = [
     ("#0f766e", "#2dd4bf"),
@@ -653,6 +708,7 @@ class GSTSuite(_RealCTk):
         self.geometry("1200x920")
         self.minsize(980, 760)
         self.resizable(True, True)
+        self.after(10, lambda: self.state("zoomed"))
 
         # Set taskbar / window icon
         _ico = os.path.join(_ASSETS_BASE, "studycafelogo.ico")
@@ -875,11 +931,11 @@ class GSTSuite(_RealCTk):
             _tk.messagebox.showerror(
                 "Update Error",
                 "StudyCafeSuite_Updater.exe not found inside the bundle.\n"
-                "Please re-download StudyCafeSuite.exe from the releases page.",
+                "Please re-download AutomationCafeSuite.exe from the releases page.",
             )
             return
 
-        tmp_dir     = tempfile.mkdtemp(prefix="studycafe_upd_")
+        tmp_dir     = tempfile.mkdtemp(prefix="automationcafe_upd_")
         updater_tmp = os.path.join(tmp_dir, "StudyCafeSuite_Updater.exe")
         shutil.copy2(updater_src, updater_tmp)
 
@@ -959,7 +1015,7 @@ class GSTSuite(_RealCTk):
             text_color="#94a3b8")
         self._clock_lbl.pack(side="right", padx=(0, 18))
 
-        # ── Powered by Study Cafe logo ────────────────────────────────────────
+        # ── Powered by AutomationCafe Suite logo ────────────────────────────────────────
         self._logo_ctk = None
         if _PILImage is not None:
             try:
@@ -979,14 +1035,14 @@ class GSTSuite(_RealCTk):
                          font=("Segoe UI", 10),
                          text_color="#94a3b8").pack(side="left", padx=(0, 6))
             ctk.CTkLabel(logo_frame, image=self._logo_ctk, text="").pack(side="left")
-            ctk.CTkLabel(logo_frame, text="StudyCafe",
+            ctk.CTkLabel(logo_frame, text="AutomationCafe Suite",
                          font=("Segoe UI", 11, "bold"),
                          text_color="#818cf8").pack(side="left", padx=(6, 0))
         else:
             ctk.CTkLabel(logo_frame, text="Powered by",
                          font=("Segoe UI", 10),
                          text_color="#94a3b8").pack(side="left", padx=(0, 6))
-            ctk.CTkLabel(logo_frame, text="StudyCafe",
+            ctk.CTkLabel(logo_frame, text="AutomationCafe Suite",
                          font=("Segoe UI", 13, "bold"),
                          text_color="#818cf8").pack(side="left")
 
@@ -1033,6 +1089,16 @@ class GSTSuite(_RealCTk):
         # Backward-compatible aliases from older auth payloads.
         aliases = {
             "Tally_Automation": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
+            "Tally_Bank": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
+            "Tally_Sales": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
+            "Email_Suite": {
+                "EMAIL", "EMAIL_TOOLS", "OUTLOOK", "OUTLOOK TOOLS", "OUTLOOK EMAIL TOOLS",
+                "EMAIL_GST_REQUEST", "EMAIL_INVOICE", "EMAIL_PAYMENT",
+            },
+            "Gmail_Suite": {
+                "GMAIL", "GMAIL_TOOLS", "GMAIL TOOLS",
+                "GMAIL_GST_REQUEST", "GMAIL_INVOICE", "GMAIL_PAYMENT",
+            },
         }
         if key in aliases and any(a in norm for a in aliases[key]):
             return True
@@ -1076,9 +1142,13 @@ class GSTSuite(_RealCTk):
             elif cat_key == "pdf":
                 acc, icon, label, tools = _C["pdf_acc"],   "📄",  "PDF Tools",                   PDF_TOOLS
             elif cat_key == "bank":
-                acc, icon, label, tools = _C["bank_acc"],  "🏦",  "Bank Statement → Excel",      BANK_TOOLS
+                acc, icon, label, tools = _C["bank_acc"],  "🏦",  "Bank Statement → Excel (Beta)",      BANK_TOOLS
+            elif cat_key == "mail":
+                acc, icon, label, tools = _C["mail_acc"],  "📨",  "Email Tools",                 MAIL_GROUP_TOOLS
             elif cat_key == "email":
                 acc, icon, label, tools = _C["email_acc"], "📧",  "Email Tools",                 EMAIL_TOOLS
+            elif cat_key == "gmail":
+                acc, icon, label, tools = _C["gmail_acc"], "✉",  "Gmail Tools",                 GMAIL_TOOLS
             elif cat_key == "reco":
                 acc, icon, label, tools = _C["reco_acc"],  "🔄",  "GST Reconciliation",          RECO_TOOLS
             elif cat_key == "tally":
@@ -1144,123 +1214,50 @@ class GSTSuite(_RealCTk):
             text="All automation tools, organized by category. "
                  "Click a card to get started.",
             font=("Segoe UI", 13),
-            text_color=_C["text_mid"],
+            text_color=_C["text_mid"],  
         ).pack(pady=(0, 16))
 
         # ── Row 1: GST · IT · PDF ─────────────────────────────────────────────
-        cards_row = ctk.CTkFrame(wrapper, fg_color="transparent")
-        cards_row.pack()
 
         def _sub(tools):
-            if self._allowed is None:
-                return f"{len(tools)} module{'s' if len(tools) != 1 else ''}"
-            n = sum(1 for t in tools if self._is_tool_allowed(t.get("key")))
+            if getattr(self, '_allowed', None) is None:
+                return f"{len(tools)} module{'s' if len(tools) != 1 else ''}"   
+            n = sum(1 for t in tools if self._is_tool_allowed(t.get("key")))    
             return f"{n} of {len(tools)} modules"
 
         def _disabled(tools):
-            if self._allowed is None:
+            if getattr(self, '_allowed', None) is None:
                 return False
-            return not any(self._is_tool_allowed(t.get("key")) for t in tools)
+            return not any(self._is_tool_allowed(t.get("key")) for t in tools)  
+        # ── Dynamic 3x3 Grid Layout ───────────────────────────────────────────
+        categories = [
+            (GST_TOOLS, "🏛", "GST Tools", "Downloads, converters & verifiers\nfor GST portal automation.", _C["gst_acc"], _C["gst_bg"], _C["gst_hover"], lambda: self._show_category("gst")),
+            (IT_TOOLS, "💼", "Income Tax Automation Suite", "26AS, Challan & ITR filing\nautomation tools.", _C["it_acc"], _C["it_bg"], _C["it_hover"], lambda: self._show_category("it")),
+            (PDF_TOOLS, "📄", "PDF Tools", "Merge, split, extract, compress\n& redact PDF files.", _C["pdf_acc"], _C["pdf_bg"], _C["pdf_hover"], lambda: self._show_category("pdf")),
+            # (BANK_TOOLS, "🏦", "Bank Statement → Excel (Beta)", "Convert bank statement PDFs\nto structured Excel sheets.", _C["bank_acc"], _C["bank_bg"], _C["bank_hover"], lambda: self._show_category("bank")),
+            (COMBINED_EMAIL_TOOLS, "📨", "Email Tools", "Bulk personalised emails via Outlook & Gmail.\nGST reminders, invoices & more.", _C["mail_acc"], _C["mail_bg"], _C["mail_hover"], lambda: self._show_category("mail")),
+            (TALLY_TOOLS, "🧾", "Tally Automation Tools", "Convert GSTR-2B/Tally data\nto Tally-ready Excel and XML.", _C["tally_acc"], _C["tally_bg"], _C["tally_hover"], lambda: self._show_category("tally")),
+        ]
 
-        if not _disabled(GST_TOOLS):
-            self._make_category_card(
-                parent=cards_row,
-                icon="🏛",
-                label="GST Tools",
-                sub_text=_sub(GST_TOOLS),
-                desc="Downloads, converters & verifiers\nfor GST portal automation.",
-                acc=_C["gst_acc"],
-                normal_fg=_C["gst_bg"],
-                hover_fg=_C["gst_hover"],
-                callback=lambda: self._show_category("gst"),
-            ).pack(side="left", padx=14)
+        current_row_frame = None
+        for i, (tools, icon, label, desc, acc, normal_fg, hover_fg, callback) in enumerate(categories):
+            if i % 3 == 0:
+                current_row_frame = ctk.CTkFrame(wrapper, fg_color="transparent")
+                current_row_frame.pack(pady=(0 if i == 0 else 18, 0))
 
-        if not _disabled(IT_TOOLS):
-            self._make_category_card(
-                parent=cards_row,
-                icon="💼",
-                label="Income Tax Automation Suite",
-                sub_text=_sub(IT_TOOLS),
-                desc="26AS, Challan & ITR filing\nautomation tools.",
-                acc=_C["it_acc"],
-                normal_fg=_C["it_bg"],
-                hover_fg=_C["it_hover"],
-                callback=lambda: self._show_category("it"),
-            ).pack(side="left", padx=14)
-
-        if not _disabled(PDF_TOOLS):
-            self._make_category_card(
-                parent=cards_row,
-                icon="📄",
-                label="PDF Tools",
-                sub_text=_sub(PDF_TOOLS),
-                desc="Merge, split, extract, compress\n& redact PDF files.",
-                acc=_C["pdf_acc"],
-                normal_fg=_C["pdf_bg"],
-                hover_fg=_C["pdf_hover"],
-                callback=lambda: self._show_category("pdf"),
-            ).pack(side="left", padx=14)
-
-        # ── Row 2: Bank · Email · Reco ────────────────────────────────────────
-        row2 = ctk.CTkFrame(wrapper, fg_color="transparent")
-        row2.pack(pady=(18, 0))
-
-        if not _disabled(BANK_TOOLS):
-            self._make_category_card(
-                parent=row2,
-                icon="🏦",
-                label="Bank Statement → Excel",
-                sub_text=_sub(BANK_TOOLS),
-                desc="Convert bank statement PDFs\nto structured Excel sheets.",
-                acc=_C["bank_acc"],
-                normal_fg=_C["bank_bg"],
-                hover_fg=_C["bank_hover"],
-                callback=lambda: self._show_category("bank"),
-            ).pack(side="left", padx=14)
-
-        if not _disabled(EMAIL_TOOLS):
-            self._make_category_card(
-                parent=row2,
-                icon="📧",
-                label="Email Tools",
-                sub_text=_sub(EMAIL_TOOLS),
-                desc="Bulk personalised emails via Outlook.\nGST reminders, invoices & more.",
-                acc=_C["email_acc"],
-                normal_fg=_C["email_bg"],
-                hover_fg=_C["email_hover"],
-                callback=lambda: self._show_category("email"),
-            ).pack(side="left", padx=14)
-
-        if not _disabled(RECO_TOOLS):
-            self._make_category_card(
-                parent=row2,
-                icon="🔄",
-                label="GST Reconciliation",
-                sub_text=_sub(RECO_TOOLS),
-                desc="Reconcile GSTR-2B vs Tally books.\nMatch invoices & export reports.",
-                acc=_C["reco_acc"],
-                normal_fg=_C["reco_bg"],
-                hover_fg=_C["reco_hover"],
-                callback=lambda: self._show_category("reco"),
-            ).pack(side="left", padx=14)
-
-        # ── Row 3: Tally Automation ─────────────────────────────────────────
-        row3 = ctk.CTkFrame(wrapper, fg_color="transparent")
-        row3.pack(pady=(18, 0))
-
-        tally_locked = _disabled(TALLY_TOOLS)
-        self._make_category_card(
-            parent=row3,
-            icon="🧾",
-            label="Tally Automation Tools",
-            sub_text=_sub(TALLY_TOOLS),
-            desc="Convert GSTR-2B/Tally data\nto Tally-ready Excel and XML.",
-            acc=_C["tally_acc"],
-            normal_fg=_C["tally_bg"],
-            hover_fg=_C["tally_hover"],
-            callback=lambda: self._show_category("tally"),
-            disabled=tally_locked,
-        ).pack(side="left", padx=14)
+            card = self._make_category_card(
+                parent=current_row_frame,
+                icon=icon,
+                label=label,
+                sub_text=_sub(tools),
+                desc=desc,
+                acc=acc,
+                normal_fg=normal_fg,
+                hover_fg=hover_fg,
+                callback=callback,
+                disabled=_disabled(tools)
+            )
+            card.pack(side="left", padx=14)
 
         return page
 
@@ -1379,8 +1376,12 @@ class GSTSuite(_RealCTk):
             tools, accents = PDF_TOOLS,   _PDF_ACCENTS
         elif key == "bank":
             tools, accents = BANK_TOOLS,  _BANK_ACCENTS
+        elif key == "mail":
+            tools, accents = MAIL_GROUP_TOOLS, _MAIL_GROUP_ACCENTS
         elif key == "email":
             tools, accents = EMAIL_TOOLS, _EMAIL_ACCENTS
+        elif key == "gmail":
+            tools, accents = GMAIL_TOOLS, _GMAIL_ACCENTS
         elif key == "reco":
             tools, accents = RECO_TOOLS,  _RECO_ACCENTS
         elif key == "tally":
@@ -1413,8 +1414,12 @@ class GSTSuite(_RealCTk):
             acc_color = _C["pdf_acc"]
         elif key == "bank":
             acc_color = _C["bank_acc"]
+        elif key == "mail":
+            acc_color = _C["mail_acc"]
         elif key == "email":
             acc_color = _C["email_acc"]
+        elif key == "gmail":
+            acc_color = _C["gmail_acc"]
         elif key == "reco":
             acc_color = _C["reco_acc"]
         elif key == "tally":
@@ -1473,7 +1478,7 @@ class GSTSuite(_RealCTk):
                      text_color=("#64748b", "#94a3b8"), wraplength=300,
                      justify="center").pack()
         ctk.CTkLabel(box,
-                     text="This module is not included in your current plan.\nContact StudyCafe to upgrade your subscription.",
+                     text="This module is not included in your current plan.\nContact AutomationCafe Suite to upgrade your subscription.",
                      font=("Segoe UI", 11), text_color=("#94a3b8", "#64748b"),
                      wraplength=300, justify="center").pack(pady=(10, 0))
 
@@ -1484,9 +1489,13 @@ class GSTSuite(_RealCTk):
         elif key == "pdf":
             acc, icon, label = _C["pdf_acc"],   "📄",  "PDF Tools"
         elif key == "bank":
-            acc, icon, label = _C["bank_acc"],  "🏦",  "Bank Statement → Excel"
+            acc, icon, label = _C["bank_acc"],  "🏦",  "Bank Statement → Excel (Beta)"
+        elif key == "mail":
+            acc, icon, label = _C["mail_acc"],  "📨",  "Email Tools"
         elif key == "email":
             acc, icon, label = _C["email_acc"], "📧",  "Email Tools"
+        elif key == "gmail":
+            acc, icon, label = _C["gmail_acc"], "✉",  "Gmail Tools"
         elif key == "reco":
             acc, icon, label = _C["reco_acc"],  "🔄",  "GST Reconciliation"
         elif key == "tally":
@@ -1519,25 +1528,30 @@ class GSTSuite(_RealCTk):
                      text_color=acc).pack(side="left")
         badge = ctk.CTkFrame(tr, fg_color=acc, corner_radius=20)
         badge.pack(side="left", padx=(12, 0))
-        ctk.CTkLabel(badge, text=f"  {len(tools)} Tools  ",
+        visible_tools = [t for t in tools if not t.get("hide_card", False)]
+        ctk.CTkLabel(badge, text=f"  {len(visible_tools)} Tools  ",
                      font=("Segoe UI", 10, "bold"),
                      text_color="#ffffff").pack(padx=4, pady=4)
 
+        hero_help = "Click any tab to load a tool — each loads once and stays active."
+        if key == "mail":
+            hero_help = "Choose Outlook or Gmail, then switch between 3 built-in templates inside that suite."
+
         ctk.CTkLabel(hb,
-                     text="Click any tab to load a tool — "
-                          "each loads once and stays active.",
+                     text=hero_help,
                      font=("Segoe UI", 13),
                      text_color=("#1e293b", "#e2e8f0")).pack(anchor="w", pady=(8, 0))
 
         # Section label
-        ctk.CTkLabel(scroll, text="Available Tools",
+        section_label = "Available Suites" if key == "mail" else "Available Tools"
+        ctk.CTkLabel(scroll, text=section_label,
                      font=("Segoe UI", 14, "bold"),
                      text_color=("#0f172a", "#f1f5f9")).grid(
             row=1, column=0, columnspan=COLS,
             padx=18, pady=(6, 8), sticky="w")
 
         # Tool cards
-        for idx, tool in enumerate(tools):
+        for idx, tool in enumerate(visible_tools):
             is_locked = (not self._is_tool_allowed(tool.get("key")))
             ac    = ("#94a3b8", "#475569") if is_locked else (accents[idx] if idx < len(accents) else acc)
             rn, c = divmod(idx, COLS)
@@ -1673,8 +1687,12 @@ class GSTSuite(_RealCTk):
             tools, accents = PDF_TOOLS,   _PDF_ACCENTS
         elif cat_key == "bank":
             tools, accents = BANK_TOOLS,  _BANK_ACCENTS
+        elif cat_key == "mail":
+            tools, accents = MAIL_GROUP_TOOLS, _MAIL_GROUP_ACCENTS
         elif cat_key == "email":
             tools, accents = EMAIL_TOOLS, _EMAIL_ACCENTS
+        elif cat_key == "gmail":
+            tools, accents = GMAIL_TOOLS, _GMAIL_ACCENTS
         elif cat_key == "reco":
             tools, accents = RECO_TOOLS,  _RECO_ACCENTS
         elif cat_key == "tally":
@@ -2028,7 +2046,7 @@ class LoginWindow(_RealCTk):
 
     def __init__(self):
         super().__init__()
-        self.title("GST Suite — Login")
+        self.title("AutomationCafe Suite — Login")
         self.geometry("420x520")
         self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", self._close_window)
@@ -2088,12 +2106,13 @@ class LoginWindow(_RealCTk):
         if _logo_ctk:
             ctk.CTkLabel(wrap, image=_logo_ctk, text="").pack(pady=(0, 6))
 
-        ctk.CTkLabel(wrap, text="GST & Income Tax Suite",
-                     font=("Segoe UI", 18, "bold"),
-                     text_color=("#1e293b", "#f1f5f9")).pack()
+        ctk.CTkLabel(wrap, text="AutomationCafe Suite",
+                     font=("Segoe UI", 22, "bold"),
+                     text_color=("#6366f1", "#818cf8")).pack()
+
         ctk.CTkLabel(wrap, text="Sign in to continue",
                      font=("Segoe UI", 12),
-                     text_color=("#64748b", "#94a3b8")).pack(pady=(2, 24))
+                     text_color=("#64748b", "#94a3b8")).pack(pady=(4, 24))
 
         # Email
         ctk.CTkLabel(wrap, text="Email",
@@ -2133,7 +2152,7 @@ class LoginWindow(_RealCTk):
         self._login_btn.pack(fill="x", pady=(14, 8))
 
         # Free trial button — opens registration page in browser
-        ctk.CTkButton(wrap, text="Try 7-Day Free Trial",
+        ctk.CTkButton(wrap, text="Try 3-Day Free Trial",
                       font=("Segoe UI", 12),
                       height=38, corner_radius=8,
                       fg_color="transparent",
@@ -2183,7 +2202,7 @@ class LoginWindow(_RealCTk):
 
         elif status == "TRIAL_EXPIRED":
             self._set_status(
-                "Your 7-day trial has expired.\nPlease contact StudyCafe to upgrade your account.",
+                "Your 3-day trial has expired.\nContact our support: Info@studycafe.in | 96250 80264",
                 color="#f59e0b"
             )
             self._login_btn.configure(state="normal", text="Login")
@@ -2223,25 +2242,48 @@ def _relaunch_self():
 
 def run_app_lifecycle():
     """Single top-level event-loop orchestration to avoid nested mainloops."""
-    _update_boot_splash("Opening login screen...")
-    _close_boot_splash()
-    try:
-        _tk._default_root = None
-    except Exception:
-        pass
-    login = LoginWindow()
-    try:
-        login.mainloop()
-    except KeyboardInterrupt:
+    # ── Try silent auto-login with saved credentials ──────────────────────
+    user_info = None
+    _saved_email, _saved_password = _load_auth()
+    if _saved_email and _saved_password:
+        _update_boot_splash("Signing you in...")
         try:
-            login._close_window()
+            resp = _call_api("/check_session", {
+                "email":       _saved_email,
+                "password":    _saved_password,
+                "hardware_id": _get_hardware_id(),
+            })
+            if resp.get("status") == "SESSION_VALID":
+                # Normalise to the same shape the rest of the app expects
+                resp["status"] = "SUCCESS"
+                user_info = resp
+        except Exception:
+            pass  # network error → fall through to login window
+
+    if user_info:
+        _update_boot_splash("Opening automation suite...")
+        _close_boot_splash()
+    else:
+        # ── Show login window ──────────────────────────────────────────────
+        _update_boot_splash("Opening login screen...")
+        _close_boot_splash()
+        try:
+            _tk._default_root = None
         except Exception:
             pass
-        return
+        login = LoginWindow()
+        try:
+            login.mainloop()
+        except KeyboardInterrupt:
+            try:
+                login._close_window()
+            except Exception:
+                pass
+            return
 
-    user_info = login.get_auth_result()
-    if not user_info:
-        return
+        user_info = login.get_auth_result()
+        if not user_info:
+            return
 
     _show_boot_splash()
     _update_boot_splash("Opening automation suite...")

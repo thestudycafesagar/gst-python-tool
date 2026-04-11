@@ -61,11 +61,18 @@ class GSTR3BConverterPro(ctk.CTk):
         self.select_btn.pack(pady=15)
 
         self.file_count_label = ctk.CTkLabel(
-            self.file_frame, 
-            text="No files selected", 
+            self.file_frame,
+            text="No files selected",
             text_color="gray"
         )
-        self.file_count_label.pack(pady=(0, 15))
+        self.file_count_label.pack(pady=(0, 10))
+
+        self.btn_demo = ctk.CTkButton(
+            self.file_frame, text="▶ View Demo", command=self.open_demo_link,
+            fg_color="#e53935", hover_color="#b71c1c", height=28,
+            font=("Arial", 12, "bold"), width=140
+        )
+        self.btn_demo.pack(pady=(0, 15))
 
         # --- Options Area (New Checkbox) ---
         self.options_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -109,6 +116,10 @@ class GSTR3BConverterPro(ctk.CTk):
         self.textbox.pack(pady=10)
         self.textbox.insert("0.0", "Status log will appear here...\n")
         self.textbox.configure(state="disabled")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
 
     def log(self, message):
         self.textbox.configure(state="normal")

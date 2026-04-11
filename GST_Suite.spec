@@ -44,6 +44,9 @@ def collect_tool_sources(tool_dir, dest_name):
         rel = os.path.relpath(dirpath, tool_dir)
         dest_sub = dest_name if rel == '.' else (dest_name + '/' + rel.replace('\\', '/'))
         for fname in filenames:
+            # Skip transient Office lock files (e.g. ~$report.xlsx) to avoid PermissionError.
+            if fname.startswith('~$'):
+                continue
             if os.path.splitext(fname.lower())[1] in _SKIP_EXTS:
                 continue
             pairs.append((os.path.join(dirpath, fname), dest_sub))
@@ -53,19 +56,19 @@ def collect_tool_sources(tool_dir, dest_name):
 datas = [
     ('studycafelogo.ico', '.'),
     ('studycafelogo.png', '.'),
-    ('bootloader_splash.png', '.'),
     ('dist/StudyCafeSuite_Updater.exe', '.'),   # bundled updater for auto-update
 ]
 
 # Add tool sources — only .py / .json / .xlsx / .png / etc., NO venvs or dist EXEs
 for _tool_dir, _dest in [
-    ('GST',                     'GST'),
-    ('Income Tax',              'Income Tax'),
-    ('PDF_Utilities',           'PDF_Utilities'),
-    ('Bank Statement To Excel', 'Bank Statement To Excel'),
-    ('Email-Tools',             'Email-Tools'),
-    ('GST_RECO',                'GST_RECO'),
-    ('tally tool',              'tally tool'),
+    ('GST',                      'GST'),
+    ('Income Tax',               'Income Tax'),
+    ('PDF_Utilities',            'PDF_Utilities'),
+    ('Bank Statement To Excel',  'Bank Statement To Excel'),
+    ('Outlook Email Tools',      'Outlook Email Tools'),
+    ('Gmail-Tools',              'Gmail-Tools'),
+    ('tally tool',               'tally tool'),
+    ('GST_RECO',                 'GST_RECO'),
 ]:
     datas += collect_tool_sources(_tool_dir, _dest)
 
@@ -75,13 +78,20 @@ hiddenimports = [
     'customtkinter', 'darkdetect',
     'PIL', 'PIL.Image', 'PIL.ImageTk',
     'fitz', 'pdfplumber', 'pdfminer',
-    'requests',
     'selenium', 'webdriver_manager',
     'pandas', 'numpy', 'openpyxl',
+    'requests', 'urllib3', 'charset_normalizer', 'certifi', 'idna',
     'win32com', 'win32com.client', 'pythoncom', 'pywintypes', 'win32api', 'win32con', 'win32gui',
+    # email / smtp — needed by Gmail Tools
+    'smtplib',
+    'email', 'email.message', 'email.mime', 'email.mime.multipart',
+    'email.mime.text', 'email.mime.base', 'email.mime.application',
+    'email.encoders', 'email.utils', 'email.header',
+    # xml — needed by Tally tool
+    'xml', 'xml.etree', 'xml.etree.ElementTree', 'xml.dom', 'xml.dom.minidom',
     # tkinter submodules not auto-detected by PyInstaller
-    'tkinter.scrolledtext',   # used by PDF_Utilities and Email-Tools
-    'tkinter.colorchooser',   # used by PDF_Utilities (Redact tool)
+    'tkinter.scrolledtext',
+    'tkinter.colorchooser',
     'tkinter.ttk',
     'tkinter.filedialog',
     'tkinter.messagebox',
@@ -89,7 +99,7 @@ hiddenimports = [
     'tkinter.font',
 ]
 for pkg in ('customtkinter', 'darkdetect', 'selenium', 'webdriver_manager',
-        'pdfplumber', 'pdfminer', 'fitz', 'requests'):
+            'pdfplumber', 'pdfminer', 'fitz'):
     tmp = collect_all(pkg)
     datas += tmp[0]; binaries += tmp[1]; hiddenimports += tmp[2]
 
@@ -104,34 +114,26 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Heavy data-science / dev tools — not used by GST Suite
         'matplotlib', 'matplotlib.pyplot', 'mpl_toolkits',
         'scipy', 'sklearn', 'scikit_learn',
         'IPython', 'ipython', 'ipykernel', 'ipywidgets',
         'notebook', 'nbformat', 'nbconvert', 'jupyterlab', 'jupyter_client',
         'pytest', '_pytest',
-        # Web frameworks — not needed at runtime
-        'streamlit',          # used only in Bank Statement venv, NOT in main app
+        'streamlit',
         'flask', 'werkzeug',
         'django',
         'fastapi', 'uvicorn', 'starlette',
-        # Computer vision / OCR — only in Bank Statement venv
         'cv2',
         'pytesseract',
         'pdf2image',
         'skimage',
-        # Cloud / infra SDKs
         'boto3', 'botocore', 's3transfer',
         'google.cloud',
-        # Database drivers not used in the bundled app
         'psycopg2', 'pymysql', 'pyodbc', 'cx_Oracle',
-        # Documentation / packaging tools
         'docutils', 'sphinx',
         'setuptools', 'pkg_resources._vendor',
-        # Unused stdlib
         'turtle', 'tkinter.test', 'tkinter.tix', 'tkinter.dnd',
         'test', 'xmlrpc',
-        # Unused image extras
         'imageio',
     ],
     noarchive=False,
@@ -139,32 +141,18 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-# Native PyInstaller splash appears during onefile extraction,
-# so users see an immediate loader right after double-click.
-splash = Splash(
-    'bootloader_splash.png',
-    binaries=a.binaries,
-    datas=a.datas,
-    text_pos=None,
-    text_size=12,
-    minify_script=True,
-    always_on_top=True,
-)
-
-# ── Single-file EXE (windowed GUI; no console window) ───────────────────────
+# ── Single-file EXE ───────────────────────────────────────────────────────────
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.datas,
-    splash,
-    splash.binaries,
     [],
     name='GST_Suite',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,
+    upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

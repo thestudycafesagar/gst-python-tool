@@ -84,36 +84,44 @@ except ImportError:
 
 # ─── THEME & PALETTE ─────────────────────────────────────
 COLORS = {
-    "bg_dark":       "#F0F4F8",
-    "bg_card":       "#FFFFFF",
-    "bg_card_hover": "#E2E8F0",
-    "bg_input":      "#F1F5F9",
-    "accent":        "#2563EB",
-    "accent_hover":  "#1D4ED8",
-    "accent_glow":   "#3B82F6",
-    "success":       "#059669",
-    "success_bg":    "#D1FAE5",
-    "warning":       "#D97706",
-    "warning_bg":    "#FEF3C7",
-    "error":         "#DC2626",
-    "error_bg":      "#FEE2E2",
-    "text_primary":  "#0F172A",
-    "text_secondary":"#475569",
-    "text_muted":    "#64748B",
-    "border":        "#E2E8F0",
-    "border_active": "#2563EB",
-    "tally_gold":    "#F59E0B",
-    "tally_dark":    "#F8FAFC",
-    "gradient_1":    "#2563EB",
-    "gradient_2":    "#4F46E5",
-    "gradient_3":    "#7C3AED",
-    "table_header":  "#1E293B",
-    "table_row_odd": "#FFFFFF",
-    "table_row_even":"#F8FAFC",
-    "table_border":  "#E2E8F0",
-    "xml_accent":    "#7C3AED",
-    "xml_accent_h":  "#6D28D9",
+    "bg_dark":       ("#F0F4F8", "#0F172A"),
+    "bg_card":       ("#FFFFFF", "#1E293B"),
+    "bg_card_hover": ("#E2E8F0", "#334155"),
+    "bg_input":      ("#F1F5F9", "#1E293B"),
+    "accent":        ("#2563EB", "#3B82F6"),
+    "accent_hover":  ("#1D4ED8", "#2563EB"),
+    "accent_glow":   ("#3B82F6", "#60A5FA"),
+    "success":       ("#059669", "#10B981"),
+    "success_bg":    ("#D1FAE5", "#064E3B"),
+    "warning":       ("#D97706", "#F59E0B"),
+    "warning_bg":    ("#FEF3C7", "#78350F"),
+    "error":         ("#DC2626", "#EF4444"),
+    "error_bg":      ("#FEE2E2", "#7F1D1D"),
+    "text_primary":  ("#0F172A", "#F1F5F9"),
+    "text_secondary":("#475569", "#CBD5E1"),
+    "text_muted":    ("#64748B", "#94A3B8"),
+    "border":        ("#E2E8F0", "#334155"),
+    "border_active": ("#2563EB", "#3B82F6"),
+    "tally_gold":    ("#F59E0B", "#FBBF24"),
+    "tally_dark":    ("#F8FAFC", "#0B1220"),
+    "gradient_1":    ("#2563EB", "#1D4ED8"),
+    "gradient_2":    ("#4F46E5", "#3730A3"),
+    "gradient_3":    ("#7C3AED", "#6D28D9"),
+    "table_header":  ("#1E293B", "#0F172A"),
+    "table_row_odd": ("#FFFFFF", "#1E293B"),
+    "table_row_even":("#F8FAFC", "#0F172A"),
+    "table_border":  ("#E2E8F0", "#334155"),
+    "xml_accent":    ("#7C3AED", "#8B5CF6"),
+    "xml_accent_h":  ("#6D28D9", "#7C3AED"),
 }
+
+
+def _theme_color(name_or_value):
+    value = COLORS.get(name_or_value, name_or_value)
+    if isinstance(value, tuple):
+        mode = ctk.get_appearance_mode().lower()
+        return value[1] if mode == "dark" else value[0]
+    return value
 
 
 # ═══════════════════════════════════════════════════════════
@@ -234,6 +242,8 @@ class GSTR2BEngine:
         self.party_ledger_map = {}  # party_name → purchase_ledger
         self.party_tds_ledger_map = {}  # party_name → tds_ledger
         self.party_tds_rate_map = {}  # party_name → tds_rate
+        self.allowed_tax_rates = (0.0, 5.0, 12.0, 18.0, 28.0, 40.0)
+        self.tax_rate_tolerance = 0.30
 
     def _empty_stats(self):
         return {
@@ -549,6 +559,12 @@ class GSTR2BEngine:
                     except (ValueError, TypeError):
                         parsed_tds_amount = ""
 
+                itc_avail_val = str(
+                    get_val(row, "ITCAvailability", "ITC Availability", "ITCAvail", default="Yes") or "Yes"
+                ).strip()
+                if not itc_avail_val:
+                    itc_avail_val = "Yes"
+
                 record = {
                     "voucher_date": voucher_date,
                     "voucher_no": str(get_val(row, "VoucherNo", default="") or "").strip(),
@@ -573,7 +589,7 @@ class GSTR2BEngine:
                     "sgst": sgst_amt,
                     "cess": 0.0,
                     "filing_period": "",
-                    "itc_avail": "Yes",
+                    "itc_avail": itc_avail_val,
                     "row_idx": row_idx,
                     "purchase_ledger": str(get_val(row, "PurchaseLedger", default="Purchase Account") or "Purchase Account").strip(),
                     "narration": str(get_val(row, "Narration", default="") or "").strip(),
@@ -689,12 +705,96 @@ class GSTR2BEngine:
             "total_cess": sum(r.get("cess", 0) for r in self.records),
         }
 
+    def _nearest_allowed_tax_rate(self, rate_value):
+        return min(self.allowed_tax_rates, key=lambda r: abs(r - rate_value))
+
+    def validate_tax_configuration(self, records=None):
+        """
+        Validate GST structure and effective tax percentage.
+
+        Rules:
+        - Allowed GST slabs: 0, 5, 12, 18, 28, 40
+        - IGST should not coexist with CGST/SGST
+        - CGST and SGST should appear together and be equal
+        """
+        source_records = records if records is not None else self.records
+        valid_records = []
+        invalid_issues = []
+
+        for rec in source_records:
+            taxable = abs(float(rec.get("taxable_value") or 0.0))
+            igst_amt = abs(float(rec.get("igst") or 0.0))
+            cgst_amt = abs(float(rec.get("cgst") or 0.0))
+            sgst_amt = abs(float(rec.get("sgst") or 0.0))
+            cess_amt = abs(float(rec.get("cess") or 0.0))
+
+            has_igst = igst_amt > 0.009
+            has_cgst = cgst_amt > 0.009
+            has_sgst = sgst_amt > 0.009
+            reasons = []
+
+            if has_igst and (has_cgst or has_sgst):
+                reasons.append("IGST cannot be present together with CGST/SGST.")
+
+            if has_cgst != has_sgst:
+                reasons.append("CGST and SGST must both be present (or both zero).")
+
+            if has_cgst and has_sgst and abs(cgst_amt - sgst_amt) > 1.0:
+                reasons.append("CGST and SGST amounts are not equal.")
+
+            if taxable <= 0 and (has_igst or has_cgst or has_sgst):
+                reasons.append("Tax amount exists but taxable value is zero.")
+
+            if has_igst:
+                tax_structure = "IGST"
+            elif has_cgst or has_sgst:
+                tax_structure = "CGST+SGST"
+            else:
+                tax_structure = "No GST"
+
+            if taxable > 0:
+                if has_igst:
+                    computed_rate = (igst_amt / taxable) * 100.0
+                else:
+                    computed_rate = ((cgst_amt + sgst_amt) / taxable) * 100.0
+            else:
+                computed_rate = 0.0
+
+            nearest_rate = self._nearest_allowed_tax_rate(computed_rate)
+            if abs(computed_rate - nearest_rate) > self.tax_rate_tolerance:
+                reasons.append(
+                    f"Computed GST rate {computed_rate:.2f}% is not in allowed slabs "
+                    "(0, 5, 12, 18, 28, 40)."
+                )
+
+            if reasons:
+                invalid_issues.append({
+                    "row_idx": rec.get("row_idx", ""),
+                    "invoice_no": rec.get("invoice_no", ""),
+                    "party_name": rec.get("trade_name", ""),
+                    "taxable_value": taxable,
+                    "igst": igst_amt,
+                    "cgst": cgst_amt,
+                    "sgst": sgst_amt,
+                    "cess": cess_amt,
+                    "tax_structure": tax_structure,
+                    "computed_rate": round(computed_rate, 4),
+                    "sheet_rate": rec.get("rate", ""),
+                    "nearest_allowed_rate": nearest_rate,
+                    "issue": " | ".join(reasons),
+                })
+            else:
+                valid_records.append(rec)
+
+        return valid_records, invalid_issues
+
     # ─── OUTPUT GENERATORS ───
 
     def generate_tally_sheet(self, output_path, purchase_ledger="Purchase Account",
                               narration_template="Being purchase from {party} vide Inv {inv} dt {date}",
-                              progress_callback=None) -> bool:
+                              progress_callback=None, records=None) -> bool:
         try:
+            source_records = records if records is not None else self.records
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "Tally Sheet"
@@ -717,7 +817,8 @@ class GSTR2BEngine:
             for i, w in enumerate(widths, 1):
                 ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
             voucher_date = self._today_str()
-            for idx, rec in enumerate(self.records):
+            total_records = len(source_records)
+            for idx, rec in enumerate(source_records):
                 row_num = idx + 2
                 is_igst = rec["igst"] > 0
 
@@ -763,8 +864,8 @@ class GSTR2BEngine:
                     else:
                         cell.alignment = Alignment(horizontal="left")
                 if progress_callback and idx % 20 == 0:
-                    pct = idx / max(1, len(self.records))
-                    progress_callback(min(pct, 1.0), f"Writing row {idx+1}/{len(self.records)}...")
+                    pct = idx / max(1, total_records)
+                    progress_callback(min(pct, 1.0), f"Writing row {idx+1}/{total_records}...")
             ws.freeze_panes = "A2"
             ws.auto_filter.ref = ws.dimensions
             wb.save(output_path); wb.close()
@@ -776,8 +877,9 @@ class GSTR2BEngine:
     def generate_tally_xml(self, output_path, company_name="",
                             purchase_ledger="Purchase Account",
                             narration_template="Being purchase from {party} vide Inv {inv} dt {date}",
-                            progress_callback=None) -> bool:
+                            progress_callback=None, records=None) -> bool:
         try:
+            source_records = records if records is not None else self.records
             comp_name = company_name or self.trade_name or self.company_name or "My Company"
             envelope = ET.Element("ENVELOPE")
             header = ET.SubElement(envelope, "HEADER")
@@ -790,15 +892,16 @@ class GSTR2BEngine:
             ET.SubElement(static_vars, "SVCURRENTCOMPANY").text = comp_name
             req_data = ET.SubElement(import_data, "REQUESTDATA")
             voucher_date = self._today_str()
-            for idx, rec in enumerate(self.records):
+            total_records = len(source_records)
+            for idx, rec in enumerate(source_records):
                 # For tally sheet records, use stored purchase_ledger & narration
                 rec_ledger = rec.get("purchase_ledger") or self.get_purchase_ledger(rec["trade_name"], purchase_ledger)
                 rec_narration = rec.get("narration") or narration_template.format(
                     party=rec["trade_name"], inv=rec["invoice_no"], date=rec["invoice_date"])
                 self._build_voucher_xml(req_data, rec, rec_ledger, rec_narration, voucher_date)
                 if progress_callback and idx % 20 == 0:
-                    pct = idx / max(1, len(self.records))
-                    progress_callback(min(pct, 1.0), f"Building XML {idx+1}/{len(self.records)}...")
+                    pct = idx / max(1, total_records)
+                    progress_callback(min(pct, 1.0), f"Building XML {idx+1}/{total_records}...")
             rough_string = ET.tostring(envelope, encoding="unicode")
             parsed = minidom.parseString(rough_string)
             pretty_xml = parsed.toprettyxml(indent="  ", encoding=None)
@@ -814,6 +917,12 @@ class GSTR2BEngine:
             return False
 
     def _build_voucher_xml(self, parent, rec, purchase_ledger, narration, voucher_date):
+        itc_status = str(rec.get("itc_avail") or "Yes").strip().upper()
+        is_itc_eligible = itc_status not in {"NO", "N", "INELIGIBLE"}
+        if not is_itc_eligible:
+            self._build_journal_voucher_xml(parent, rec, purchase_ledger, narration, voucher_date)
+            return
+
         tally_msg = ET.SubElement(parent, "TALLYMESSAGE")
         tally_msg.set("xmlns:UDF", "TallyUDF")
         voucher = ET.SubElement(tally_msg, "VOUCHER")
@@ -889,7 +998,7 @@ class GSTR2BEngine:
         ET.SubElement(voucher, "VCHENTRYMODE").text = "Accounting Invoice"
         ET.SubElement(voucher, "ISINVOICE").text = "Yes"
         ET.SubElement(voucher, "EFFECTIVEDATE").text = tally_date
-        ET.SubElement(voucher, "ISELIGIBLEFORITC").text = "Yes" if str(rec.get("itc_avail") or "Yes").strip().upper() not in {"NO", "N", "INELIGIBLE"} else "No"
+        ET.SubElement(voucher, "ISELIGIBLEFORITC").text = "Yes"
         ET.SubElement(voucher, "NARRATION").text = narration
         if rec.get("voucher_no"):
             ET.SubElement(voucher, "VOUCHERNUMBER").text = str(rec.get("voucher_no"))
@@ -971,6 +1080,66 @@ class GSTR2BEngine:
             self._add_common_ledger_flags(te, is_party="No")
             te.find("ISDEEMEDPOSITIVE").text = "Yes"
             ET.SubElement(te, "AMOUNT").text = f"{tds_amount:.2f}"
+
+    def _build_journal_voucher_xml(self, parent, rec, purchase_ledger, narration, voucher_date):
+        """
+        ITC-ineligible purchase entries are posted as Journal vouchers:
+        - Full amount (taxable + GST + cess)
+        - No tax breakup ledgers
+        - No TDS ledger deduction
+        """
+        tally_msg = ET.SubElement(parent, "TALLYMESSAGE")
+        tally_msg.set("xmlns:UDF", "TallyUDF")
+        voucher = ET.SubElement(tally_msg, "VOUCHER")
+        voucher.set("REMOTEID", "")
+        voucher.set("VCHTYPE", "Journal")
+        voucher.set("ACTION", "Create")
+        voucher.set("OBJVIEW", "Accounting Voucher View")
+
+        actual_voucher_date = rec.get("voucher_date") or voucher_date
+        tally_date = self._tally_date(actual_voucher_date, fallback_today=True)
+
+        supplier_invoice_no = rec.get("supplier_invoice_no") or rec.get("invoice_no") or ""
+        party_name = rec.get("party_name") or rec.get("trade_name") or ""
+
+        taxable = float(rec.get("taxable_value") or 0)
+        igst_amt = float(rec.get("igst") or 0)
+        cgst_amt = float(rec.get("cgst") or 0)
+        sgst_amt = float(rec.get("sgst") or 0)
+        cess_amt = float(rec.get("cess") or 0)
+        total_amount = taxable + igst_amt + cgst_amt + sgst_amt + cess_amt
+
+        if total_amount <= 0:
+            return
+
+        ET.SubElement(voucher, "DATE").text = tally_date
+        ET.SubElement(voucher, "VOUCHERTYPENAME").text = "Journal"
+        ET.SubElement(voucher, "PERSISTEDVIEW").text = "Accounting Voucher View"
+        ET.SubElement(voucher, "VCHENTRYMODE").text = "Accounting Voucher View"
+        ET.SubElement(voucher, "ISINVOICE").text = "No"
+        ET.SubElement(voucher, "EFFECTIVEDATE").text = tally_date
+        ET.SubElement(voucher, "ISELIGIBLEFORITC").text = "No"
+        ET.SubElement(voucher, "NARRATION").text = narration
+        if supplier_invoice_no:
+            ET.SubElement(voucher, "REFERENCE").text = str(supplier_invoice_no)
+        if rec.get("voucher_no"):
+            ET.SubElement(voucher, "VOUCHERNUMBER").text = str(rec.get("voucher_no"))
+
+        credit_party = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
+        ET.SubElement(credit_party, "LEDGERNAME").text = party_name
+        self._add_common_ledger_flags(credit_party, is_party="Yes")
+        ET.SubElement(credit_party, "AMOUNT").text = f"{total_amount:.2f}"
+
+        if supplier_invoice_no:
+            ba = ET.SubElement(credit_party, "BILLALLOCATIONS.LIST")
+            ET.SubElement(ba, "NAME").text = str(supplier_invoice_no)
+            ET.SubElement(ba, "BILLTYPE").text = "New Ref"
+            ET.SubElement(ba, "AMOUNT").text = f"{total_amount:.2f}"
+
+        debit_purchase = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
+        ET.SubElement(debit_purchase, "LEDGERNAME").text = purchase_ledger
+        self._add_common_ledger_flags(debit_purchase, is_party="No")
+        ET.SubElement(debit_purchase, "AMOUNT").text = f"{-total_amount:.2f}"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1063,13 +1232,18 @@ class DataPreviewTable(ctk.CTkFrame):
             bg = COLORS["table_row_odd"] if idx % 2 == 0 else COLORS["table_row_even"]
             rf = ctk.CTkFrame(self.scroll_frame, fg_color=bg, corner_radius=4, height=30)
             rf.pack(fill="x", pady=1); rf.pack_propagate(False)
-            rv = [str(idx+1), rec["invoice_date"], rec["invoice_no"][:18], rec["trade_name"][:28],
-                  f"{rec['taxable_value']:,.2f}",
-                  f"{rec['igst']:,.2f}" if rec["igst"]>0 else "—",
-                  f"{rec['cgst']:,.2f}" if rec["cgst"]>0 else "—",
-                  f"{rec['sgst']:,.2f}" if rec["sgst"]>0 else "—"]
+            rv = [
+                str(idx + 1),
+                rec["invoice_date"],
+                rec["invoice_no"][:18],
+                rec["trade_name"][:28],
+                f"{rec['taxable_value']:,.2f}",
+                f"{rec['igst']:,.2f}",
+                f"{rec['cgst']:,.2f}",
+                f"{rec['sgst']:,.2f}",
+            ]
             for i, (v, w) in enumerate(zip(rv, col_widths)):
-                tc = COLORS["text_primary"] if i<4 else COLORS["success"] if v!="—" and i>3 else COLORS["text_muted"]
+                tc = COLORS["text_primary"] if i < 4 else COLORS["success"]
                 ctk.CTkLabel(rf, text=v, width=w, font=("Consolas",10) if i>3 else ("Segoe UI",10),
                             text_color=tc, anchor="w" if i>2 else "center").pack(side="left", padx=4)
 
@@ -2672,29 +2846,23 @@ class GSTR2BTallyApp(ctk.CTk):
         self.geometry("1180x820")
         self.minsize(1000, 700)
         self.configure(fg_color=COLORS["bg_dark"])
-        ctk.set_appearance_mode("light")
+        ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
         self._build_ui()
 
+    def set_theme(self, mode: str):
+        try:
+            ctk.set_appearance_mode(mode)
+        except Exception:
+            pass
+
     def _build_ui(self):
-        # ═══ TOP BAR ═══
-        topbar = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], height=64, corner_radius=0, border_width=0)
-        topbar.pack(fill="x"); topbar.pack_propagate(False)
-        brand_frame = ctk.CTkFrame(topbar, fg_color="transparent")
-        brand_frame.pack(side="left", padx=24)
-        icon_bg = ctk.CTkFrame(brand_frame, fg_color=COLORS["accent"], corner_radius=8, width=38, height=38)
-        icon_bg.pack(side="left", padx=(0, 10)); icon_bg.pack_propagate(False)
-        ctk.CTkLabel(icon_bg, text="T", font=("Segoe UI", 18, "bold"),
-                     text_color="#FFFFFF").place(relx=0.5, rely=0.5, anchor="center")
-        title_frame = ctk.CTkFrame(brand_frame, fg_color="transparent")
-        title_frame.pack(side="left")
-        ctk.CTkLabel(title_frame, text="GSTR-2B + Tally Sheet  →  Tally Converter",
-                     font=("Segoe UI", 17, "bold"), text_color=COLORS["text_primary"]).pack(anchor="w")
-        ctk.CTkLabel(title_frame, text="Universal Engine  •  Party Mapping  •  v4.0",
-                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(anchor="w")
-        self.company_label = ctk.CTkLabel(topbar, text="", font=("Segoe UI", 11),
-                                           text_color=COLORS["text_secondary"])
-        self.company_label.pack(side="right", padx=24)
+        self.company_label = ctk.CTkLabel(
+            self,
+            text="",
+            font=("Segoe UI", 11),
+            text_color=COLORS["text_secondary"],
+        )
 
         # ═══ MAIN CONTAINER ═══
         main = ctk.CTkFrame(self, fg_color="transparent")
@@ -5055,9 +5223,9 @@ class GSTR2BTallyApp(ctk.CTk):
                 activestyle="none",
                 relief="solid",
                 borderwidth=1,
-                bg="#FFFFFF",
-                fg=COLORS["text_primary"],
-                selectbackground=COLORS["accent"],
+                bg=_theme_color("bg_input"),
+                fg=_theme_color("text_primary"),
+                selectbackground=_theme_color("accent"),
                 selectforeground="#FFFFFF",
             )
             suggestion_box.pack(fill="x", pady=(2, 0))
@@ -5683,17 +5851,80 @@ class GSTR2BTallyApp(ctk.CTk):
 
     # ─── UNMAPPED PARTY CHECK ───
 
-    def _find_unmapped_parties(self):
+    def _find_unmapped_parties(self, records=None):
         """Return list of unique party names not found in mapping sheet."""
+        source_records = records if records is not None else self.engine.records
         if not self.engine.party_ledger_map:
             # No mapping loaded at all — all parties are unmapped
-            return list(set(r["trade_name"] for r in self.engine.records if r["trade_name"].strip()))
+            return list(set(r["trade_name"] for r in source_records if r["trade_name"].strip()))
         unmapped = set()
-        for rec in self.engine.records:
+        for rec in source_records:
             party = rec["trade_name"].strip()
             if party and party.upper() not in self.engine.party_ledger_map:
                 unmapped.add(party)
         return sorted(unmapped)
+
+    def _resolve_output_dir(self):
+        output_dir = (self.output_entry.get() or "").strip()
+        if output_dir:
+            return output_dir
+        src = self.source_file if self.current_mode == "gstr2b" else self.tally_sheet_file
+        if src:
+            return str(Path(src).parent)
+        return str(Path.cwd())
+
+    def _save_tax_validation_report(self, output_dir, issues):
+        os.makedirs(output_dir, exist_ok=True)
+        report_path = _get_unique_path(output_dir, "tax-mismatch-report", ".xlsx")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Tax Mismatch"
+
+        headers = [
+            "Row", "Invoice No", "Party Name", "Taxable Value",
+            "IGST", "CGST", "SGST", "Cess", "Computed Tax %", "Issue",
+        ]
+        ws.append(headers)
+        for issue in issues:
+            ws.append([
+                issue.get("row_idx", ""),
+                issue.get("invoice_no", ""),
+                issue.get("party_name", ""),
+                issue.get("taxable_value", 0.0),
+                issue.get("igst", 0.0),
+                issue.get("cgst", 0.0),
+                issue.get("sgst", 0.0),
+                issue.get("cess", 0.0),
+                issue.get("computed_rate", 0.0),
+                issue.get("issue", ""),
+            ])
+
+        for cell in ws[1]:
+            cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            cell.fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        ws.column_dimensions["A"].width = 8
+        ws.column_dimensions["B"].width = 18
+        ws.column_dimensions["C"].width = 34
+        ws.column_dimensions["D"].width = 14
+        ws.column_dimensions["E"].width = 12
+        ws.column_dimensions["F"].width = 12
+        ws.column_dimensions["G"].width = 12
+        ws.column_dimensions["H"].width = 10
+        ws.column_dimensions["I"].width = 14
+        ws.column_dimensions["J"].width = 56
+
+        for row in ws.iter_rows(min_row=2, min_col=4, max_col=9):
+            for cell in row:
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = "#,##0.00"
+
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        wb.save(report_path)
+        wb.close()
+        return report_path
 
     def _show_unmapped_dialog(self, unmapped_parties, on_proceed, on_retry):
         """Show a dialog with editable mapping fields for each unmapped party."""
@@ -5810,7 +6041,7 @@ class GSTR2BTallyApp(ctk.CTk):
                       text_color="#FFFFFF", corner_radius=8,
                       command=do_proceed_default).pack(side="right", fill="x", expand=True, padx=(4, 0))
 
-    def _retry_mapping_and_generate(self, excel, xml):
+    def _retry_mapping_and_generate(self, excel, xml, records_to_generate=None):
         """Called when user clicks 'Add & Try Again' — opens file chooser for new mapping."""
         filepath = filedialog.askopenfilename(title="Select Updated Mapping Excel",
                                                filetypes=[("Excel Files", "*.xlsx *.xls"), ("All Files", "*.*")])
@@ -5826,8 +6057,16 @@ class GSTR2BTallyApp(ctk.CTk):
                 self.mapping_label.configure(text="Failed to load mapping — check file format", text_color=COLORS["error"])
                 self.log_panel.log("Mapping load failed — need PartyLedger + PurchaseLedger columns", "error")
                 return
-            # Re-run generation (which will re-check unmapped parties)
-            self._generate_output(excel=excel, xml=xml)
+            active_records = records_to_generate if records_to_generate is not None else self.engine.records
+            unmapped = self._find_unmapped_parties(active_records)
+            if unmapped:
+                self._show_unmapped_dialog(
+                    unmapped,
+                    on_proceed=lambda: self._do_generate(excel, xml, records_to_generate=active_records),
+                    on_retry=lambda: self._retry_mapping_and_generate(excel, xml, records_to_generate=active_records),
+                )
+                return
+            self._do_generate(excel, xml, records_to_generate=active_records)
         else:
             self.log_panel.log("Mapping upload cancelled — generation aborted.", "warning")
 
@@ -5838,6 +6077,8 @@ class GSTR2BTallyApp(ctk.CTk):
             messagebox.showwarning("No Data", "Please upload and parse a file first.")
             return
 
+        records_to_generate = list(self.engine.records)
+
         # In tally sheet mode, only XML generation
         if self.current_mode == "tally":
             excel = False
@@ -5845,6 +6086,41 @@ class GSTR2BTallyApp(ctk.CTk):
 
         # ─── GSTR-2B: mandatory mapping check ───
         if self.current_mode == "gstr2b":
+            valid_records, invalid_issues = self.engine.validate_tax_configuration(records_to_generate)
+            if invalid_issues:
+                output_dir = self._resolve_output_dir()
+                report_path = self._save_tax_validation_report(output_dir, invalid_issues)
+                self.log_panel.log(
+                    f"Tax validation mismatch in {len(invalid_issues)} records. Report: {report_path}",
+                    "warning",
+                )
+
+                proceed = messagebox.askyesno(
+                    "Tax Mismatch Found",
+                    f"Found {len(invalid_issues)} record(s) with invalid tax slab/structure.\n\n"
+                    "Allowed slabs: 0, 5, 12, 18, 28, 40\n"
+                    "Rules: IGST cannot coexist with CGST/SGST.\n\n"
+                    f"Mismatch report saved at:\n{report_path}\n\n"
+                    f"Yes: Continue with {len(valid_records)} valid record(s) only.\n"
+                    f"No: Continue with all {len(self.engine.records)} record(s) (old behavior).",
+                )
+                if proceed:
+                    if valid_records:
+                        records_to_generate = valid_records
+                        self.log_panel.log(
+                            f"Proceeding with {len(records_to_generate)} valid record(s) only.",
+                            "warning",
+                        )
+                    else:
+                        records_to_generate = list(self.engine.records)
+                        self.log_panel.log(
+                            "No valid records found, so proceeding with all records (old behavior).",
+                            "warning",
+                        )
+                else:
+                    records_to_generate = list(self.engine.records)
+                    self.log_panel.log("User chose No: proceeding with all records (old behavior).", "warning")
+
             if not self.engine.party_ledger_map:
                 # No mapping loaded at all
                 resp = messagebox.askyesno(
@@ -5861,22 +6137,23 @@ class GSTR2BTallyApp(ctk.CTk):
                 # If user clicked No, continue with defaults — but still check unmapped
 
             # Check for unmapped parties
-            unmapped = self._find_unmapped_parties()
+            unmapped = self._find_unmapped_parties(records_to_generate)
             if unmapped:
                 self.log_panel.log(f"Found {len(unmapped)} unmapped party names.", "warning")
                 # Capture excel/xml flags for retry callback
                 e_flag, x_flag = excel, xml
                 self._show_unmapped_dialog(
                     unmapped,
-                    on_proceed=lambda: self._do_generate(e_flag, x_flag),
-                    on_retry=lambda: self._retry_mapping_and_generate(e_flag, x_flag)
+                    on_proceed=lambda: self._do_generate(e_flag, x_flag, records_to_generate=records_to_generate),
+                    on_retry=lambda: self._retry_mapping_and_generate(e_flag, x_flag, records_to_generate=records_to_generate)
                 )
                 return  # Wait for dialog choice
 
-        self._do_generate(excel, xml)
+        self._do_generate(excel, xml, records_to_generate=records_to_generate)
 
-    def _do_generate(self, excel=True, xml=True):
+    def _do_generate(self, excel=True, xml=True, records_to_generate=None):
         """Actually perform the generation (called after mapping validation passes)."""
+        source_records = records_to_generate if records_to_generate is not None else self.engine.records
         output_dir = self.output_entry.get() or self.output_dir
         if not output_dir:
             src = self.source_file if self.current_mode == "gstr2b" else self.tally_sheet_file
@@ -5908,7 +6185,13 @@ class GSTR2BTallyApp(ctk.CTk):
             if excel:
                 en = os.path.basename(excel_path)
                 self.after(0, lambda n=en: self.log_panel.log(f"Generating {n}...", "process"))
-                results["excel"] = self.engine.generate_tally_sheet(excel_path, purchase_ledger, narration, progress_cb)
+                results["excel"] = self.engine.generate_tally_sheet(
+                    excel_path,
+                    purchase_ledger,
+                    narration,
+                    progress_cb,
+                    records=source_records,
+                )
             if xml:
                 def xml_progress(pct, msg):
                     offset = 0.5 if excel else 0
@@ -5916,11 +6199,18 @@ class GSTR2BTallyApp(ctk.CTk):
                     self.after(0, lambda: self.progress_label.configure(text=msg))
                 xn = os.path.basename(xml_path)
                 self.after(0, lambda n=xn: self.log_panel.log(f"Generating {n}...", "process"))
-                results["xml"] = self.engine.generate_tally_xml(xml_path, company_name, purchase_ledger, narration, xml_progress)
-            self.after(0, lambda: self._on_generate_complete(results, excel, xml, excel_path, xml_path))
+                results["xml"] = self.engine.generate_tally_xml(
+                    xml_path,
+                    company_name,
+                    purchase_ledger,
+                    narration,
+                    xml_progress,
+                    records=source_records,
+                )
+            self.after(0, lambda: self._on_generate_complete(results, excel, xml, excel_path, xml_path, len(source_records)))
         threading.Thread(target=run, daemon=True).start()
 
-    def _on_generate_complete(self, results, do_excel, do_xml, excel_path, xml_path):
+    def _on_generate_complete(self, results, do_excel, do_xml, excel_path, xml_path, generated_count):
         self.generate_btn.configure(state="normal")
         self.excel_only_btn.configure(state="normal")
         self.xml_only_btn.configure(state="normal")
@@ -5937,7 +6227,7 @@ class GSTR2BTallyApp(ctk.CTk):
             msg = ["Files generated successfully!\n"]
             if do_excel and results["excel"]: msg.append(f"Excel: {excel_path}")
             if do_xml and results["xml"]: msg.append(f"XML: {xml_path}")
-            msg.append(f"\nTotal records: {len(self.engine.records)}")
+            msg.append(f"\nTotal records generated: {generated_count}")
             messagebox.showinfo("Success!", "\n".join(msg))
         else:
             self.progress_label.configure(text="Generation failed!", text_color=COLORS["error"])

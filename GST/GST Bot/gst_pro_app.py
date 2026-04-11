@@ -370,7 +370,13 @@ class GSTApp(ctk.CTk):
         self.file_entry.pack(side="left", padx=15, pady=(0, 15), expand=True, fill="x")
         
         self.btn_browse = ctk.CTkButton(self.frame_file, text="Browse File", width=100, command=self.browse_file)
+        
         self.btn_browse.pack(side="right", padx=15, pady=(0, 15))
+        
+        self.btn_demo = ctk.CTkButton(self.frame_file, text="▶ View Demo", command=self.open_demo_link, fg_color="#e53935", hover_color="#b71c1c", height=28, font=("Arial", 12, "bold"))
+        self.btn_demo.pack(side="right", padx=(0, 5), pady=(0, 15))
+        self.btn_download = ctk.CTkButton(self.frame_file, text="📥 Sample Excel", command=self.download_sample, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
+        self.btn_download.pack(side="right", padx=15, pady=(0, 15))
 
         # --- 2. RICH LOG & PROGRESS ---
         self.frame_log = ctk.CTkFrame(self)
@@ -412,11 +418,40 @@ class GSTApp(ctk.CTk):
         self.entry_captcha.configure(state="disabled")
         
         self.btn_submit = ctk.CTkButton(self.frame_captcha, text="SUBMIT CAPTCHA", command=self.submit_captcha, state="disabled", fg_color="gray")
-        self.btn_submit.pack(pady=(5, 15))
+        self.btn_submit.pack(pady=(5, 5))
+        self.cap_stop_btn = ctk.CTkButton(self.frame_captcha, text="⏹ STOP PROCESS", fg_color="#424242", hover_color="#212121",
+                                          height=35, width=200, font=("Arial", 11, "bold"), command=self.stop_process)
+        self.cap_stop_btn.pack(pady=(5, 15))
 
         # --- 4. ACTION BUTTON ---
-        self.btn_start = ctk.CTkButton(self, text="START AUTOMATION", font=("Roboto", 16, "bold"), height=50, command=self.start_process, fg_color="#1f6aa5", hover_color="#144870")
-        self.btn_start.grid(row=4, column=0, padx=20, pady=(10, 20), sticky="ew")
+        btn_footer = ctk.CTkFrame(self, fg_color="transparent")
+        btn_footer.grid(row=4, column=0, padx=20, pady=(10, 20), sticky="ew")
+        btn_footer.grid_columnconfigure(0, weight=1)
+        self.btn_start = ctk.CTkButton(btn_footer, text="START AUTOMATION", font=("Roboto", 16, "bold"), height=50, command=self.start_process, fg_color="#1f6aa5", hover_color="#144870")
+        self.btn_start.grid(row=0, column=0, sticky="ew")
+        self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=("Roboto", 16, "bold"), height=50, command=self.stop_process, fg_color="#c62828", hover_color="#8e0000", width=150)
+        self.btn_stop.grid(row=0, column=1, padx=(10, 0))
+        self.btn_stop.grid_remove()
+    def download_sample(self):
+        import shutil
+        import os
+        from tkinter import messagebox
+        sample_path = os.path.join(os.path.dirname(__file__), "GST Verification Tools Sample File.xlsx")
+        if not os.path.exists(sample_path):
+            messagebox.showerror("Download Error", f"Sample file not found: {sample_path}")
+            return
+        
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="GST Verification Tools Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
+        if save_path:
+            try:
+                shutil.copy2(sample_path, save_path)
+                messagebox.showinfo("Success", f"Sample downloaded to {save_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to download: {e}")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
 
     def browse_file(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
@@ -438,10 +473,16 @@ class GSTApp(ctk.CTk):
             return
         
         self.btn_start.configure(state="disabled", text="RUNNING...")
+        self.btn_stop.grid()
         self.log_message("🚀 Starting Automation Thread...", "info")
-        
         self.worker = GSTWorker(self, file_path)
         threading.Thread(target=self.worker.run, daemon=True).start()
+
+    def stop_process(self):
+        if self.worker:
+            self.worker.keep_running = False
+        self.btn_stop.configure(state="disabled", text="STOPPING...")
+        self.update_log("🛑 Stop requested — will halt after current user...", "warning")
 
     def update_log(self, message, tag):
         self.after(0, lambda: self.log_message(message, tag))
@@ -478,13 +519,17 @@ class GSTApp(ctk.CTk):
             
             self.entry_captcha.configure(state="normal", placeholder_text="Type here...")
             self.entry_captcha.delete(0, "end")
-            self.entry_captcha.focus_set()
-            
+
             self.btn_submit.configure(state="normal", fg_color="#2cc985", text="SUBMIT NOW", hover_color="#209662")
-            
+
+            self.attributes('-topmost', True)
+            self.deiconify()
             self.lift()
-            self.attributes('-topmost',True)
-            self.after_idle(self.attributes,'-topmost',False)
+            def _focus():
+                self.focus_force()
+                self.entry_captcha.focus_set()
+                self.after(1000, lambda: self.attributes('-topmost', False))
+            self.after(200, _focus)
 
         self.after(0, update_ui)
 
@@ -503,6 +548,8 @@ class GSTApp(ctk.CTk):
         def finish():
             self.log_message(f"\n🎉 DONE: {msg}", "success")
             self.btn_start.configure(state="normal", text="START AUTOMATION")
+            self.btn_stop.grid_remove()
+            self.btn_stop.configure(state="normal", text="⏹ STOP")
             self.lbl_captcha_title.configure(text="PROCESS COMPLETED", text_color="gray")
             messagebox.showinfo("Success", msg)
         self.after(0, finish)

@@ -2,6 +2,7 @@ import threading
 import time
 import os
 import glob
+import base64
 import pandas as pd
 import customtkinter as ctk
 from PIL import Image
@@ -21,6 +22,11 @@ from webdriver_manager.chrome import ChromeDriverManager
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
+try:
+    _CAPTCHA_RESAMPLE = Image.Resampling.NEAREST
+except AttributeError:
+    _CAPTCHA_RESAMPLE = Image.NEAREST
+
 class GSTWorker:
     def __init__(self, app_instance, excel_path, settings):
         self.app = app_instance
@@ -31,6 +37,50 @@ class GSTWorker:
         self.captcha_response = None 
         self.captcha_event = threading.Event()
         self.report_data = [] 
+
+    def _save_captcha_image(self, wait, output_path):
+        """Capture captcha image bytes reliably (avoids DPI crop blur on Windows)."""
+        captcha_img = wait.until(EC.presence_of_element_located((By.ID, "imgCaptcha")))
+
+        wait.until(lambda d: d.execute_script(
+            """
+            const img = document.getElementById('imgCaptcha');
+            return !!(img && img.complete && (img.naturalWidth || img.width) > 0 && (img.naturalHeight || img.height) > 0);
+            """
+        ))
+
+        src = captcha_img.get_attribute("src") or ""
+        if src.startswith("data:image"):
+            payload = src.split(",", 1)[1]
+            with open(output_path, "wb") as f:
+                f.write(base64.b64decode(payload))
+            return
+
+        try:
+            data_url = self.driver.execute_script(
+                """
+                const img = document.getElementById('imgCaptcha');
+                if (!img) return null;
+                const w = img.naturalWidth || img.width;
+                const h = img.naturalHeight || img.height;
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+                return canvas.toDataURL('image/png');
+                """
+            )
+            if isinstance(data_url, str) and data_url.startswith("data:image"):
+                payload = data_url.split(",", 1)[1]
+                with open(output_path, "wb") as f:
+                    f.write(base64.b64decode(payload))
+                return
+        except Exception:
+            pass
+
+        with open(output_path, "wb") as f:
+            f.write(captcha_img.screenshot_as_png)
 
     def log(self, message):
         self.app.update_log_safe(message)
@@ -212,34 +262,44 @@ class GSTWorker:
                             fail_reason = "Re-login Failed"
                             break  # no point retrying if re-login itself fails
 
-                        # Reset to Dashboard to ensure clean state
-                        if attempt > 1:
-                            try: self.driver.get("https://return.gst.gov.in/returns/auth/dashboard")
-                            except: pass
-                            time.sleep(4)
-                            # After forced navigation, re-check session again
-                            if not self.check_session_and_relogin(username, password, wait):
-                                fail_reason = "Re-login Failed after Reset"
-                                break
+                        # Refresh dashboard before selecting dropdowns — fixes stale UI state
+                        self.log("   🔄 Refreshing dashboard...")
+                        try:
+                            self.driver.get("https://return.gst.gov.in/returns/auth/dashboard")
+                        except: pass
+                        time.sleep(3)
+                        self.driver.refresh()
+                        time.sleep(3)
+                        if not self.check_session_and_relogin(username, password, wait):
+                            fail_reason = "Re-login Failed after Refresh"
+                            break
 
                         # Select Year
                         year_el = wait.until(EC.element_to_be_clickable((By.NAME, "fin")))
                         Select(year_el).select_by_visible_text(fin_year)
-                        time.sleep(0.5)
+                        self.driver.execute_script(
+                            "var e=arguments[0]; angular.element(e).triggerHandler('change');", year_el)
+                        time.sleep(1)
 
-                        # Select Quarter
-                        qtr_el = self.driver.find_element(By.NAME, "quarter")
+                        # Select Quarter — must trigger Angular ng-change so months load
+                        qtr_el = wait.until(EC.element_to_be_clickable((By.NAME, "quarter")))
                         Select(qtr_el).select_by_visible_text(q_text)
-                        time.sleep(0.5)
+                        self.driver.execute_script(
+                            "var e=arguments[0]; angular.element(e).triggerHandler('change');", qtr_el)
+                        time.sleep(1.5)  # wait for month dropdown to populate
 
                         # Select Month
-                        mon_el = self.driver.find_element(By.NAME, "mon")
+                        mon_el = wait.until(EC.element_to_be_clickable((By.NAME, "mon")))
                         Select(mon_el).select_by_visible_text(m_text)
+                        self.driver.execute_script(
+                            "var e=arguments[0]; angular.element(e).triggerHandler('change');", mon_el)
                         time.sleep(0.5)
 
                         # Click Search
-                        self.driver.find_element(By.XPATH, "//button[contains(text(), 'Search')]").click()
-                        time.sleep(4) 
+                        search_btn = wait.until(EC.element_to_be_clickable(
+                            (By.XPATH, "//button[contains(text(), 'Search')]")))
+                        self.driver.execute_script("arguments[0].click();", search_btn)
+                        time.sleep(5)
 
                         # Download
                         dl_status, dl_msg = self.download_gstr2b(wait, year_folder)
@@ -291,8 +351,7 @@ class GSTWorker:
                 self.driver.find_element(By.ID, "user_pass").clear()
                 self.driver.find_element(By.ID, "user_pass").send_keys(password)
 
-                captcha_img = wait.until(EC.visibility_of_element_located((By.ID, "imgCaptcha")))
-                captcha_img.screenshot("temp_captcha.png")
+                self._save_captcha_image(wait, "temp_captcha.png")
                 
                 self.log("   ⌨️ Waiting for Captcha...")
                 self.captcha_response = None
@@ -448,16 +507,22 @@ class GSTWorker:
         Returns False if re-login itself fails.
         """
         try:
-            src         = self.driver.page_source
+            time.sleep(1)  # let page stabilise before checking
             current_url = self.driver.current_url
-            is_expired  = (
-                "Access Denied" in src
-                or "session is expired" in src
-                or "accessdenied" in current_url
-                or bool(self.driver.find_elements(By.ID, "username"))  # back on login page
+            src         = self.driver.page_source
+
+            on_login_page = (
+                "services.gst.gov.in/services/login" in current_url
+                or bool(self.driver.find_elements(By.ID, "username"))
             )
+            hard_expired = (
+                "session is expired" in src.lower()
+                or "accessdenied" in current_url.lower()
+            )
+            is_expired = on_login_page or hard_expired
+
             if is_expired:
-                self.log("   🔄 Session expired! Auto re-logging in...")
+                self.log("   🔄 Session expired — re-logging in...")
                 login_ok, login_msg = self.perform_login(username, password, wait)
                 if not login_ok:
                     self.log(f"   ❌ Re-login failed: {login_msg}")
@@ -477,10 +542,11 @@ class App(ctk.CTk):
         self.geometry("900x850")
         
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1) 
+        self.grid_rowconfigure(3, weight=1)
 
         self.worker = None
         self.excel_file = ""
+        self._captcha_ctk_img = None
 
         # HEADER
         self.head = ctk.CTkFrame(self, fg_color="#1a237e", corner_radius=0, height=70)
@@ -505,6 +571,13 @@ class App(ctk.CTk):
         self.btn_browse = ctk.CTkButton(self.card_cred, text="Browse File", command=self.browse_file, 
                                         fg_color="#3949ab", hover_color="#283593", height=35)
         self.btn_browse.pack(fill="x", padx=15, pady=(0, 15))
+
+        btn_row = ctk.CTkFrame(self.card_cred, fg_color="transparent")
+        btn_row.pack(fill="x", padx=15, pady=(5, 15))
+        self.btn_download = ctk.CTkButton(btn_row, text="📥 Sample Excel", command=self.download_sample, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
+        self.btn_download.pack(side="left", expand=True, fill="x", padx=(0, 5))
+        self.btn_demo = ctk.CTkButton(btn_row, text="▶ View Demo", command=self.open_demo_link, fg_color="#e53935", hover_color="#b71c1c", height=28, font=("Arial", 12, "bold"))
+        self.btn_demo.pack(side="left", expand=True, fill="x", padx=(5, 0))
 
         # Period Settings Card
         self.card_period = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
@@ -551,7 +624,7 @@ class App(ctk.CTk):
 
         # LOGS
         self.log_frame = ctk.CTkFrame(self)
-        self.log_frame.grid(row=2, column=0, sticky="nsew", padx=20, pady=10)
+        self.log_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
         self.log_frame.grid_columnconfigure(0, weight=1)
         self.log_frame.grid_rowconfigure(1, weight=1)
         ctk.CTkLabel(self.log_frame, text="📜 Execution Logs", font=("Arial", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=5)
@@ -570,9 +643,15 @@ class App(ctk.CTk):
                                     font=("Consolas", 20), justify="center", height=45, width=250)
         self.cap_ent.pack(pady=5)
         self.cap_ent.bind("<Return>", self.submit_captcha) 
-        self.cap_btn = ctk.CTkButton(self.cap_inner, text="SUBMIT CAPTCHA", fg_color="#d32f2f", hover_color="#b71c1c", 
-                                     height=40, width=250, font=("Arial", 12, "bold"), command=self.submit_captcha)
-        self.cap_btn.pack(pady=(10, 0))
+        # --- CAPTCHA BUTTONS SIDE-BY-SIDE ---
+        self.cap_btn_row = ctk.CTkFrame(self.cap_inner, fg_color="transparent")
+        self.cap_btn_row.pack(pady=(10, 0))
+        self.cap_btn = ctk.CTkButton(self.cap_btn_row, text="SUBMIT CAPTCHA", fg_color="#d32f2f", hover_color="#b71c1c",
+                         height=40, width=120, font=("Arial", 12, "bold"), command=self.submit_captcha)
+        self.cap_btn.pack(side="left", padx=(0, 10))
+        self.cap_stop_btn = ctk.CTkButton(self.cap_btn_row, text="⏹ STOP PROCESS", fg_color="#424242", hover_color="#212121",
+                          height=40, width=120, font=("Arial", 11, "bold"), command=self.stop_process)
+        self.cap_stop_btn.pack(side="left")
 
         # FOOTER
         self.footer = ctk.CTkFrame(self, fg_color="transparent")
@@ -580,9 +659,15 @@ class App(ctk.CTk):
         self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#00e676")
         self.prog_bar.pack(fill="x", pady=(0, 10))
         self.prog_bar.set(0)
-        self.btn_start = ctk.CTkButton(self.footer, text="START BATCH PROCESS", height=50, font=("Arial", 16, "bold"), 
+        self.btn_row_footer = ctk.CTkFrame(self.footer, fg_color="transparent")
+        self.btn_row_footer.pack(fill="x")
+        self.btn_start = ctk.CTkButton(self.btn_row_footer, text="START BATCH PROCESS", height=50, font=("Arial", 16, "bold"),
                                        fg_color="#2e7d32", hover_color="#1b5e20", command=self.start_process)
-        self.btn_start.pack(fill="x")
+        self.btn_start.pack(side="left", expand=True, fill="x")
+        self.btn_stop = ctk.CTkButton(self.btn_row_footer, text="⏹ STOP", height=50, font=("Arial", 16, "bold"),
+                                      fg_color="#c62828", hover_color="#8e0000", command=self.stop_process, width=150)
+        self.btn_stop.pack(side="left", padx=(10, 0))
+        self.btn_stop.pack_forget()
 
     def toggle_inputs(self):
         state = "disabled" if self.chk_all_qtr_var.get() else "normal"
@@ -597,6 +682,26 @@ class App(ctk.CTk):
         else: vals = ["Whole Quarter"]
         self.cb_month.configure(values=vals)
         self.cb_month.set(vals[0])
+    def download_sample(self):
+        import shutil
+        import os
+        from tkinter import messagebox
+        sample_path = os.path.join(os.path.dirname(__file__), "GSTR2B Sample File.xlsx")
+        if not os.path.exists(sample_path):
+            messagebox.showerror("Download Error", f"Sample file not found: {sample_path}")
+            return
+        
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="GSTR2B Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
+        if save_path:
+            try:
+                shutil.copy2(sample_path, save_path)
+                messagebox.showinfo("Success", f"Sample downloaded to {save_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to download: {e}")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
 
     def browse_file(self):
         f = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")])
@@ -620,19 +725,41 @@ class App(ctk.CTk):
     def process_finished_safe(self, msg):
         self.after(0, lambda: messagebox.showinfo("Info", msg))
         self.after(0, lambda: self.btn_start.configure(state="normal", text="START BATCH PROCESS"))
+        self.after(0, lambda: self.btn_stop.pack_forget())
+        self.after(0, lambda: self.btn_stop.configure(state="normal", text="⏹ STOP"))
 
     def request_captcha_safe(self, img_path):
         def show():
-            pil_img = Image.open(img_path)
-            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(160, 60))
-            self.cap_lbl_img.configure(image=ctk_img)
+            with Image.open(img_path) as raw_img:
+                pil_img = raw_img.convert("RGB")
+
+            w, h = pil_img.size
+            if w <= 0 or h <= 0:
+                return
+
+            max_w, max_h = 230, 78
+            scale = min(max_w / float(w), max_h / float(h), 1.0)
+            if scale < 1.0:
+                size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                display_img = pil_img.resize(size, _CAPTCHA_RESAMPLE)
+            else:
+                size = (w, h)
+                display_img = pil_img
+
+            self._captcha_ctk_img = ctk.CTkImage(light_image=display_img, dark_image=display_img, size=size)
+            self.cap_lbl_img.image = self._captcha_ctk_img
+            self.cap_lbl_img.configure(image=self._captcha_ctk_img)
             self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#d32f2f")
-            self.cap_frame.grid(row=3, column=0, sticky="ew", padx=20, pady=10)
+            self.cap_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
             self.cap_ent.delete(0, "end")
-            self.cap_ent.focus_set()
+            self.attributes('-topmost', True)
+            self.deiconify()
             self.lift()
-            self.attributes('-topmost',True)
-            self.after_idle(self.attributes,'-topmost',False)
+            def _focus():
+                self.focus_force()
+                self.cap_ent.focus_set()
+                self.after(1000, lambda: self.attributes('-topmost', False))
+            self.after(200, _focus)
         self.after(0, show)
 
     def submit_captcha(self, event=None):
@@ -656,8 +783,22 @@ class App(ctk.CTk):
             "all_quarters": self.chk_all_qtr_var.get()
         }
         self.btn_start.configure(state="disabled", text="RUNNING...")
+        self.btn_stop.pack(side="left", padx=(10, 0))
         self.worker = GSTWorker(self, self.excel_file, settings)
         threading.Thread(target=self.worker.run, daemon=True).start()
+
+    def stop_process(self):
+        if self.worker:
+            self.worker.keep_running = False
+            # Immediately close Chrome if running
+            try:
+                if self.worker.driver:
+                    self.worker.driver.quit()
+                    self.update_log_safe("🛑 Chrome browser closed.")
+            except Exception as e:
+                self.update_log_safe(f"⚠️ Error closing Chrome: {e}")
+        self.btn_stop.configure(state="disabled", text="STOPPING...")
+        self.update_log_safe("🛑 Stop requested — will halt after current user...")
 
 if __name__ == "__main__":
     app = App()

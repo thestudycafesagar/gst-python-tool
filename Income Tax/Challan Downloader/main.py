@@ -139,6 +139,7 @@ class ChallanWorker:
         try:
             # --- CHROME OPTIONS & ANTI-BOT CONFIG ---
             options = webdriver.ChromeOptions()
+            options.add_argument("--start-maximized")
             options.add_argument("--disable-gpu")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -335,6 +336,34 @@ class ChallanWorker:
                     time.sleep(1.5)
 
             # ==========================================================
+            # STEP B-2: Select Applicable Income Tax Act (New portal logic)
+            # ==========================================================
+            try:
+                time.sleep(2)
+                if driver.find_elements(By.XPATH, "//*[contains(text(), 'Select Applicable Income Tax Act')]"):
+                    self.log("   🔹 Step B-2: Income Tax Act selection screen detected.")
+                    try:
+                        # Find both radio buttons (2025 logic for current year, 1961 for history)
+                        # Currently we select "Income-tax Act, 1961" which includes historical and previous FY
+                        # as that aligns with standard "Challan Download" behavior for all History.
+                        # Using dynamic text match for robust selection.
+                        act_1961 = driver.find_element(By.XPATH, "//div[contains(text(), 'Income-tax Act, 1961')]/ancestor::label")
+                        driver.execute_script("arguments[0].click();", act_1961)
+                        self.log("   ✅ Selected 'Income-tax Act, 1961' (Historical & Previous FY).")
+                        time.sleep(0.5)
+                        
+                        continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.large-button-primary.iconsAfter.nextIcon")))
+                        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", continue_btn)
+                        time.sleep(0.5)
+                        driver.execute_script("arguments[0].click();", continue_btn)
+                        self.log("   ✅ Proceeded past Act selection (Clicked Continue).")
+                        time.sleep(2)
+                    except Exception as e:
+                        self.log(f"   ⚠️ Failed to select Act, might be pre-selected. {str(e)[:40]}")
+            except Exception as ignore:
+                pass
+
+            # ==========================================================
             # STEP C: Click "Payment History" tab
             # ==========================================================
             self.log("   🔹 Step C: Clicking 'Payment History' tab...")
@@ -365,6 +394,16 @@ class ChallanWorker:
             # STEP D: Fetch all Assessment Years from the AG Grid table
             # ==========================================================
             self.log("   🔹 Step D: Reading Assessment Years from table...")
+            
+            # Fast empty table check
+            try:
+                empty_grid_check = driver.find_elements(By.CSS_SELECTOR, "div.ag-center-cols-container")
+                if empty_grid_check and empty_grid_check[0].get_attribute("style") and "height: 1px" in empty_grid_check[0].get_attribute("style"):
+                    self.log("   ⚠️ Table is completely empty. No challan records found.")
+                    return "Success", "No Challan Records Found"
+            except:
+                pass
+
             all_years = []
             for fetch_attempt in range(3):
                 try:
@@ -601,6 +640,7 @@ class DemandCheckerWorker:
         try:
             # --- CHROME OPTIONS & ANTI-BOT CONFIG ---
             options = webdriver.ChromeOptions()
+            options.add_argument("--start-maximized")
             options.add_argument("--disable-gpu")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -1030,13 +1070,14 @@ class App(ctk.CTk):
         self.tab_challan = ctk.CTkFrame(self, fg_color="transparent")
         self.tab_challan.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         self.tab_challan.grid_columnconfigure(0, weight=1)
+        self.tab_challan.grid_rowconfigure(1, weight=1)
 
         self._build_challan_ui()
 
     def _build_challan_ui(self):
         self.excel_file_path = ""
         self.config_frame = ctk.CTkFrame(self.tab_challan)
-        self.config_frame.pack(fill="x", padx=10, pady=(10, 5))
+        self.config_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
         ctk.CTkLabel(self.config_frame, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
         
@@ -1044,7 +1085,9 @@ class App(ctk.CTk):
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
         self.entry_file = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
         self.entry_file.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(f_frame, text="BROWSE", command=self.browse_file, width=100).pack(side="right")
+        ctk.CTkButton(f_frame, text="BROWSE", command=self.browse_file, width=80).pack(side="right")
+        ctk.CTkButton(f_frame, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
+        ctk.CTkButton(f_frame, text="📥 Sample", command=self.download_sample, width=100, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
 
         pref_frame = ctk.CTkFrame(self.config_frame, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
@@ -1055,7 +1098,7 @@ class App(ctk.CTk):
 
         # Log UI
         self.log_frame = ctk.CTkFrame(self.tab_challan)
-        self.log_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        self.log_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 5))
         self.log_frame.grid_rowconfigure(1, weight=1)
         self.log_frame.grid_columnconfigure(0, weight=1)
         
@@ -1068,10 +1111,36 @@ class App(ctk.CTk):
         self.progress.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress.set(0)
 
-        self.btn_start = ctk.CTkButton(self.tab_challan, text="START CHALLAN DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=self.start_process)
-        self.btn_start.pack(fill="x", padx=20, pady=(0, 20))
+        btn_row_footer = ctk.CTkFrame(self.tab_challan, fg_color="transparent")
+        btn_row_footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(5, 20))
+        self.btn_start = ctk.CTkButton(btn_row_footer, text="START CHALLAN DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=self.start_process)
+        self.btn_start.pack(side="left", expand=True, fill="x")
+        self.btn_stop = ctk.CTkButton(btn_row_footer, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#c62828", hover_color="#8e0000", command=self.stop_process, width=150)
+        self.btn_stop.pack(side="left", padx=(10, 0))
+        self.btn_stop.pack_forget()
 
     # --- GUI Handlers ---
+    def download_sample(self):
+        import shutil
+        import os
+        from tkinter import messagebox
+        sample_path = os.path.join(os.path.dirname(__file__), "Income Tax Sample File.xlsx")
+        if not os.path.exists(sample_path):
+            messagebox.showerror("Download Error", f"Sample file not found: {sample_path}")
+            return
+        
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="Income Tax Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
+        if save_path:
+            try:
+                shutil.copy2(sample_path, save_path)
+                messagebox.showinfo("Success", f"Sample downloaded to {save_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to download: {e}")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
+
     def browse_file(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
         if filename:
@@ -1081,13 +1150,18 @@ class App(ctk.CTk):
             self.log_to_gui(f"File Loaded: {os.path.basename(filename)}")
 
     def start_process(self):
-        if not self.excel_file_path: 
+        if not self.excel_file_path:
             return messagebox.showwarning("Error", "Select an Excel file first")
-        
         self.btn_start.configure(state="disabled", text="PROCESSING...", fg_color="gray")
+        self.btn_stop.pack(side="left", padx=(10, 0))
         self.progress.set(0)
         self.worker = ChallanWorker(self, self.excel_file_path, self.combo_filter.get())
         threading.Thread(target=self.worker.run, daemon=True).start()
+
+    def stop_process(self):
+        if self.worker:
+            self.worker.keep_running = False
+        self.btn_stop.configure(state="disabled", text="Stopping...")
 
     # --- CHALLAN UI Safe Updaters ---
     def log_to_gui(self, msg):
@@ -1103,9 +1177,13 @@ class App(ctk.CTk):
         self.after(0, lambda: self.progress.set(val))
         
     def process_finished_safe(self, msg):
-        self.after(0, lambda: self.log_to_gui(f"\nSTATUS: {msg}"))
-        self.after(0, lambda: self.btn_start.configure(state="normal", text="START CHALLAN DOWNLOAD", fg_color="#1f538d"))
-        self.after(0, lambda: messagebox.showinfo("Done", msg))
+        def _finish():
+            self.log_to_gui(f"\nSTATUS: {msg}")
+            self.btn_start.configure(state="normal", text="START CHALLAN DOWNLOAD", fg_color="#1f538d")
+            self.btn_stop.configure(state="normal", text="⏹ STOP")
+            self.btn_stop.pack_forget()
+            messagebox.showinfo("Done", msg)
+        self.after(0, _finish)
 
 if __name__ == "__main__":
     app = App()

@@ -142,6 +142,7 @@ class DemandCheckerWorker:
         driver = None
         try:
             options = webdriver.ChromeOptions()
+            options.add_argument("--start-maximized")
             options.add_argument("--disable-gpu")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -536,7 +537,9 @@ class DemandCheckerApp(ctk.CTk):
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
         self.entry_file_demand = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
         self.entry_file_demand.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(f_frame, text="BROWSE", command=self.browse_file_demand, width=100).pack(side="right")
+        ctk.CTkButton(f_frame, text="BROWSE", command=self.browse_file_demand, width=80).pack(side="right")
+        ctk.CTkButton(f_frame, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
+        ctk.CTkButton(f_frame, text="📥 Sample", command=self.download_sample, width=100, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
 
         # Log UI
         log_frame = ctk.CTkFrame(self.content)
@@ -554,14 +557,38 @@ class DemandCheckerApp(ctk.CTk):
         self.progress_demand.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_demand.set(0)
 
-        self.btn_start_demand = ctk.CTkButton(
-            self.content, text="START DEMAND CHECKER",
-            font=ctk.CTkFont(size=16, weight="bold"), height=50,
-            command=self.start_process_demand
-        )
-        self.btn_start_demand.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
+        btn_footer = ctk.CTkFrame(self.content, fg_color="transparent")
+        btn_footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
+        btn_footer.grid_columnconfigure(0, weight=1)
+        self.btn_start_demand = ctk.CTkButton(btn_footer, text="START DEMAND CHECKER",
+                                              font=ctk.CTkFont(size=16, weight="bold"), height=50,
+                                              command=self.start_process_demand)
+        self.btn_start_demand.grid(row=0, column=0, sticky="ew")
+        self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"),
+                                      height=50, fg_color="#c62828", hover_color="#8e0000",
+                                      command=self.stop_process, width=150)
+        self.btn_stop.grid(row=0, column=1, padx=(10, 0))
+        self.btn_stop.grid_remove()
 
     # --- GUI Handlers ---
+    def download_sample(self):
+        import shutil
+        import os
+        from tkinter import messagebox, filedialog
+        sample_path = os.path.join(os.path.dirname(__file__), "Income Tax Sample File.xlsx")
+        
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="Income Tax Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
+        if save_path:
+            try:
+                shutil.copy2(sample_path, save_path)
+                messagebox.showinfo("Success", f"Sample downloaded to {save_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to download: {e}")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
+
     def browse_file_demand(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
         if filename:
@@ -574,9 +601,15 @@ class DemandCheckerApp(ctk.CTk):
         if not self.excel_file_path_demand:
             return messagebox.showwarning("Error", "Select an Excel file first")
         self.btn_start_demand.configure(state="disabled", text="PROCESSING...", fg_color="gray")
+        self.btn_stop.grid()
         self.progress_demand.set(0)
         self.demand_worker = DemandCheckerWorker(self, self.excel_file_path_demand)
         threading.Thread(target=self.demand_worker.run, daemon=True).start()
+
+    def stop_process(self):
+        if self.demand_worker:
+            self.demand_worker.keep_running = False
+        self.btn_stop.configure(state="disabled", text="Stopping...")
 
     # --- Safe Updaters ---
     def log_to_gui_demand(self, msg):
@@ -592,10 +625,13 @@ class DemandCheckerApp(ctk.CTk):
         self.after(0, lambda: self.progress_demand.set(val))
 
     def process_finished_safe_demand(self, msg):
-        self.after(0, lambda: self.log_to_gui_demand(f"\nSTATUS: {msg}"))
-        self.after(0, lambda: self.btn_start_demand.configure(
-            state="normal", text="START DEMAND CHECKER", fg_color="#1f538d"))
-        self.after(0, lambda: messagebox.showinfo("Done", msg))
+        def _finish():
+            self.log_to_gui_demand(f"\nSTATUS: {msg}")
+            self.btn_start_demand.configure(state="normal", text="START DEMAND CHECKER", fg_color="#1f538d")
+            self.btn_stop.configure(state="normal", text="⏹ STOP")
+            self.btn_stop.grid_remove()
+            messagebox.showinfo("Done", msg)
+        self.after(0, _finish)
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ _GST_BASE   = os.path.join(_BASE, "GST")
 _IT_BASE    = os.path.join(_BASE, "Income Tax")
 _PDF_BASE   = os.path.join(_BASE, "PDF_Utilities")
 _BANK_BASE  = os.path.join(_BASE, "Bank Statement To Excel")
-_EMAIL_BASE = os.path.join(_BASE, "Email-Tools")
+_EMAIL_BASE = os.path.join(_BASE, "Outlook Email Tools")
 _RECO_BASE  = os.path.join(_BASE, "GST_RECO")
 
 
@@ -560,90 +560,39 @@ class GSTSuite(_RealCTk):
         ).pack(pady=(0, 28))
 
         # ── Row 1: GST · IT · PDF ─────────────────────────────────────────────
-        cards_row = ctk.CTkFrame(wrapper, fg_color="transparent")
-        cards_row.pack()
+        # ── Dynamic 3x3 Grid Layout ───────────────────────────────────────────
+        def _sub(tools):
+            return f"{len(tools)} module{'s' if len(tools) != 1 else ''}"
 
-        gst_card = self._make_category_card(
-            parent=cards_row,
-            icon="🏛",
-            label="GST Tools",
-            sub_text=f"{len(GST_TOOLS)} modules",
-            desc="Downloads, converters & verifiers\nfor GST portal automation.",
-            acc=_C["gst_acc"],
-            normal_fg=_C["gst_bg"],
-            hover_fg=_C["gst_hover"],
-            callback=lambda: self._show_category("gst"),
-        )
-        gst_card.pack(side="left", padx=14)
+        categories = [
+            (GST_TOOLS, "🏛", "GST Tools", "Downloads, converters & verifiers\nfor GST portal automation.", _C["gst_acc"], _C["gst_bg"], _C["gst_hover"], lambda: self._show_category("gst")),
+            (IT_TOOLS, "💼", "Income Tax Automation Suite", "26AS, Challan & ITR filing\nautomation tools.", _C["it_acc"], _C["it_bg"], _C["it_hover"], lambda: self._show_category("it")),
+            (PDF_TOOLS, "📄", "PDF Tools", "Merge, split, extract, compress\n& redact PDF files.", _C["pdf_acc"], _C["pdf_bg"], _C["pdf_hover"], lambda: self._show_category("pdf")),
+            (BANK_TOOLS, "🏦", "Bank Statement → Excel", "Convert bank statement PDFs\nto structured Excel sheets.", _C["bank_acc"], _C["bank_bg"], _C["bank_hover"], lambda: self._show_category("bank")),
+            (EMAIL_TOOLS, "📧", "Outlook Email Tools", "Bulk personalised emails via Outlook.\nGST reminders, invoices & more.", _C["email_acc"], _C["email_bg"], _C["email_hover"], lambda: self._show_category("email")),
+            (RECO_TOOLS, "🔄", "GST Reconciliation", "Reconcile GSTR-2B vs Tally books.\nMatch invoices & export reports.", _C["reco_acc"], _C["reco_bg"], _C["reco_hover"], lambda: self._show_category("reco")),
+            (GMAIL_TOOLS, "✉", "Gmail Tools", "Bulk personalised emails via Gmail.\nGST reminders, invoices & more.", _C["gmail_acc"], _C["gmail_bg"], _C["gmail_hover"], lambda: self._show_category("gmail")),
+            (TALLY_TOOLS, "🧾", "Tally Automation Tools", "Convert GSTR-2B/Tally data\nto Tally-ready Excel and XML.", _C["tally_acc"], _C["tally_bg"], _C["tally_hover"], lambda: self._show_category("tally")),
+        ]
 
-        it_card = self._make_category_card(
-            parent=cards_row,
-            icon="💼",
-            label="Income Tax Automation Suite",
-            sub_text=f"{len(IT_TOOLS)} modules",
-            desc="26AS, Challan & ITR filing\nautomation tools.",
-            acc=_C["it_acc"],
-            normal_fg=_C["it_bg"],
-            hover_fg=_C["it_hover"],
-            callback=lambda: self._show_category("it"),
-        )
-        it_card.pack(side="left", padx=14)
+        current_row_frame = None
+        for i, (tools, icon, label, desc, acc, normal_fg, hover_fg, callback) in enumerate(categories):
+            if i % 3 == 0:
+                current_row_frame = ctk.CTkFrame(wrapper, fg_color="transparent")
+                current_row_frame.pack(pady=(0 if i == 0 else 18, 0))
 
-        pdf_card = self._make_category_card(
-            parent=cards_row,
-            icon="📄",
-            label="PDF Tools",
-            sub_text="5 modules",
-            desc="Merge, split, extract, compress\n& redact PDF files.",
-            acc=_C["pdf_acc"],
-            normal_fg=_C["pdf_bg"],
-            hover_fg=_C["pdf_hover"],
-            callback=lambda: self._show_category("pdf"),
-        )
-        pdf_card.pack(side="left", padx=14)
-
-        # ── Row 2: Bank · Email ───────────────────────────────────────────────
-        row2 = ctk.CTkFrame(wrapper, fg_color="transparent")
-        row2.pack(pady=(18, 0))
-
-        bank_card = self._make_category_card(
-            parent=row2,
-            icon="🏦",
-            label="Bank Statement → Excel",
-            sub_text=f"{len(BANK_TOOLS)} module",
-            desc="Convert bank statement PDFs\nto structured Excel sheets.",
-            acc=_C["bank_acc"],
-            normal_fg=_C["bank_bg"],
-            hover_fg=_C["bank_hover"],
-            callback=lambda: self._show_category("bank"),
-        )
-        bank_card.pack(side="left", padx=14)
-
-        email_card = self._make_category_card(
-            parent=row2,
-            icon="📧",
-            label="Email Tools",
-            sub_text=f"{len(EMAIL_TOOLS)} modules",
-            desc="Bulk personalised emails via Outlook.\nGST reminders, invoices & more.",
-            acc=_C["email_acc"],
-            normal_fg=_C["email_bg"],
-            hover_fg=_C["email_hover"],
-            callback=lambda: self._show_category("email"),
-        )
-        email_card.pack(side="left", padx=14)
-
-        reco_card = self._make_category_card(
-            parent=row2,
-            icon="🔄",
-            label="GST Reconciliation",
-            sub_text=f"{len(RECO_TOOLS)} module",
-            desc="Reconcile GSTR-2B vs Tally books.\nMatch invoices & export reports.",
-            acc=_C["reco_acc"],
-            normal_fg=_C["reco_bg"],
-            hover_fg=_C["reco_hover"],
-            callback=lambda: self._show_category("reco"),
-        )
-        reco_card.pack(side="left", padx=14)
+            card = self._make_category_card(
+                parent=current_row_frame,
+                icon=icon,
+                label=label,
+                sub_text=_sub(tools),
+                desc=desc,
+                acc=acc,
+                normal_fg=normal_fg,
+                hover_fg=hover_fg,
+                callback=callback,
+            )
+            card.pack(side="left", padx=14)
 
         return page
 
