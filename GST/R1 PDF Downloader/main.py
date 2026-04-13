@@ -30,10 +30,11 @@ except AttributeError:
     _CAPTCHA_RESAMPLE = Image.NEAREST
 
 class GSTWorker:
-    def __init__(self, app_instance, excel_path, settings):
+    def __init__(self, app_instance, excel_path, settings, credentials=None):
         self.app = app_instance
         self.excel_path = excel_path
         self.settings = settings
+        self.credentials = credentials or []
         self.keep_running = True
         self.driver = None
         self.captcha_response = None 
@@ -91,34 +92,56 @@ class GSTWorker:
     def log(self, message):
         self.app.update_log_safe(message)
 
-    def human_delay(self, min_s=2.5, max_s=4.5):
-        """Random delay to mimic human behavior and bypass bot detection."""
+    def human_delay(self, min_s=5.0, max_s=6.5):
+        """Randomized delay with 5s baseline to mimic human behavior."""
         time.sleep(random.uniform(min_s, max_s))
+
+    def type_like_human(self, element, text):
+        element.clear()
+        for ch in str(text):
+            element.send_keys(ch)
+            time.sleep(random.uniform(0.06, 0.18))
 
     def run(self):
         self.log("🚀 INITIALIZING GSTR-1 PDF ENGINE (Final Version)...")
         
         try:
-            # 1. READ EXCEL
-            df = pd.read_excel(self.excel_path)
-            clean_cols = {c.lower().strip(): c for c in df.columns}
-            user_col = next((clean_cols[c] for c in clean_cols if 'user' in c or 'name' in c), None)
-            pass_col = next((clean_cols[c] for c in clean_cols if 'pass' in c or 'pwd' in c), None)
+            # 1. LOAD CREDENTIALS (manual IDs preferred, Excel optional)
+            if self.credentials:
+                df = pd.DataFrame(self.credentials)
+                user_col, pass_col = "Username", "Password"
+                self.log(f"📊 Loaded {len(df)} users from Add ID Password.")
+            else:
+                if not self.excel_path:
+                    self.app.process_finished_safe("Please add ID/Password or select Excel file")
+                    return
 
-            if not user_col or not pass_col:
-                self.app.process_finished_safe("Column Error: Need Username/Password columns in Excel")
+                df = pd.read_excel(self.excel_path)
+                clean_cols = {c.lower().strip(): c for c in df.columns}
+                user_col = next((clean_cols[c] for c in clean_cols if 'user' in c or 'name' in c), None)
+                pass_col = next((clean_cols[c] for c in clean_cols if 'pass' in c or 'pwd' in c), None)
+
+                if not user_col or not pass_col:
+                    self.app.process_finished_safe("Column Error: Need Username/Password columns in Excel")
+                    return
+                self.log(f"📊 Loaded {len(df)} users from Excel.")
+
+            if df.empty:
+                self.app.process_finished_safe("No credentials found to process")
                 return
 
             total = len(df)
-            self.log(f"📊 Loaded {total} users.")
 
             # 2. CREATE MAIN DOWNLOAD FOLDER
             base_dir = os.path.join(os.getcwd(), "GSTR1_PDF_Downloads")
             if not os.path.exists(base_dir): os.makedirs(base_dir)
 
             # 3. PROCESS LOOP
+            stopped_by_user = False
             for index, row in df.iterrows():
-                if not self.keep_running: break
+                if not self.keep_running:
+                    stopped_by_user = True
+                    break
 
                 self.current_user = str(row[user_col]).strip()
                 self.current_pass = str(row[pass_col]).strip()
@@ -144,8 +167,22 @@ class GSTWorker:
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "Saved To": os.path.basename(user_root)
                 })
+
+                if not self.keep_running:
+                    stopped_by_user = True
+                    break
                 
                 self.log("-" * 40)
+
+            if stopped_by_user or not self.keep_running:
+                if self.report_data:
+                    self.generate_excel_report()
+                    self.log("🛑 Process stopped by user. Partial report saved.")
+                    self.app.process_finished_safe("Stopped by user. Partial report saved.")
+                else:
+                    self.log("🛑 Process stopped by user.")
+                    self.app.process_finished_safe("Stopped by user.")
+                return
 
             self.generate_excel_report()
             self.app.update_progress_safe(1.0)
@@ -257,22 +294,17 @@ class GSTWorker:
                 "Quarter 4 (Jan - Mar)": ["January", "February", "March"]
             }
 
-            tasks = []
-            if self.settings['all_quarters']:
-                for q_name, months in q_map.items():
-                    for m in months: tasks.append({"q": q_name, "m": m})
-            else:
-                selected_q = self.settings['quarter']
-                selected_m = self.settings['month']
-                if selected_m == "Whole Quarter":
-                    for m in q_map[selected_q]: tasks.append({"q": selected_q, "m": m})
-                else:
-                    tasks.append({"q": selected_q, "m": selected_m})
+            selected_q = self.settings['quarter']
+            selected_m = self.settings['month']
+            if selected_q not in q_map or selected_m not in q_map[selected_q]:
+                return "Config Error", "Invalid Month/Quarter Selection"
+
+            tasks = [{"q": selected_q, "m": selected_m}]
 
             self.log(f"   📅 Queued {len(tasks)} Months...")
             
             # 3. EXECUTE LOOP
-            time.sleep(2) 
+            self.human_delay()
             success_count = 0
             results = []
 
@@ -382,28 +414,27 @@ class GSTWorker:
             return "Error", f"Browser Crash: {str(e)[:30]}"
         finally:
             if self.driver:
-                self.driver.quit()
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
 
     def perform_login(self, username, password, wait):
         self.log("   🌐 Opening GST Portal...")
         if "login" not in self.driver.current_url:
             self.driver.get("https://services.gst.gov.in/services/login")
-            self.human_delay(2.0, 3.0)
+            self.human_delay()
 
         while True:
             if not self.keep_running: return False, "Stopped"
 
             try:
-                # Type username with slight delay
                 user_box = wait.until(EC.visibility_of_element_located((By.ID, "username")))
-                user_box.clear()
-                user_box.send_keys(username)
-                time.sleep(0.5)
+                self.type_like_human(user_box, username)
                 
                 pass_box = self.driver.find_element(By.ID, "user_pass")
-                pass_box.clear()
-                pass_box.send_keys(password)
-                time.sleep(0.5)
+                self.type_like_human(pass_box, password)
 
                 self._save_captcha_image(wait, "temp_captcha.png")
                 
@@ -416,12 +447,10 @@ class GSTWorker:
                 if not self.captcha_response: return False, "Captcha Cancelled"
 
                 cap_box = self.driver.find_element(By.ID, "captcha")
-                cap_box.clear()
-                cap_box.send_keys(self.captcha_response)
-                time.sleep(1)
+                self.type_like_human(cap_box, self.captcha_response)
                 
                 self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
-                self.human_delay(3.0, 5.0)
+                self.human_delay()
 
                 src = self.driver.page_source
                 if "Invalid Username or Password" in src:
@@ -441,12 +470,12 @@ class GSTWorker:
                     try:
                         dash_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Return Dashboard')]")))
                         dash_btn.click()
-                        self.human_delay(2.0, 3.0)
+                        self.human_delay()
                         return True, "Success"
                     except:
                         try:
                             self.driver.get("https://return.gst.gov.in/returns/auth/dashboard")
-                            self.human_delay(2.0, 3.0)
+                            self.human_delay()
                             return True, "Success (URL Nav)"
                         except:
                             self.log("   ⚠️ Dashboard Nav Error.")
@@ -538,6 +567,7 @@ class App(ctk.CTk):
 
         self.worker = None
         self.excel_file = ""
+        self.manual_credentials = []
 
         # HEADER
         self.head = ctk.CTkFrame(self, fg_color="#1a237e", corner_radius=0, height=70)
@@ -561,7 +591,7 @@ class App(ctk.CTk):
         self.card_cred = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
         self.card_cred.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         ctk.CTkLabel(self.card_cred, text="📂 Credentials Source", font=("Arial", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
-        self.ent_file = ctk.CTkEntry(self.card_cred, placeholder_text="Select Excel File...", height=35)
+        self.ent_file = ctk.CTkEntry(self.card_cred, placeholder_text="Add ID/Password or select Excel file (optional)...", height=35)
         self.ent_file.pack(fill="x", padx=15, pady=(5, 10))
         self.btn_browse = ctk.CTkButton(self.card_cred, text="Browse File", command=self.browse_file, 
                                         fg_color="#3949ab", hover_color="#283593", height=35)
@@ -569,7 +599,7 @@ class App(ctk.CTk):
         self.btn_browse.pack(fill="x", padx=15, pady=(0, 15))
         btn_row = ctk.CTkFrame(self.card_cred, fg_color="transparent")
         btn_row.pack(fill="x", padx=15, pady=(5, 15))
-        self.btn_download = ctk.CTkButton(btn_row, text="📥 Sample Excel", command=self.download_sample, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
+        self.btn_download = ctk.CTkButton(btn_row, text="➕ Add ID Password", command=self.add_id_password, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
         self.btn_download.pack(side="left", expand=True, fill="x", padx=(0, 5))
         self.btn_demo = ctk.CTkButton(btn_row, text="▶ View Demo", command=self.open_demo_link, fg_color="#e53935", hover_color="#b71c1c", height=28, font=("Arial", 12, "bold"))
         self.btn_demo.pack(side="left", expand=True, fill="x", padx=(5, 0))
@@ -591,10 +621,7 @@ class App(ctk.CTk):
         self.cb_year.pack(side="right", expand=True, fill="x")
         
         self.chk_all_qtr_var = ctk.BooleanVar(value=False)
-        self.chk_all_qtr = ctk.CTkCheckBox(self.card_period, text="Download All Quarters (Apr-Mar)", 
-                                            variable=self.chk_all_qtr_var, command=self.toggle_inputs,
-                                            font=("Arial", 12, "bold"))
-        self.chk_all_qtr.pack(anchor="w", padx=15, pady=5)
+        ctk.CTkLabel(self.card_period, text="Monthly download mode enabled", text_color="gray").pack(anchor="w", padx=15, pady=5)
 
         self.frm_qtr = ctk.CTkFrame(self.card_period, fg_color="transparent")
         self.frm_qtr.pack(fill="x", padx=15, pady=2)
@@ -609,8 +636,8 @@ class App(ctk.CTk):
         self.frm_mon = ctk.CTkFrame(self.card_period, fg_color="transparent")
         self.frm_mon.pack(fill="x", padx=15, pady=(2, 15))
         ctk.CTkLabel(self.frm_mon, text="Month:", width=100, anchor="w").pack(side="left")
-        self.cb_month = ctk.CTkComboBox(self.frm_mon, values=["Whole Quarter", "April", "May", "June"], width=150)
-        self.cb_month.set("Whole Quarter")
+        self.cb_month = ctk.CTkComboBox(self.frm_mon, values=["April", "May", "June"], width=150)
+        self.cb_month.set("April")
         self.cb_month.pack(side="right", expand=True, fill="x")
 
         # Logs
@@ -661,34 +688,58 @@ class App(ctk.CTk):
         pass  # Theme controlled by GST_Suite.py
 
     def toggle_inputs(self):
-        state = "disabled" if self.chk_all_qtr_var.get() else "normal"
-        self.cb_qtr.configure(state=state)
-        self.cb_month.configure(state=state)
+        self.cb_qtr.configure(state="normal")
+        self.cb_month.configure(state="normal")
 
     def update_months_based_on_qtr(self, choice):
-        if "Quarter 1" in choice: vals = ["Whole Quarter", "April", "May", "June"]
-        elif "Quarter 2" in choice: vals = ["Whole Quarter", "July", "August", "September"]
-        elif "Quarter 3" in choice: vals = ["Whole Quarter", "October", "November", "December"]
-        elif "Quarter 4" in choice: vals = ["Whole Quarter", "January", "February", "March"]
-        else: vals = ["Whole Quarter"]
+        if "Quarter 1" in choice: vals = ["April", "May", "June"]
+        elif "Quarter 2" in choice: vals = ["July", "August", "September"]
+        elif "Quarter 3" in choice: vals = ["October", "November", "December"]
+        elif "Quarter 4" in choice: vals = ["January", "February", "March"]
+        else: vals = ["April", "May", "June"]
         self.cb_month.configure(values=vals)
         self.cb_month.set(vals[0])
-    def download_sample(self):
-        import shutil
-        import os
-        from tkinter import messagebox
-        sample_path = os.path.join(os.path.dirname(__file__), "GSTR1 pdf Sample File.xlsx")
-        if not os.path.exists(sample_path):
-            messagebox.showerror("Download Error", f"Sample file not found: {sample_path}")
-            return
-        
-        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="GSTR1 pdf Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
-        if save_path:
-            try:
-                shutil.copy2(sample_path, save_path)
-                messagebox.showinfo("Success", f"Sample downloaded to {save_path}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to download: {e}")
+    def add_id_password(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add ID Password")
+        dialog.geometry("420x240")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        card = ctk.CTkFrame(dialog, fg_color="transparent")
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ctk.CTkLabel(card, text="GST ID/Username").pack(anchor="w")
+        ent_user = ctk.CTkEntry(card, placeholder_text="Enter GST ID/Username")
+        ent_user.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(card, text="GST Password").pack(anchor="w")
+        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter GST Password", show="*")
+        ent_pass.pack(fill="x", pady=(4, 14))
+
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x")
+
+        def _save():
+            username = (ent_user.get() or "").strip()
+            password = (ent_pass.get() or "").strip()
+            if not username or not password:
+                messagebox.showerror("Missing Data", "Please enter both GST ID and Password", parent=dialog)
+                return
+
+            self.manual_credentials.append({"Username": username, "Password": password})
+            self.excel_file = ""
+            self.ent_file.delete(0, "end")
+            self.ent_file.insert(0, f"Manual IDs added: {len(self.manual_credentials)}")
+            messagebox.showinfo("Added", f"Credential saved for {username}", parent=dialog)
+            dialog.destroy()
+
+        ctk.CTkButton(btn_row, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Add", width=110, command=_save).pack(side="right", padx=(0, 8))
+
+        ent_user.focus_set()
+        dialog.bind("<Return>", lambda _e: _save())
 
     def open_demo_link(self):
         import webbrowser
@@ -698,6 +749,7 @@ class App(ctk.CTk):
         f = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")])
         if f:
             self.excel_file = f
+            self.manual_credentials = []
             self.ent_file.delete(0, "end")
             self.ent_file.insert(0, f)
 
@@ -714,13 +766,22 @@ class App(ctk.CTk):
         self.after(0, lambda: self.prog_bar.set(val))
 
     def process_finished_safe(self, msg):
-        self.after(0, lambda: messagebox.showinfo("Info", msg))
-        self.after(0, lambda: self.btn_start.configure(state="normal", text="START PDF DOWNLOAD"))
-        self.after(0, lambda: self.btn_stop.pack_forget())
-        self.after(0, lambda: self.btn_stop.configure(state="normal", text="⏹ STOP"))
+        def _finish_ui():
+            messagebox.showinfo("Info", msg)
+            is_stopped = "stopped" in (msg or "").lower()
+            self.close_captcha_safe()
+            self.btn_start.configure(state="normal", text="STOPPED" if is_stopped else "START PDF DOWNLOAD")
+            self.btn_stop.pack_forget()
+            self.btn_stop.configure(state="normal", text="⏹ STOP")
+            self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+            if is_stopped:
+                self.after(1200, lambda: self.btn_start.configure(text="START PDF DOWNLOAD"))
+        self.after(0, _finish_ui)
 
     def request_captcha_safe(self, img_path):
         def show():
+            if not self.worker or not self.worker.keep_running:
+                return
             with Image.open(img_path) as raw_img:
                 pil_img = raw_img.convert("RGB")
 
@@ -764,25 +825,44 @@ class App(ctk.CTk):
         self.after(0, lambda: self.cap_frame.grid_forget())
 
     def start_process(self):
-        if not self.excel_file:
-            messagebox.showerror("Error", "Please select Excel file")
+        credentials = list(self.manual_credentials)
+        if not credentials and not self.excel_file:
+            messagebox.showerror("Error", "Please add ID/Password or select Excel file")
             return
         settings = {
             "year": self.cb_year.get(),
             "month": self.cb_month.get(),
             "quarter": self.cb_qtr.get(),
-            "all_quarters": self.chk_all_qtr_var.get()
+            "all_quarters": False
         }
+        self.close_captcha_safe()
+        self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+        self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.pack(side="left", padx=(10, 0))
-        self.worker = GSTWorker(self, self.excel_file, settings)
+        self.worker = GSTWorker(self, self.excel_file, settings, credentials=credentials)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self):
-        if self.worker:
-            self.worker.keep_running = False
-        self.btn_stop.configure(state="disabled", text="STOPPING...")
-        self.update_log_safe("🛑 Stop requested — will halt after current user...")
+        if not self.worker:
+            return
+
+        self.worker.keep_running = False
+        self.worker.captcha_response = None
+        self.worker.captcha_event.set()
+
+        try:
+            if self.worker.driver:
+                self.worker.driver.quit()
+                self.worker.driver = None
+                self.update_log_safe("🛑 Chrome browser closed.")
+        except Exception as e:
+            self.update_log_safe(f"⚠️ Error closing Chrome: {e}")
+
+        self.close_captcha_safe()
+        self.btn_stop.configure(state="disabled", text="STOPPED")
+        self.cap_stop_btn.configure(state="disabled", text="STOPPED")
+        self.update_log_safe("🛑 Process stopped by user.")
 
 if __name__ == "__main__":
     app = App()

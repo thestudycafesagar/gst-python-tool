@@ -2,6 +2,7 @@ import threading
 import time
 import os
 import shutil
+import tempfile
 import pandas as pd
 import customtkinter as ctk
 import re
@@ -2305,6 +2306,7 @@ class App(ctk.CTk):
         self.tab_tis = self.tabview.tab("TIS")
 
         self.chk_download_all_var = ctk.StringVar(value="off")
+        self.manual_credentials = []
         self._build_26as_ui()
         self._build_ais_ui()
         self._build_tis_ui()
@@ -2323,14 +2325,16 @@ class App(ctk.CTk):
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
         self.entry_file_26as = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
         self.entry_file_26as.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(f_frame, text="BROWSE", command=lambda: self.browse_file("26as"), width=80).pack(side="right")
-        ctk.CTkButton(f_frame, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
-        ctk.CTkButton(f_frame, text="📥 Sample", command=self.download_sample, width=100, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
+        btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
+        btn_actions.pack(side="right")
+        ctk.CTkButton(btn_actions, text="BROWSE", command=lambda: self.browse_file("26as"), width=80).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("26as"), width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
 
         pref_frame = ctk.CTkFrame(self.config_26as, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
         ctk.CTkLabel(pref_frame, text="Download Return:", text_color="gray").pack(side="left", padx=(0, 10))
-        self.combo_years_26as = ctk.CTkComboBox(pref_frame, values=["Current Year", "Current and Last Year", "Current and Last 2 Years", "Manual Selection (Popup)"], width=250, state="readonly")
+        self.combo_years_26as = ctk.CTkComboBox(pref_frame, values=["Current Year"], width=250, state="readonly")
         self.combo_years_26as.set("Current Year")
         self.combo_years_26as.pack(side="left")
 
@@ -2368,14 +2372,16 @@ class App(ctk.CTk):
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
         self.entry_file_ais = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
         self.entry_file_ais.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(f_frame, text="BROWSE", command=lambda: self.browse_file("ais"), width=80).pack(side="right")
-        ctk.CTkButton(f_frame, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
-        ctk.CTkButton(f_frame, text="📥 Sample", command=self.download_sample, width=100, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
+        btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
+        btn_actions.pack(side="right")
+        ctk.CTkButton(btn_actions, text="BROWSE", command=lambda: self.browse_file("ais"), width=80).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("ais"), width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
 
         pref_frame = ctk.CTkFrame(self.config_ais, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
         ctk.CTkLabel(pref_frame, text="Download Return:", text_color="gray").pack(side="left", padx=(0, 10))
-        self.combo_years_ais = ctk.CTkComboBox(pref_frame, values=["Current Year", "Current and Last Year", "Current and Last 2 Years", "Manual Selection (Popup)"], width=250, state="readonly")
+        self.combo_years_ais = ctk.CTkComboBox(pref_frame, values=["Current Year"], width=250, state="readonly")
         self.combo_years_ais.set("Current Year")
         self.combo_years_ais.pack(side="left")
 
@@ -2413,14 +2419,16 @@ class App(ctk.CTk):
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
         self.entry_file_tis = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
         self.entry_file_tis.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(f_frame, text="BROWSE", command=lambda: self.browse_file("tis"), width=80).pack(side="right")
-        ctk.CTkButton(f_frame, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
-        ctk.CTkButton(f_frame, text="📥 Sample", command=self.download_sample, width=100, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
+        btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
+        btn_actions.pack(side="right")
+        ctk.CTkButton(btn_actions, text="BROWSE", command=lambda: self.browse_file("tis"), width=80).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("tis"), width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
 
         pref_frame = ctk.CTkFrame(self.config_tis, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
         ctk.CTkLabel(pref_frame, text="Download Return:", text_color="gray").pack(side="left", padx=(0, 10))
-        self.combo_years_tis = ctk.CTkComboBox(pref_frame, values=["Current Year", "Current and Last Year", "Current and Last 2 Years", "Manual Selection (Popup)"], width=250, state="readonly")
+        self.combo_years_tis = ctk.CTkComboBox(pref_frame, values=["Current Year"], width=250, state="readonly")
         self.combo_years_tis.set("Current Year")
         self.combo_years_tis.pack(side="left")
 
@@ -2475,6 +2483,7 @@ class App(ctk.CTk):
     def browse_file(self, mode):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
         if filename:
+            self.manual_credentials = []
             if mode == "26as":
                 self.excel_file_path_26as = filename
                 self.entry_file_26as.delete(0, "end")
@@ -2491,19 +2500,113 @@ class App(ctk.CTk):
                 self.entry_file_tis.insert(0, filename)
                 self.log_to_gui_tis(f"File Loaded: {os.path.basename(filename)}")
 
+    def add_id_password(self, mode):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add ID Password")
+        dialog.geometry("430x300")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        card = ctk.CTkFrame(dialog, fg_color="transparent")
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ctk.CTkLabel(card, text="PAN / User ID").pack(anchor="w")
+        ent_user = ctk.CTkEntry(card, placeholder_text="Enter PAN / User ID")
+        ent_user.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(card, text="Password").pack(anchor="w")
+        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter Password", show="*")
+        ent_pass.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(card, text="DOB (optional)").pack(anchor="w")
+        ent_dob = ctk.CTkEntry(card, placeholder_text="DD/MM/YYYY")
+        ent_dob.pack(fill="x", pady=(4, 14))
+
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x")
+
+        def _save():
+            user_id = (ent_user.get() or "").strip()
+            password = (ent_pass.get() or "").strip()
+            dob = (ent_dob.get() or "").strip()
+            if not user_id or not password:
+                messagebox.showerror("Missing Data", "Please enter PAN/User ID and Password", parent=dialog)
+                return
+
+            self.manual_credentials.append({"PAN": user_id, "Password": password, "DOB": dob})
+            self.excel_file_path_26as = ""
+            self.excel_file_path_ais = ""
+            self.excel_file_path_tis = ""
+
+            manual_text = f"Manual IDs added: {len(self.manual_credentials)}"
+            if mode == "26as":
+                self.entry_file_26as.delete(0, "end")
+                self.entry_file_26as.insert(0, manual_text)
+            elif mode == "ais":
+                self.entry_file_ais.delete(0, "end")
+                self.entry_file_ais.insert(0, manual_text)
+            elif mode == "tis":
+                self.entry_file_tis.delete(0, "end")
+                self.entry_file_tis.insert(0, manual_text)
+
+            messagebox.showinfo("Added", f"Credential saved for {user_id}", parent=dialog)
+            dialog.destroy()
+
+        ctk.CTkButton(btn_row, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Add", width=110, command=_save).pack(side="right", padx=(0, 8))
+
+        ent_user.focus_set()
+        dialog.bind("<Return>", lambda _e: _save())
+
+    def _create_manual_excel(self):
+        rows = []
+        for item in self.manual_credentials:
+            user_id = str(item.get("PAN", "")).strip()
+            password = str(item.get("Password", "")).strip()
+            dob = str(item.get("DOB", "")).strip()
+            if user_id and password:
+                rows.append({"PAN": user_id, "Password": password, "DOB": dob})
+
+        if not rows:
+            return ""
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx", prefix="it_26as_manual_") as tmp:
+            temp_excel = tmp.name
+        pd.DataFrame(rows, columns=["PAN", "Password", "DOB"]).to_excel(temp_excel, index=False)
+        return temp_excel
+
+    def _resolve_excel_path(self, mode):
+        if mode == "26as":
+            path = self.excel_file_path_26as
+        elif mode == "ais":
+            path = self.excel_file_path_ais
+        elif mode == "tis":
+            path = self.excel_file_path_tis
+        else:
+            path = ""
+
+        if path:
+            return path
+
+        if self.manual_credentials:
+            return self._create_manual_excel()
+
+        return ""
+
     def start_process(self, mode):
         if getattr(self, 'chk_download_all_var', None) and self.chk_download_all_var.get() == "on":
             excel_path = None
-            year_mode = None
+            year_mode = "Current Year"
             if mode == "26as":
-                if not self.excel_file_path_26as: return messagebox.showwarning("Error", "Select file first")
-                excel_path = self.excel_file_path_26as; year_mode = self.combo_years_26as.get()
+                excel_path = self._resolve_excel_path("26as")
+                if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
             elif mode == "ais":
-                if not self.excel_file_path_ais: return messagebox.showwarning("Error", "Select file first")
-                excel_path = self.excel_file_path_ais; year_mode = self.combo_years_ais.get()
+                excel_path = self._resolve_excel_path("ais")
+                if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
             elif mode == "tis":
-                if not self.excel_file_path_tis: return messagebox.showwarning("Error", "Select file first")
-                excel_path = self.excel_file_path_tis; year_mode = self.combo_years_tis.get()
+                excel_path = self._resolve_excel_path("tis")
+                if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
 
             try: self.btn_start_26as.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             except: pass
@@ -2523,25 +2626,28 @@ class App(ctk.CTk):
             return
 
         if mode == "26as":
-            if not self.excel_file_path_26as: return messagebox.showwarning("Error", "Select file first")
+            excel_path = self._resolve_excel_path("26as")
+            if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
             self.btn_start_26as.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             self.btn_stop_26as.pack(side="left", padx=(10, 0))
             self.progress_26as.set(0)
-            self.worker = Tax26ASWorker(self, self.excel_file_path_26as, self.combo_years_26as.get())
+            self.worker = Tax26ASWorker(self, excel_path, "Current Year")
             threading.Thread(target=self.worker.run, daemon=True).start()
         elif mode == "ais":
-            if not self.excel_file_path_ais: return messagebox.showwarning("Error", "Select file first")
+            excel_path = self._resolve_excel_path("ais")
+            if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
             self.btn_start_ais.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             self.btn_stop_ais.pack(side="left", padx=(10, 0))
             self.progress_ais.set(0)
-            self.worker = AISWorker(self, self.excel_file_path_ais, self.combo_years_ais.get())
+            self.worker = AISWorker(self, excel_path, "Current Year")
             threading.Thread(target=self.worker.run, daemon=True).start()
         elif mode == "tis":
-            if not self.excel_file_path_tis: return messagebox.showwarning("Error", "Select file first")
+            excel_path = self._resolve_excel_path("tis")
+            if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
             self.btn_start_tis.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             self.btn_stop_tis.pack(side="left", padx=(10, 0))
             self.progress_tis.set(0)
-            self.worker = TISWorker(self, self.excel_file_path_tis, self.combo_years_tis.get())
+            self.worker = TISWorker(self, excel_path, "Current Year")
             threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self, mode=None):

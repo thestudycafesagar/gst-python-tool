@@ -2,6 +2,7 @@ import threading
 import time
 import os
 import re
+import tempfile
 import pandas as pd
 import customtkinter as ctk
 from datetime import datetime
@@ -398,6 +399,7 @@ class App(ctk.CTk):
 
         # Variables
         self.excel_file_path = ""
+        self.manual_credentials = []
         self.worker = None
 
         # --- HEADER SECTION ---
@@ -426,18 +428,21 @@ class App(ctk.CTk):
         
         self.entry_file = ctk.CTkEntry(self.file_frame, placeholder_text="Select Excel file (Columns: 'PAN' or 'User ID' & 'Password')...")
         self.entry_file.pack(side="left", fill="x", expand=True, padx=(0, 10))
+
+        self.file_actions_frame = ctk.CTkFrame(self.file_frame, fg_color="transparent")
+        self.file_actions_frame.pack(side="right")
         
-        self.btn_browse = ctk.CTkButton(self.file_frame, text="BROWSE FILE",
+        self.btn_browse = ctk.CTkButton(self.file_actions_frame, text="BROWSE FILE",
                                       command=self.browse_file, width=100)
-        self.btn_browse.pack(side="right")
-        self.btn_demo = ctk.CTkButton(self.file_frame, text="▶ Demo", command=self.open_demo_link,
+        self.btn_browse.pack(side="left", padx=(0, 5))
+        self.btn_demo = ctk.CTkButton(self.file_actions_frame, text="▶ Demo", command=self.open_demo_link,
                                       fg_color="#e53935", hover_color="#b71c1c", width=80,
                                       font=("Arial", 12, "bold"))
-        self.btn_demo.pack(side="right", padx=(0, 5))
-        self.btn_sample = ctk.CTkButton(self.file_frame, text="📥 Sample", command=self.download_sample,
-                                        fg_color="#43a047", hover_color="#2e7d32", width=100,
+        self.btn_demo.pack(side="left", padx=(0, 5))
+        self.btn_sample = ctk.CTkButton(self.file_actions_frame, text="➕ Add ID Password", command=self.add_id_password,
+                        fg_color="#43a047", hover_color="#2e7d32", width=150,
                                         font=("Arial", 12, "bold"))
-        self.btn_sample.pack(side="right", padx=(0, 5))
+        self.btn_sample.pack(side="left")
 
         # 1.2 Year Selection
         self.step2_label = ctk.CTkLabel(self.config_frame, text="2. DOWNLOAD SETTINGS", 
@@ -451,9 +456,9 @@ class App(ctk.CTk):
         self.lbl_years.pack(side="left", padx=(0, 10))
 
         self.combo_years = ctk.CTkComboBox(self.pref_frame, 
-                                         values=["Last 1 Year", "Last 2 Years", "Last 3 Years", "All Available"],
-                                         width=200, state="readonly")
-        self.combo_years.set("Last 3 Years") 
+                         values=["Last 1 Year"],
+                         width=200, state="readonly")
+        self.combo_years.set("Last 1 Year") 
         self.combo_years.pack(side="left")
 
         # --- 2. TERMINAL LOG SECTION ---
@@ -517,9 +522,68 @@ class App(ctk.CTk):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
         if filename:
             self.excel_file_path = filename
+            self.manual_credentials = []
             self.entry_file.delete(0, "end")
             self.entry_file.insert(0, filename)
             self.log_to_gui(f"File Selected: {os.path.basename(filename)}")
+
+    def add_id_password(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add ID Password")
+        dialog.geometry("420x240")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        card = ctk.CTkFrame(dialog, fg_color="transparent")
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ctk.CTkLabel(card, text="User ID / PAN").pack(anchor="w")
+        ent_user = ctk.CTkEntry(card, placeholder_text="Enter User ID / PAN")
+        ent_user.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(card, text="Password").pack(anchor="w")
+        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter Password", show="*")
+        ent_pass.pack(fill="x", pady=(4, 14))
+
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x")
+
+        def _save():
+            user_id = (ent_user.get() or "").strip()
+            password = (ent_pass.get() or "").strip()
+            if not user_id or not password:
+                messagebox.showerror("Missing Data", "Please enter User ID/PAN and Password", parent=dialog)
+                return
+
+            self.manual_credentials.append({"User ID": user_id, "Password": password})
+            self.excel_file_path = ""
+            self.entry_file.delete(0, "end")
+            self.entry_file.insert(0, f"Manual IDs added: {len(self.manual_credentials)}")
+            messagebox.showinfo("Added", f"Credential saved for {user_id}", parent=dialog)
+            dialog.destroy()
+
+        ctk.CTkButton(btn_row, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Add", width=110, command=_save).pack(side="right", padx=(0, 8))
+
+        ent_user.focus_set()
+        dialog.bind("<Return>", lambda _e: _save())
+
+    def _create_manual_excel(self):
+        rows = []
+        for item in self.manual_credentials:
+            user_id = str(item.get("User ID", "")).strip()
+            password = str(item.get("Password", "")).strip()
+            if user_id and password:
+                rows.append({"User ID": user_id, "Password": password})
+
+        if not rows:
+            return ""
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx", prefix="it_itr_manual_") as tmp:
+            temp_excel = tmp.name
+        pd.DataFrame(rows, columns=["User ID", "Password"]).to_excel(temp_excel, index=False)
+        return temp_excel
 
     def log_to_gui(self, message):
         self.log_box.configure(state="normal")
@@ -528,8 +592,12 @@ class App(ctk.CTk):
         self.log_box.configure(state="disabled")
 
     def start_process(self):
-        if not self.excel_file_path:
-            messagebox.showwarning("Missing File", "Please select an Excel file first.")
+        excel_path = self.excel_file_path
+        if not excel_path and self.manual_credentials:
+            excel_path = self._create_manual_excel()
+
+        if not excel_path:
+            messagebox.showwarning("Missing File", "Please select an Excel file or add ID/Password first.")
             return
 
         selected_pref = self.combo_years.get()
@@ -540,7 +608,7 @@ class App(ctk.CTk):
         self.log_to_gui("-" * 30)
         self.log_to_gui("Starting Worker Thread...")
 
-        self.worker = IncomeTaxWorker(self, self.excel_file_path, selected_pref)
+        self.worker = IncomeTaxWorker(self, excel_path, selected_pref)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self):

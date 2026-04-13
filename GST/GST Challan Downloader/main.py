@@ -1,6 +1,7 @@
 import threading
 import time
 import os
+import random
 import glob
 import base64
 import pandas as pd
@@ -29,10 +30,11 @@ except AttributeError:
     _CAPTCHA_RESAMPLE = Image.NEAREST
 
 class GSTWorker:
-    def __init__(self, app_instance, excel_path, settings):
+    def __init__(self, app_instance, excel_path, settings, credentials=None):
         self.app = app_instance
         self.excel_path = excel_path
         self.settings = settings
+        self.credentials = credentials or []
         self.keep_running = True
         self.driver = None
         self.captcha_response = None 
@@ -86,30 +88,55 @@ class GSTWorker:
     def log(self, message):
         self.app.update_log_safe(message)
 
+    def human_delay(self, base_s=5.0, extra_s=1.5):
+        time.sleep(base_s + random.uniform(0.0, extra_s))
+
+    def type_like_human(self, element, text):
+        element.clear()
+        for ch in str(text):
+            element.send_keys(ch)
+            time.sleep(random.uniform(0.06, 0.18))
+
     def run(self):
         self.log("🚀 INITIALIZING GST CHALLAN ENGINE V1...")
         
         try:
-            # 1. READ EXCEL
-            df = pd.read_excel(self.excel_path)
-            clean_cols = {c.lower().strip(): c for c in df.columns}
-            user_col = next((clean_cols[c] for c in clean_cols if 'user' in c or 'name' in c), None)
-            pass_col = next((clean_cols[c] for c in clean_cols if 'pass' in c or 'pwd' in c), None)
+            # 1. LOAD CREDENTIALS (manual IDs preferred, Excel optional)
+            if self.credentials:
+                df = pd.DataFrame(self.credentials)
+                user_col, pass_col = "Username", "Password"
+                self.log(f"📊 Loaded {len(df)} users from Add ID Password.")
+            else:
+                if not self.excel_path:
+                    self.app.process_finished_safe("Please add ID/Password or select Excel file")
+                    return
 
-            if not user_col or not pass_col:
-                self.app.process_finished_safe("Column Error: Need Username/Password columns")
+                df = pd.read_excel(self.excel_path)
+                clean_cols = {c.lower().strip(): c for c in df.columns}
+                user_col = next((clean_cols[c] for c in clean_cols if 'user' in c or 'name' in c), None)
+                pass_col = next((clean_cols[c] for c in clean_cols if 'pass' in c or 'pwd' in c), None)
+
+                if not user_col or not pass_col:
+                    self.app.process_finished_safe("Column Error: Need Username/Password columns")
+                    return
+                self.log(f"📊 Loaded {len(df)} users from Excel.")
+
+            if df.empty:
+                self.app.process_finished_safe("No credentials found to process")
                 return
 
             total = len(df)
-            self.log(f"📊 Loaded {total} users.")
 
             # 2. CREATE MAIN DOWNLOAD FOLDER
             base_dir = os.path.join(os.getcwd(), "GST_Challans")
             if not os.path.exists(base_dir): os.makedirs(base_dir)
 
             # 3. PROCESS LOOP
+            stopped_by_user = False
             for index, row in df.iterrows():
-                if not self.keep_running: break
+                if not self.keep_running:
+                    stopped_by_user = True
+                    break
 
                 username = str(row[user_col]).strip()
                 password = str(row[pass_col]).strip()
@@ -135,8 +162,22 @@ class GSTWorker:
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "Saved To": os.path.basename(user_root)
                 })
+
+                if not self.keep_running:
+                    stopped_by_user = True
+                    break
                 
                 self.log("-" * 40)
+
+            if stopped_by_user or not self.keep_running:
+                if self.report_data:
+                    self.generate_excel_report()
+                    self.log("🛑 Process stopped by user. Partial report saved.")
+                    self.app.process_finished_safe("Stopped by user. Partial report saved.")
+                else:
+                    self.log("🛑 Process stopped by user.")
+                    self.app.process_finished_safe("Stopped by user.")
+                return
 
             self.generate_excel_report()
             self.app.update_progress_safe(1.0)
@@ -195,6 +236,7 @@ class GSTWorker:
             if not challan_status: return "Navigation Failed", challan_msg
 
             # 3. DOWNLOAD CHALLANS
+            self.human_delay()
             dl_status, dl_msg = self.download_challans(wait, user_root)
             return dl_status, dl_msg
 
@@ -202,7 +244,11 @@ class GSTWorker:
             return "Error", f"Browser Crash: {str(e)[:30]}"
         finally:
             if self.driver:
-                self.driver.quit()
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
 
     def perform_login(self, username, password, wait):
         self.log("   🌐 Opening GST Portal...")
@@ -212,11 +258,11 @@ class GSTWorker:
             if not self.keep_running: return False, "Stopped"
 
             try:
-                wait.until(EC.visibility_of_element_located((By.ID, "username"))).clear()
-                self.driver.find_element(By.ID, "username").send_keys(username)
-                
-                self.driver.find_element(By.ID, "user_pass").clear()
-                self.driver.find_element(By.ID, "user_pass").send_keys(password)
+                user_box = wait.until(EC.visibility_of_element_located((By.ID, "username")))
+                self.type_like_human(user_box, username)
+
+                pass_box = self.driver.find_element(By.ID, "user_pass")
+                self.type_like_human(pass_box, password)
 
                 self._save_captcha_image(wait, "temp_captcha.png")
                 
@@ -228,11 +274,11 @@ class GSTWorker:
 
                 if not self.captcha_response: return False, "Captcha Cancelled"
 
-                self.driver.find_element(By.ID, "captcha").clear()
-                self.driver.find_element(By.ID, "captcha").send_keys(self.captcha_response)
+                cap_box = self.driver.find_element(By.ID, "captcha")
+                self.type_like_human(cap_box, self.captcha_response)
                 self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
                 
-                time.sleep(3)
+                self.human_delay()
 
                 src = self.driver.page_source
                 if "Invalid Username or Password" in src:
@@ -249,13 +295,13 @@ class GSTWorker:
                     self.app.close_captcha_safe()
                     
                     # --- MODAL HANDLER ---
-                    time.sleep(3)
+                    self.human_delay()
                     try:
                         aadhaar_skip = self.driver.find_elements(By.XPATH, "//a[contains(text(),'Remind me later')]")
                         if aadhaar_skip and aadhaar_skip[0].is_displayed():
                             self.log("   ℹ️ Closing Aadhaar Popup...")
                             aadhaar_skip[0].click()
-                            time.sleep(1.5)
+                            self.human_delay()
                     except: pass
 
                     try:
@@ -263,7 +309,7 @@ class GSTWorker:
                         if generic_skip and generic_skip[0].is_displayed():
                             self.log("   ℹ️ Closing Generic Popup...")
                             generic_skip[0].click()
-                            time.sleep(1.5)
+                            self.human_delay()
                     except: pass
 
                     # Already on Dashboard after login — no further navigation needed
@@ -319,15 +365,14 @@ class GSTWorker:
 
     def download_challans(self, wait, user_root):
         """
-        Reads the Challan History table, filters rows by year and type
-        (AOP = Monthly, MPQR = Quarterly), clicks each CPIN, downloads the PDF,
+        Reads the Challan History table, filters rows by year in monthly mode
+        (AOP), clicks each CPIN, downloads the PDF,
         then goes back. Handles pagination. Returns (status, summary_msg).
         """
         from selenium.webdriver.common.action_chains import ActionChains
 
-        # Determine filter keyword from settings
-        challan_type = self.settings.get("type", "Monthly (AOP)")
-        filter_keyword = "AOP" if "Monthly" in challan_type else "MPQR"
+        # Monthly mode only.
+        filter_keyword = "AOP"
 
         # Derive calendar year filter e.g. "2025" → match any row where Created On year == 2025
         selected_year_str = self.settings.get("year", "")
@@ -489,6 +534,7 @@ class App(ctk.CTk):
 
         self.worker = None
         self.excel_file = ""
+        self.manual_credentials = []
 
         # HEADER
         self.head = ctk.CTkFrame(self, fg_color="#1a237e", corner_radius=0, height=70)
@@ -516,7 +562,7 @@ class App(ctk.CTk):
         self.card_cred = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
         self.card_cred.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         ctk.CTkLabel(self.card_cred, text="📂 Credentials Source", font=("Arial", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
-        self.ent_file = ctk.CTkEntry(self.card_cred, placeholder_text="Select Excel File...", height=35)
+        self.ent_file = ctk.CTkEntry(self.card_cred, placeholder_text="Add ID/Password or select Excel file (optional)...", height=35)
         self.ent_file.pack(fill="x", padx=15, pady=(5, 10))
         self.btn_browse = ctk.CTkButton(self.card_cred, text="Browse File", command=self.browse_file,
                                         fg_color="#3949ab", hover_color="#283593", height=35)
@@ -524,7 +570,7 @@ class App(ctk.CTk):
         self.btn_browse.pack(fill="x", padx=15, pady=(0, 15))
         btn_row = ctk.CTkFrame(self.card_cred, fg_color="transparent")
         btn_row.pack(fill="x", padx=15, pady=(5, 15))
-        self.btn_download = ctk.CTkButton(btn_row, text="📥 Sample Excel", command=self.download_sample, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
+        self.btn_download = ctk.CTkButton(btn_row, text="➕ Add ID Password", command=self.add_id_password, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
         self.btn_download.pack(side="left", expand=True, fill="x", padx=(0, 5))
         self.btn_demo = ctk.CTkButton(btn_row, text="▶ View Demo", command=self.open_demo_link, fg_color="#e53935", hover_color="#b71c1c", height=28, font=("Arial", 12, "bold"))
         self.btn_demo.pack(side="left", expand=True, fill="x", padx=(5, 0))
@@ -532,7 +578,7 @@ class App(ctk.CTk):
         # Period Settings Card
         self.card_period = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
         self.card_period.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
-        ctk.CTkLabel(self.card_period, text="📅 Period & Type", font=("Arial", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
+        ctk.CTkLabel(self.card_period, text="📅 Period (Monthly)", font=("Arial", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
 
         cur_year = datetime.now().year
         year_list = [str(y) for y in range(cur_year - 5, cur_year + 1)]
@@ -548,8 +594,9 @@ class App(ctk.CTk):
         self.frm_type.pack(fill="x", padx=15, pady=(6, 15))
         ctk.CTkLabel(self.frm_type, text="Challan Type:", width=110, anchor="w").pack(side="left")
         self.cb_type = ctk.CTkComboBox(self.frm_type,
-                                       values=["Monthly (AOP)", "Quarterly (MPQR)"],
-                                       width=150)
+                                       values=["Monthly (AOP)"],
+                                       width=150,
+                                       state="disabled")
         self.cb_type.set("Monthly (AOP)")
         self.cb_type.pack(side="right", expand=True, fill="x")
 
@@ -574,12 +621,15 @@ class App(ctk.CTk):
                                     font=("Consolas", 20), justify="center", height=45, width=250)
         self.cap_ent.pack(pady=5)
         self.cap_ent.bind("<Return>", self.submit_captcha) 
-        self.cap_btn = ctk.CTkButton(self.cap_inner, text="SUBMIT CAPTCHA", fg_color="#d32f2f", hover_color="#b71c1c",
-                                     height=40, width=250, font=("Arial", 12, "bold"), command=self.submit_captcha)
-        self.cap_btn.pack(pady=(10, 0))
-        self.cap_stop_btn = ctk.CTkButton(self.cap_inner, text="⏹ STOP PROCESS", fg_color="#424242", hover_color="#212121",
-                                          height=35, width=250, font=("Arial", 11, "bold"), command=self.stop_process)
-        self.cap_stop_btn.pack(pady=(8, 5))
+        # --- CAPTCHA BUTTONS SIDE-BY-SIDE ---
+        self.cap_btn_row = ctk.CTkFrame(self.cap_inner, fg_color="transparent")
+        self.cap_btn_row.pack(pady=(10, 0))
+        self.cap_btn = ctk.CTkButton(self.cap_btn_row, text="SUBMIT CAPTCHA", fg_color="#d32f2f", hover_color="#b71c1c",
+                         height=40, width=120, font=("Arial", 12, "bold"), command=self.submit_captcha)
+        self.cap_btn.pack(side="left", padx=(0, 10))
+        self.cap_stop_btn = ctk.CTkButton(self.cap_btn_row, text="⏹ STOP PROCESS", fg_color="#424242", hover_color="#212121",
+                          height=40, width=120, font=("Arial", 11, "bold"), command=self.stop_process)
+        self.cap_stop_btn.pack(side="left")
 
         # FOOTER
         self.footer = ctk.CTkFrame(self, fg_color="transparent")
@@ -596,22 +646,47 @@ class App(ctk.CTk):
                                       fg_color="#c62828", hover_color="#8e0000", command=self.stop_process, width=150)
         self.btn_stop.pack(side="left", padx=(10, 0))
         self.btn_stop.pack_forget()
-    def download_sample(self):
-        import shutil
-        import os
-        from tkinter import messagebox
-        sample_path = os.path.join(os.path.dirname(__file__), "GST Challan Downloader Sample File.xlsx")
-        if not os.path.exists(sample_path):
-            messagebox.showerror("Download Error", f"Sample file not found: {sample_path}")
-            return
-        
-        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="GST Challan Downloader Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
-        if save_path:
-            try:
-                shutil.copy2(sample_path, save_path)
-                messagebox.showinfo("Success", f"Sample downloaded to {save_path}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to download: {e}")
+    def add_id_password(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add ID Password")
+        dialog.geometry("420x240")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        card = ctk.CTkFrame(dialog, fg_color="transparent")
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ctk.CTkLabel(card, text="GST ID/Username").pack(anchor="w")
+        ent_user = ctk.CTkEntry(card, placeholder_text="Enter GST ID/Username")
+        ent_user.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(card, text="GST Password").pack(anchor="w")
+        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter GST Password", show="*")
+        ent_pass.pack(fill="x", pady=(4, 14))
+
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x")
+
+        def _save():
+            username = (ent_user.get() or "").strip()
+            password = (ent_pass.get() or "").strip()
+            if not username or not password:
+                messagebox.showerror("Missing Data", "Please enter both GST ID and Password", parent=dialog)
+                return
+
+            self.manual_credentials.append({"Username": username, "Password": password})
+            self.excel_file = ""
+            self.ent_file.delete(0, "end")
+            self.ent_file.insert(0, f"Manual IDs added: {len(self.manual_credentials)}")
+            messagebox.showinfo("Added", f"Credential saved for {username}", parent=dialog)
+            dialog.destroy()
+
+        ctk.CTkButton(btn_row, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Add", width=110, command=_save).pack(side="right", padx=(0, 8))
+
+        ent_user.focus_set()
+        dialog.bind("<Return>", lambda _e: _save())
 
     def open_demo_link(self):
         import webbrowser
@@ -621,6 +696,7 @@ class App(ctk.CTk):
         f = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")])
         if f:
             self.excel_file = f
+            self.manual_credentials = []
             self.ent_file.delete(0, "end")
             self.ent_file.insert(0, f)
 
@@ -637,13 +713,22 @@ class App(ctk.CTk):
         self.after(0, lambda: self.prog_bar.set(val))
 
     def process_finished_safe(self, msg):
-        self.after(0, lambda: messagebox.showinfo("Info", msg))
-        self.after(0, lambda: self.btn_start.configure(state="normal", text="START BATCH PROCESS"))
-        self.after(0, lambda: self.btn_stop.pack_forget())
-        self.after(0, lambda: self.btn_stop.configure(state="normal", text="⏹ STOP"))
+        def _finish_ui():
+            messagebox.showinfo("Info", msg)
+            is_stopped = "stopped" in (msg or "").lower()
+            self.close_captcha_safe()
+            self.btn_start.configure(state="normal", text="STOPPED" if is_stopped else "START BATCH PROCESS")
+            self.btn_stop.pack_forget()
+            self.btn_stop.configure(state="normal", text="⏹ STOP")
+            self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+            if is_stopped:
+                self.after(1200, lambda: self.btn_start.configure(text="START BATCH PROCESS"))
+        self.after(0, _finish_ui)
 
     def request_captcha_safe(self, img_path):
         def show():
+            if not self.worker or not self.worker.keep_running:
+                return
             with Image.open(img_path) as raw_img:
                 pil_img = raw_img.convert("RGB")
 
@@ -687,23 +772,42 @@ class App(ctk.CTk):
         self.after(0, lambda: self.cap_frame.grid_forget())
 
     def start_process(self):
-        if not self.excel_file:
-            messagebox.showerror("Error", "Please select Excel file")
+        credentials = list(self.manual_credentials)
+        if not credentials and not self.excel_file:
+            messagebox.showerror("Error", "Please add ID/Password or select Excel file")
             return
         settings = {
             "year": self.cb_year.get(),
-            "type": self.cb_type.get(),  # "Monthly (AOP)" or "Quarterly (MPQR)"
+            "type": "Monthly (AOP)",
         }
+        self.close_captcha_safe()
+        self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+        self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.pack(side="left", padx=(10, 0))
-        self.worker = GSTWorker(self, self.excel_file, settings)
+        self.worker = GSTWorker(self, self.excel_file, settings, credentials=credentials)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self):
-        if self.worker:
-            self.worker.keep_running = False
-        self.btn_stop.configure(state="disabled", text="STOPPING...")
-        self.update_log_safe("🛑 Stop requested — will halt after current user...")
+        if not self.worker:
+            return
+
+        self.worker.keep_running = False
+        self.worker.captcha_response = None
+        self.worker.captcha_event.set()
+
+        try:
+            if self.worker.driver:
+                self.worker.driver.quit()
+                self.worker.driver = None
+                self.update_log_safe("🛑 Chrome browser closed.")
+        except Exception as e:
+            self.update_log_safe(f"⚠️ Error closing Chrome: {e}")
+
+        self.close_captcha_safe()
+        self.btn_stop.configure(state="disabled", text="STOPPED")
+        self.cap_stop_btn.configure(state="disabled", text="STOPPED")
+        self.update_log_safe("🛑 Process stopped by user.")
 
 if __name__ == "__main__":
     app = App()
