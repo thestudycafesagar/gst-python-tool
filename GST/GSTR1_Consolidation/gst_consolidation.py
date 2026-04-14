@@ -26,20 +26,72 @@ TARGET_SHEETS = [
 ]
 
 # ─────────────────────────────────────────────────────────
-# COLOUR PALETTE
+# THEME PALETTES
 # ─────────────────────────────────────────────────────────
-BG_DARK    = "#0D0D1A"
-BG_CARD    = "#141428"
-BG_PANEL   = "#1A1A35"
-ACCENT1    = "#FF6B35"   # orange
-ACCENT2    = "#00D4FF"   # cyan
-ACCENT3    = "#A855F7"   # purple
-SUCCESS    = "#22C55E"   # green
-WARNING    = "#F59E0B"   # amber
-ERROR_CLR  = "#EF4444"   # red
-TEXT_MAIN  = "#F0F4FF"
-TEXT_DIM   = "#8892AA"
-BTN_HOVER  = "#FF8C5A"
+_DARK_THEME = {
+    "BG_DARK":   "#0D0D1A",
+    "BG_CARD":   "#141428",
+    "BG_PANEL":  "#1A1A35",
+    "ACCENT1":   "#FF6B35",  # orange
+    "ACCENT2":   "#00D4FF",  # cyan
+    "ACCENT3":   "#A855F7",  # purple
+    "SUCCESS":   "#22C55E",  # green
+    "WARNING":   "#F59E0B",  # amber
+    "ERROR_CLR": "#EF4444",  # red
+    "TEXT_MAIN": "#F0F4FF",
+    "TEXT_DIM":  "#8892AA",
+    "BTN_HOVER": "#FF8C5A",
+}
+
+_LIGHT_THEME = {
+    "BG_DARK":   "#F5F7FC",
+    "BG_CARD":   "#FFFFFF",
+    "BG_PANEL":  "#EAF0FF",
+    "ACCENT1":   "#EA580C",  # orange
+    "ACCENT2":   "#0369A1",  # cyan-blue
+    "ACCENT3":   "#2563EB",  # blue
+    "SUCCESS":   "#15803D",  # green
+    "WARNING":   "#B45309",  # amber
+    "ERROR_CLR": "#DC2626",  # red
+    "TEXT_MAIN": "#0F172A",
+    "TEXT_DIM":  "#475569",
+    "BTN_HOVER": "#FB923C",
+}
+
+_THEME_PALETTES = {
+    "dark": _DARK_THEME,
+    "light": _LIGHT_THEME,
+}
+
+
+def _normalize_theme_mode(theme_value):
+    raw = str(theme_value or "").strip().lower()
+    return "light" if raw.startswith("light") else "dark"
+
+
+def _apply_palette(theme_mode: str):
+    global BG_DARK, BG_CARD, BG_PANEL
+    global ACCENT1, ACCENT2, ACCENT3
+    global SUCCESS, WARNING, ERROR_CLR
+    global TEXT_MAIN, TEXT_DIM, BTN_HOVER
+
+    pal = _THEME_PALETTES[_normalize_theme_mode(theme_mode)]
+    BG_DARK = pal["BG_DARK"]
+    BG_CARD = pal["BG_CARD"]
+    BG_PANEL = pal["BG_PANEL"]
+    ACCENT1 = pal["ACCENT1"]
+    ACCENT2 = pal["ACCENT2"]
+    ACCENT3 = pal["ACCENT3"]
+    SUCCESS = pal["SUCCESS"]
+    WARNING = pal["WARNING"]
+    ERROR_CLR = pal["ERROR_CLR"]
+    TEXT_MAIN = pal["TEXT_MAIN"]
+    TEXT_DIM = pal["TEXT_DIM"]
+    BTN_HOVER = pal["BTN_HOVER"]
+
+
+# Default palette for direct-run mode.
+_apply_palette("dark")
 
 # ─────────────────────────────────────────────────────────
 # HELPERS
@@ -204,6 +256,8 @@ def consolidate(folder_path: str, output_path: str, log_fn, progress_fn, done_fn
 class ChallExtractorApp(tk.Tk):
     def __init__(self):
         super().__init__()
+        self._theme_mode = self._detect_initial_theme()
+        _apply_palette(self._theme_mode)
         self.title("GST Sheet Consolidation Tool")
         self.geometry("1200x800")
         self.minsize(960, 680)
@@ -225,6 +279,74 @@ class ChallExtractorApp(tk.Tk):
             "Third-party reports are not supported.",
             parent=self,
         )
+
+    def _detect_initial_theme(self):
+        try:
+            import customtkinter as ctk
+            return _normalize_theme_mode(ctk.get_appearance_mode())
+        except Exception:
+            return "dark"
+
+    def set_theme(self, theme_mode):
+        """Called by GST_Suite to sync light/dark theme at runtime."""
+        new_mode = _normalize_theme_mode(theme_mode)
+        if new_mode == getattr(self, "_theme_mode", ""):
+            return
+        self._theme_mode = new_mode
+        _apply_palette(new_mode)
+        self._rebuild_ui()
+
+    def _rebuild_ui(self):
+        log_content = ""
+        status_text = ""
+        progress_val = 0
+
+        try:
+            if hasattr(self, "log_box"):
+                self.log_box.config(state="normal")
+                log_content = self.log_box.get("1.0", "end-1c")
+                self.log_box.config(state="disabled")
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "status_lbl"):
+                status_text = self.status_lbl.cget("text")
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "progress"):
+                progress_val = float(self.progress["value"])
+        except Exception:
+            pass
+
+        for child in self.winfo_children():
+            try:
+                child.destroy()
+            except Exception:
+                pass
+
+        self.configure(bg=BG_DARK)
+        self._build_ui()
+
+        if log_content:
+            self.log_box.config(state="normal")
+            self.log_box.delete("1.0", "end")
+            self.log_box.insert("1.0", log_content)
+            self.log_box.config(state="disabled")
+            self.log_box.see("end")
+
+        if status_text:
+            self.status_lbl.config(text=status_text)
+
+        try:
+            self.progress["value"] = progress_val
+        except Exception:
+            pass
+
+        if self._running:
+            self.run_btn.config(state="disabled", text="⏳  Processing…", bg=WARNING)
 
     # ── layout ────────────────────────────────────────────
     def _build_ui(self):
@@ -286,7 +408,7 @@ class ChallExtractorApp(tk.Tk):
         sheet_frame.pack(fill="x", padx=8, pady=(0, 8))
 
         sb = tk.Scrollbar(sheet_frame, orient="vertical", bg=BG_PANEL)
-        sheet_lb = tk.Listbox(
+        self.sheet_list = tk.Listbox(
             sheet_frame, yscrollcommand=sb.set,
             bg=BG_DARK, fg=ACCENT2,
             font=("Consolas", 12),
@@ -299,9 +421,9 @@ class ChallExtractorApp(tk.Tk):
             highlightbackground=BG_PANEL
         )
         for t in TARGET_SHEETS:
-            sheet_lb.insert("end", f"  {t}")
-        sb.config(command=sheet_lb.yview)
-        sheet_lb.pack(side="left", fill="both", expand=True)
+            self.sheet_list.insert("end", f"  {t}")
+        sb.config(command=self.sheet_list.yview)
+        self.sheet_list.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
 
         # ── Run button ────────────────────────────────────
