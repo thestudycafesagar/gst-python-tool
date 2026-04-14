@@ -51,6 +51,64 @@ TEXT_MUTED = COLORS["text_muted"]
 CARD_BG = COLORS["bg_dark"]
 SUSPENSE_LEDGER = "Suspense A/c"
 
+LEDGER_PARENT_OPTIONS = [
+    "Sundry Debtors",
+    "Sundry Creditors",
+    "Sales Accounts",
+    "Purchase Accounts",
+    "Duties & Taxes",
+    "Direct Incomes",
+    "Indirect Incomes",
+    "Direct Expenses",
+    "Indirect Expenses",
+    "Fixed Assets",
+]
+
+LEDGER_GST_APPLICABLE_OPTIONS = [
+    "Applicable",
+    "Not Applicable",
+]
+
+LEDGER_STATE_OPTIONS = [
+    "Not Applicable",
+    "Andaman & Nicobar Islands",
+    "Andhra Pradesh",
+    "Arunachal Pradesh",
+    "Assam",
+    "Bihar",
+    "Chandigarh",
+    "Chhattisgarh",
+    "Dadra & Nagar Haveli and Daman & Diu",
+    "Delhi",
+    "Goa",
+    "Gujarat",
+    "Haryana",
+    "Himachal Pradesh",
+    "Jammu & Kashmir",
+    "Jharkhand",
+    "Karnataka",
+    "Kerala",
+    "Ladakh",
+    "Lakshadweep",
+    "Madhya Pradesh",
+    "Maharashtra",
+    "Manipur",
+    "Meghalaya",
+    "Mizoram",
+    "Nagaland",
+    "Odisha",
+    "Puducherry",
+    "Punjab",
+    "Rajasthan",
+    "Sikkim",
+    "Tamil Nadu",
+    "Telangana",
+    "Tripura",
+    "Uttarakhand",
+    "Uttar Pradesh",
+    "West Bengal",
+]
+
 # ─── Tally XML Helpers ──────────────────────────────────────────────────────
 
 def xml_escape(s: str) -> str:
@@ -180,6 +238,79 @@ def _row_invoice_reference(row: dict, default: str = "") -> str:
 def _ledger_or_suspense(value: str, fallback: str = SUSPENSE_LEDGER) -> str:
     text = str(value or "").strip()
     return text or fallback
+
+
+def _is_party_parent(parent: str) -> bool:
+    key = re.sub(r"\s+", " ", str(parent or "")).strip().casefold()
+    return key in {"sundry debtors", "sundry creditors"}
+
+
+def _is_duties_parent(parent: str) -> bool:
+    key = re.sub(r"\s+", " ", str(parent or "")).strip().casefold()
+    return key in {"duties & taxes", "duties and taxes", "duty"}
+
+
+def _current_fy_start() -> str:
+    today = date.today()
+    fy_start_year = today.year if today.month >= 4 else today.year - 1
+    return f"{fy_start_year}0401"
+
+
+def _state_name_from_gstin(gstin: str) -> str:
+    gstin_text = str(gstin or "").strip().upper()
+    state_map = {
+        "01": "Jammu And Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
+        "05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh",
+        "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur",
+        "15": "Mizoram", "16": "Tripura", "17": "Meghalaya", "18": "Assam", "19": "West Bengal",
+        "20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh",
+        "24": "Gujarat", "25": "Daman And Diu", "26": "Dadra And Nagar Haveli And Daman And Diu",
+        "27": "Maharashtra", "29": "Karnataka", "30": "Goa", "31": "Lakshadweep", "32": "Kerala",
+        "33": "Tamil Nadu", "34": "Puducherry", "35": "Andaman And Nicobar Islands", "36": "Telangana",
+        "37": "Andhra Pradesh", "38": "Ladakh", "97": "Other Territory", "99": "Centre Jurisdiction",
+    }
+    return state_map.get(gstin_text[:2], "")
+
+
+def _normalize_gst_applicable(value: str, gstin: str = "") -> str:
+    raw = str(value or "").strip()
+    key = raw.casefold()
+    if key in {"applicable", "yes", "y", "true", "1", "registered", "regular", "gst applicable"}:
+        return "Applicable"
+    if key in {"not applicable", "no", "n", "false", "0", "na", "n/a", "notapplicable"}:
+        return "Not Applicable"
+    if gstin:
+        return "Applicable"
+    return raw
+
+
+def _normalize_gst_registration_type(value: str, gstin: str = "", gst_applicable: str = "") -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        if gstin or str(gst_applicable).strip().casefold() == "applicable":
+            return "Regular"
+        return ""
+
+    key = raw.casefold()
+    mapping = {
+        "regular": "Regular",
+        "registered": "Regular",
+        "composition": "Composition",
+        "consumer": "Consumer",
+        "unregistered": "Unregistered",
+        "sez": "SEZ",
+        "sez unit": "SEZ",
+        "sez developer": "SEZ",
+        "overseas": "Overseas",
+    }
+    return mapping.get(key, raw)
+
+
+def _normalize_state_for_ledger(value: str) -> str:
+    text = str(value or "").strip()
+    if text.casefold() in {"not applicable", "* not applicable", "na", "n/a"}:
+        return ""
+    return text
 
 
 def _company_static_block(company: str) -> str:
@@ -1309,10 +1440,6 @@ def generate_purchase_item_xml(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def generate_ledger_xml(ledgers: list, company: str) -> str:
-    """
-    ledgers = list of dict: Name, Parent (group), GSTApplicable,
-    GSTIN, StateOfSupply, TypeOfTaxation (e.g. 'Central Tax','State Tax','Integrated Tax')
-    """
     lines = []
     a = lines.append
     company_static = _company_static_block(company)
@@ -1327,25 +1454,113 @@ def generate_ledger_xml(ledgers: list, company: str) -> str:
     a('  <REQUESTDATA>')
 
     for led in ledgers:
-        name   = xml_escape(led["Name"])
-        parent = xml_escape(led.get("Parent","Sundry Debtors"))
-        gst_app = led.get("GSTApplicable","")
-        gstin   = xml_escape(led.get("GSTIN",""))
-        state   = xml_escape(led.get("StateOfSupply",""))
-        tax_type= xml_escape(led.get("TypeOfTaxation",""))
-        gst_rate= led.get("GSTRate","")
+        name_raw = str(led.get("Name", "") or "").strip()
+        if not name_raw:
+            continue
+        parent_raw = str(led.get("Parent", "Sundry Debtors") or "Sundry Debtors").strip()
+        gstin_raw = str(led.get("GSTIN", "") or "").strip().upper()
+        state_raw = _normalize_state_for_ledger(
+            str(led.get("StateOfSupply", "") or "").strip()
+            or str(led.get("PlaceOfSupply", "") or "").strip()
+            or str(led.get("State", "") or "").strip()
+        )
+        address1_raw = (
+            str(led.get("Address1", "") or "").strip()
+            or str(led.get("AddressLine1", "") or "").strip()
+            or str(led.get("Address Line 1", "") or "").strip()
+        )
+        address2_raw = (
+            str(led.get("Address2", "") or "").strip()
+            or str(led.get("AddressLine2", "") or "").strip()
+            or str(led.get("Address Line 2", "") or "").strip()
+        )
+        if not state_raw and gstin_raw:
+            state_raw = _state_name_from_gstin(gstin_raw)
+
+        is_party = _is_party_parent(parent_raw)
+        gst_app_raw = str(led.get("GSTApplicable", "") or "").strip()
+        gst_app_value = _normalize_gst_applicable(gst_app_raw, gstin=gstin_raw)
+        reg_type_raw = (
+            str(led.get("GSTRegistrationType", "") or "").strip()
+            or str(led.get("RegistrationType", "") or "").strip()
+            or str(led.get("RegType", "") or "").strip()
+        )
+        reg_type = _normalize_gst_registration_type(
+            reg_type_raw,
+            gstin=gstin_raw,
+            gst_applicable=gst_app_value,
+        )
+
+        name = xml_escape(name_raw)
+        parent = xml_escape(parent_raw)
+        gst_app = xml_escape(gst_app_value)
+        gstin = xml_escape(gstin_raw)
+        state = xml_escape(state_raw)
+        address1 = xml_escape(address1_raw)
+        address2 = xml_escape(address2_raw)
+        tax_type_raw = str(led.get("TypeOfTaxation", "") or "").strip()
+        if tax_type_raw.casefold() in {"not applicable", "na", "n/a"}:
+            tax_type_raw = ""
+        tax_type = xml_escape(tax_type_raw)
+        gst_rate = str(led.get("GSTRate", "") or "").strip()
+        applicable_from = _current_fy_start()
 
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
         a(f'    <LEDGER NAME="{name}" ACTION="Create">')
         a(f'     <NAME>{name}</NAME>')
         a(f'     <PARENT>{parent}</PARENT>')
+
+        if is_party:
+            a('     <ISBILLWISEON>Yes</ISBILLWISEON>')
         if gst_app:
-            a(f'     <GSTAPPLICABLE>{xml_escape(gst_app)}</GSTAPPLICABLE>')
+            a(f'     <GSTAPPLICABLE>{gst_app}</GSTAPPLICABLE>')
+        if reg_type:
+            a(f'     <GSTREGISTRATIONTYPE>{xml_escape(reg_type)}</GSTREGISTRATIONTYPE>')
         if gstin:
             a(f'     <PARTYGSTIN>{gstin}</PARTYGSTIN>')
         if state:
+            a(f'     <PRIORSTATENAME>{state}</PRIORSTATENAME>')
             a(f'     <LEDSTATENAME>{state}</LEDSTATENAME>')
-        if parent.lower() in ("duties & taxes","duties and taxes","duty"):
+
+        a('     <LANGUAGENAME.LIST>')
+        a('      <NAME.LIST TYPE="String">')
+        a(f'       <NAME>{name}</NAME>')
+        a('      </NAME.LIST>')
+        a('      <LANGUAGEID>1033</LANGUAGEID>')
+        a('     </LANGUAGENAME.LIST>')
+
+        if is_party and (gstin or reg_type):
+            a('     <LEDGSTREGDETAILS.LIST>')
+            a(f'      <APPLICABLEFROM>{applicable_from}</APPLICABLEFROM>')
+            if reg_type:
+                a(f'      <GSTREGISTRATIONTYPE>{xml_escape(reg_type)}</GSTREGISTRATIONTYPE>')
+            if state:
+                a(f'      <PLACEOFSUPPLY>{state}</PLACEOFSUPPLY>')
+            if gstin:
+                a(f'      <GSTIN>{gstin}</GSTIN>')
+            a('      <ISOTHTERRITORYASSESSEE>No</ISOTHTERRITORYASSESSEE>')
+            a('      <CONSIDERPURCHASEFOREXPORT>No</CONSIDERPURCHASEFOREXPORT>')
+            a('      <ISTRANSPORTER>No</ISTRANSPORTER>')
+            a('      <ISCOMMONPARTY>No</ISCOMMONPARTY>')
+            a('     </LEDGSTREGDETAILS.LIST>')
+
+        if is_party and (state or gstin or address1 or address2):
+            a('     <LEDMAILINGDETAILS.LIST>')
+            if address1 or address2:
+                a('      <ADDRESS.LIST TYPE="String">')
+                if address1:
+                    a(f'       <ADDRESS>{address1}</ADDRESS>')
+                if address2:
+                    a(f'       <ADDRESS>{address2}</ADDRESS>')
+                a('      </ADDRESS.LIST>')
+            a(f'      <APPLICABLEFROM>{applicable_from}</APPLICABLEFROM>')
+            a(f'      <MAILINGNAME>{name}</MAILINGNAME>')
+            if state:
+                a(f'      <STATE>{state}</STATE>')
+            a('      <COUNTRY>India</COUNTRY>')
+            a('     </LEDMAILINGDETAILS.LIST>')
+
+        if _is_duties_parent(parent_raw):
             if tax_type:
                 a(f'     <TAXTYPE>{tax_type}</TAXTYPE>')
             if gst_rate:
@@ -2756,26 +2971,123 @@ class TallySalesApp(ctk.CTk):
         form.grid_columnconfigure(0, weight=1)
 
         fields = {}
-        configs = [
-            ("Ledger Name *", "led_name", "e.g. ABC Traders"),
-            ("Parent Group *", "led_parent", "Sundry Debtors / Sales Accounts / Duties & Taxes"),
-            ("GST Applicable", "led_gst_app", "Applicable / Not Applicable"),
-            ("GSTIN", "led_gstin", "e.g. 07AAACR1718Q1ZZ"),
-            ("State", "led_state", "e.g. Delhi"),
-            ("Tax Type", "led_tax_type", "Central Tax / State Tax / Integrated Tax"),
-            ("GST Rate %", "led_gst_rate", "e.g. 9"),
-        ]
-        for label, key, placeholder in configs:
-            ctk.CTkLabel(form, text=label, font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
-            e = ctk.CTkEntry(
-                form,
-                placeholder_text=placeholder,
-                fg_color=COLORS["bg_card"],
-                border_color=COLORS["border"],
-                text_color=COLORS["text_primary"],
-            )
-            e.pack(fill="x", padx=12, pady=(0,2))
-            fields[key] = e
+
+        ctk.CTkLabel(form, text="Ledger Name *", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+        fields["led_name"] = ctk.CTkEntry(
+            form,
+            placeholder_text="e.g. ABC Traders",
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+        )
+        fields["led_name"].pack(fill="x", padx=12, pady=(0,2))
+
+        ctk.CTkLabel(form, text="Parent Group *", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+        fields["led_parent"] = ctk.CTkComboBox(
+            form,
+            values=LEDGER_PARENT_OPTIONS,
+            state="readonly",
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text_primary"],
+        )
+        fields["led_parent"].set(LEDGER_PARENT_OPTIONS[0])
+        fields["led_parent"].pack(fill="x", padx=12, pady=(0,2))
+
+        ctk.CTkLabel(form, text="GST Applicable", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+        fields["led_gst_app"] = ctk.CTkComboBox(
+            form,
+            values=LEDGER_GST_APPLICABLE_OPTIONS,
+            state="readonly",
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text_primary"],
+        )
+        fields["led_gst_app"].set("Not Applicable")
+        fields["led_gst_app"].pack(fill="x", padx=12, pady=(0,2))
+
+        ctk.CTkLabel(form, text="GSTIN", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+        fields["led_gstin"] = ctk.CTkEntry(
+            form,
+            placeholder_text="e.g. 07AAACR1718Q1ZZ",
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+        )
+        fields["led_gstin"].pack(fill="x", padx=12, pady=(0,2))
+
+        ctk.CTkLabel(form, text="State", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+        fields["led_state"] = ctk.CTkComboBox(
+            form,
+            values=LEDGER_STATE_OPTIONS,
+            state="readonly",
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text_primary"],
+        )
+        fields["led_state"].set("Not Applicable")
+        fields["led_state"].pack(fill="x", padx=12, pady=(0,2))
+
+        ctk.CTkLabel(form, text="Address Line 1", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+        fields["led_addr1"] = ctk.CTkEntry(
+            form,
+            placeholder_text="e.g. Street / Building",
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+        )
+        fields["led_addr1"].pack(fill="x", padx=12, pady=(0,2))
+
+        ctk.CTkLabel(form, text="Address Line 2", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+        fields["led_addr2"] = ctk.CTkEntry(
+            form,
+            placeholder_text="e.g. Area / Locality",
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+        )
+        fields["led_addr2"].pack(fill="x", padx=12, pady=(0,2))
+
+        ctk.CTkLabel(form, text="GST Rate %", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+        fields["led_gst_rate"] = ctk.CTkEntry(
+            form,
+            placeholder_text="e.g. 9",
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+        )
+        fields["led_gst_rate"].pack(fill="x", padx=12, pady=(0,2))
+
+        def _set_field(widget, value=""):
+            text = str(value or "").strip()
+            if isinstance(widget, ctk.CTkComboBox):
+                options = list(widget.cget("values") or [])
+                if text in options:
+                    widget.set(text)
+                elif not text and options:
+                    widget.set(options[0])
+                else:
+                    widget.set(text)
+                return
+            widget.delete(0, "end")
+            if text:
+                widget.insert(0, text)
+
+        def _clear_ledger_form():
+            _set_field(fields["led_name"], "")
+            _set_field(fields["led_parent"], LEDGER_PARENT_OPTIONS[0])
+            _set_field(fields["led_gst_app"], "Not Applicable")
+            _set_field(fields["led_gstin"], "")
+            _set_field(fields["led_state"], "Not Applicable")
+            _set_field(fields["led_addr1"], "")
+            _set_field(fields["led_addr2"], "")
+            _set_field(fields["led_gst_rate"], "")
 
         self._ledger_list = []
         ledger_edit_index = None
@@ -2787,12 +3099,20 @@ class TallySalesApp(ctk.CTk):
             if not name or not parent_grp:
                 messagebox.showwarning("Required","Ledger Name and Parent Group are required.")
                 return
+
+            gst_app = fields["led_gst_app"].get().strip()
+            gstin = fields["led_gstin"].get().strip().upper()
+            state = _normalize_state_for_ledger(fields["led_state"].get().strip())
+            address1 = fields["led_addr1"].get().strip()
+            address2 = fields["led_addr2"].get().strip()
+
             entry = {
                 "Name": name, "Parent": parent_grp,
-                "GSTApplicable": fields["led_gst_app"].get().strip(),
-                "GSTIN": fields["led_gstin"].get().strip(),
-                "StateOfSupply": fields["led_state"].get().strip(),
-                "TypeOfTaxation": fields["led_tax_type"].get().strip(),
+                "GSTApplicable": gst_app,
+                "GSTIN": gstin,
+                "StateOfSupply": state,
+                "Address1": address1,
+                "Address2": address2,
                 "GSTRate": fields["led_gst_rate"].get().strip(),
             }
             row_values = (name, parent_grp, entry["GSTApplicable"], entry["GSTIN"], entry["GSTRate"])
@@ -2808,8 +3128,7 @@ class TallySalesApp(ctk.CTk):
                 ledger_edit_index = None
                 add_ledger_btn.configure(text="➕  Add to Queue")
 
-            for v in fields.values():
-                v.delete(0, "end")
+            _clear_ledger_form()
             self._led_count_label.configure(text=f"{len(self._ledger_list)} ledger(s) queued")
 
         def edit_selected_ledger():
@@ -2826,20 +3145,14 @@ class TallySalesApp(ctk.CTk):
                 return
 
             entry = self._ledger_list[idx]
-            fields["led_name"].delete(0, "end")
-            fields["led_name"].insert(0, entry.get("Name", ""))
-            fields["led_parent"].delete(0, "end")
-            fields["led_parent"].insert(0, entry.get("Parent", ""))
-            fields["led_gst_app"].delete(0, "end")
-            fields["led_gst_app"].insert(0, entry.get("GSTApplicable", ""))
-            fields["led_gstin"].delete(0, "end")
-            fields["led_gstin"].insert(0, entry.get("GSTIN", ""))
-            fields["led_state"].delete(0, "end")
-            fields["led_state"].insert(0, entry.get("StateOfSupply", ""))
-            fields["led_tax_type"].delete(0, "end")
-            fields["led_tax_type"].insert(0, entry.get("TypeOfTaxation", ""))
-            fields["led_gst_rate"].delete(0, "end")
-            fields["led_gst_rate"].insert(0, entry.get("GSTRate", ""))
+            _set_field(fields["led_name"], entry.get("Name", ""))
+            _set_field(fields["led_parent"], entry.get("Parent", ""))
+            _set_field(fields["led_gst_app"], entry.get("GSTApplicable", ""))
+            _set_field(fields["led_gstin"], entry.get("GSTIN", ""))
+            _set_field(fields["led_state"], entry.get("StateOfSupply", "Not Applicable") or "Not Applicable")
+            _set_field(fields["led_addr1"], entry.get("Address1", ""))
+            _set_field(fields["led_addr2"], entry.get("Address2", ""))
+            _set_field(fields["led_gst_rate"], entry.get("GSTRate", ""))
 
             ledger_edit_index = idx
             add_ledger_btn.configure(text="💾  Update Selected")
@@ -2890,6 +3203,7 @@ class TallySalesApp(ctk.CTk):
             self._led_count_label.configure(text="0 ledger(s) queued")
             ledger_edit_index = None
             add_ledger_btn.configure(text="➕  Add to Queue")
+            _clear_ledger_form()
 
         def export_ledgers(action):
             company = self._get_selected_company()
@@ -2933,13 +3247,16 @@ class TallySalesApp(ctk.CTk):
                 _, rows = read_excel(f)
                 for r in rows:
                     entry = {
-                        "Name": str(r.get("Name","") or r.get("LedgerName","") or ""),
-                        "Parent": str(r.get("Parent","") or r.get("ParentGroup","") or "Sundry Debtors"),
-                        "GSTApplicable": str(r.get("GSTApplicable","") or ""),
-                        "GSTIN": str(r.get("GSTIN","") or ""),
-                        "StateOfSupply": str(r.get("State","") or r.get("StateOfSupply","") or ""),
-                        "TypeOfTaxation": str(r.get("TaxType","") or r.get("TypeOfTaxation","") or ""),
-                        "GSTRate": str(r.get("GSTRate","") or ""),
+                        "Name": _row_text(r, "Name") or _row_text(r, "LedgerName") or _row_text(r, "Ledger Name"),
+                        "Parent": _row_text(r, "Parent") or _row_text(r, "ParentGroup") or _row_text(r, "Parent Group") or "Sundry Debtors",
+                        "GSTApplicable": _row_text(r, "GSTApplicable") or _row_text(r, "GST Applicable") or _row_text(r, "GST"),
+                        "GSTIN": (_row_text(r, "GSTIN") or _row_text(r, "PartyGSTIN") or _row_text(r, "Party GSTIN")).upper(),
+                        "StateOfSupply": _row_text(r, "State") or _row_text(r, "StateOfSupply") or _row_text(r, "PlaceOfSupply") or _row_text(r, "Place Of Supply"),
+                        "Address1": _row_text(r, "Address1") or _row_text(r, "Address Line 1") or _row_text(r, "AddressLine1") or _row_text(r, "Address"),
+                        "Address2": _row_text(r, "Address2") or _row_text(r, "Address Line 2") or _row_text(r, "AddressLine2"),
+                        "TypeOfTaxation": _row_text(r, "TaxType") or _row_text(r, "TypeOfTaxation") or _row_text(r, "Tax Type"),
+                        "GSTRate": _row_text(r, "GSTRate") or _row_text(r, "GST Rate") or _row_text(r, "Rate"),
+                        "GSTRegistrationType": _row_text(r, "GSTRegistrationType") or _row_text(r, "GST Registration Type") or _row_text(r, "RegistrationType") or _row_text(r, "RegType"),
                     }
                     if entry["Name"]:
                         self._ledger_list.append(entry)

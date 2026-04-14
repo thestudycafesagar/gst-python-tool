@@ -458,6 +458,7 @@ class GSTWorker:
                             return True, "Success (JS Click)"
                         except:
                             self.log("   ⚠️ Dashboard Nav Error.")
+                            self.app.after(0, lambda: messagebox.showwarning("Portal Error", "Class name not found (Return Dashboard). GST portal may be slow."))
                             return False, "Dashboard Nav Failed"
 
             except Exception as e:
@@ -546,22 +547,35 @@ class GSTWorker:
 
     def _download_gstr2b_portal_buttons(self, wait, download_path, summary_btn_xpath, details_btn_xpath):
         """Download using GST portal's new Summary/Details buttons."""
-        if not self.driver.find_elements(By.XPATH, summary_btn_xpath):
+        try:
+            summary_btn = WebDriverWait(self.driver, 8).until(EC.element_to_be_clickable((By.XPATH, summary_btn_xpath)))
+        except:
             return False, "Portal Controls Missing"
 
-        summary_btn = wait.until(EC.element_to_be_clickable((By.XPATH, summary_btn_xpath)))
         summary_started = time.time()
         self.log("   ⬇️ Downloading GSTR-2B Summary (PDF)...")
-        self.driver.execute_script("arguments[0].click();", summary_btn)
+        try:
+            summary_btn.click()
+        except:
+            self.driver.execute_script("arguments[0].click();", summary_btn)
+            
         summary_file = self._wait_for_recent_download(download_path, summary_started, timeout=60)
         if not summary_file:
             return False, "Summary Timeout"
         self.log(f"   ✅ Saved: {os.path.basename(summary_file)}")
 
-        details_btn = wait.until(EC.element_to_be_clickable((By.XPATH, details_btn_xpath)))
+        try:
+            details_btn = WebDriverWait(self.driver, 8).until(EC.element_to_be_clickable((By.XPATH, details_btn_xpath)))
+        except:
+            return False, "Details Controls Missing"
+
         details_started = time.time()
         self.log("   ⬇️ Downloading GSTR-2B Details (Excel)...")
-        self.driver.execute_script("arguments[0].click();", details_btn)
+        try:
+            details_btn.click()
+        except:
+            self.driver.execute_script("arguments[0].click();", details_btn)
+            
         details_file = self._wait_for_recent_download(download_path, details_started, timeout=70)
         if not details_file:
             return False, "Details Timeout"
@@ -576,7 +590,9 @@ class GSTWorker:
         xls_xpath = "//span[contains(@class,'xls') and contains(@title,'Download Return Excel')]"
         popup_download_xpath = "//button[contains(normalize-space(),'Download Return Excel') or contains(@onclick,'DownloadReturnExcelV2')]"
 
-        if not self.driver.find_elements(By.XPATH, xls_xpath):
+        try:
+            xls_btn = WebDriverWait(self.driver, 8).until(EC.element_to_be_clickable((By.XPATH, xls_xpath)))
+        except:
             return False, "CompuTax Controls Missing"
 
         # 1) PDF click (best-effort)
@@ -585,7 +601,10 @@ class GSTWorker:
             if pdf_elems:
                 pdf_btn = pdf_elems[0]
                 pdf_started = time.time()
-                self.driver.execute_script("arguments[0].click();", pdf_btn)
+                try:
+                    pdf_btn.click()
+                except:
+                    self.driver.execute_script("arguments[0].click();", pdf_btn)
                 self._accept_alerts_if_any()
                 pdf_file = self._wait_for_recent_download(download_path, pdf_started, timeout=45)
                 if pdf_file:
@@ -597,9 +616,11 @@ class GSTWorker:
 
         # 2) Excel click (required)
         try:
-            xls_btn = self.driver.find_elements(By.XPATH, xls_xpath)[0]
             xls_started = time.time()
-            self.driver.execute_script("arguments[0].click();", xls_btn)
+            try:
+                xls_btn.click()
+            except:
+                self.driver.execute_script("arguments[0].click();", xls_btn)
             time.sleep(1.2)
             self._accept_alerts_if_any(max_count=5)
 
@@ -607,7 +628,10 @@ class GSTWorker:
             popup_btns = self.driver.find_elements(By.XPATH, popup_download_xpath)
             if popup_btns:
                 try:
-                    self.driver.execute_script("arguments[0].click();", popup_btns[0])
+                    try:
+                        popup_btns[0].click()
+                    except:
+                        self.driver.execute_script("arguments[0].click();", popup_btns[0])
                     self._accept_alerts_if_any(max_count=3)
                 except Exception:
                     pass
@@ -633,13 +657,15 @@ class GSTWorker:
         view_btn = None
         for xpath in view_btn_xpaths:
             try:
-                view_btn = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-                break
+                view_btn = WebDriverWait(self.driver, 10).until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                if view_btn:
+                    break
             except Exception:
                 continue
 
         if not view_btn:
             self.log("   ⚠️ GSTR-2B View button not found.")
+            self.app.after(0, lambda: messagebox.showwarning("Portal Error", "Class name not found (GSTR-2B View button). GST portal may be slow or layout changed."))
             return False, "View Missing"
 
         summary_btn_xpath = (
@@ -655,7 +681,11 @@ class GSTWorker:
 
         try:
             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_btn)
-            self.driver.execute_script("arguments[0].click();", view_btn)
+            time.sleep(1)
+            try:
+                view_btn.click()
+            except:
+                self.driver.execute_script("arguments[0].click();", view_btn)
             self.log("   ✅ View clicked. Opening GSTR-2B summary page...")
             self._session_snapshot("after-view")
 
@@ -683,6 +713,7 @@ class GSTWorker:
                 legacy_ok, legacy_msg = self._download_gstr2b_computax_controls(download_path)
                 if not legacy_ok:
                     self.log(f"   ⚠️ CompuTax-style flow failed: {legacy_msg}")
+                    self.app.after(0, lambda: messagebox.showwarning("Portal Error", "Class name not found. Both Portal and CompuTax buttons failed to render."))
                     self._go_to_return_dashboard()
                     self._session_snapshot("after-dashboard-nav")
                     return False, legacy_msg
@@ -1128,6 +1159,7 @@ class App(ctk.CTk):
 
     def stop_process(self):
         if not self.worker:
+            self._reset_ui_state()
             return
 
         self.worker.keep_running = False
@@ -1143,9 +1175,18 @@ class App(ctk.CTk):
             self.update_log_safe(f"⚠️ Error closing Chrome: {e}")
 
         self.close_captcha_safe()
-        self.btn_stop.configure(state="disabled", text="STOPPED")
+        self.btn_stop.pack_forget()
         self.cap_stop_btn.configure(state="disabled", text="STOPPED")
-        self.update_log_safe("🛑 Process stopped by user.")
+        self.update_log_safe("🛑 Process stopped by user. Resetting state.")
+        self._reset_ui_state()
+        self.worker = None
+
+    def _reset_ui_state(self):
+        self.prog_bar.set(0)
+        self.log_box.configure(state="normal")
+        self.log_box.delete("1.0", "end")
+        self.log_box.configure(state="disabled")
+        self.btn_start.configure(state="normal", text="START BATCH PROCESS")
 
 if __name__ == "__main__":
     app = App()

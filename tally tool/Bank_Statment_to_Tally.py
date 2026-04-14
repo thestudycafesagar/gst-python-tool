@@ -792,6 +792,73 @@ def generate_ledger_xml(ledgers: list, company: str) -> str:
     lines = []
     a = lines.append
     company_static = _company_static_block(company)
+
+    def _is_party_parent(parent: str) -> bool:
+        key = re.sub(r"\s+", " ", str(parent or "")).strip().casefold()
+        return key in {"sundry debtors", "sundry creditors"}
+
+    def _is_duties_parent(parent: str) -> bool:
+        key = re.sub(r"\s+", " ", str(parent or "")).strip().casefold()
+        return key in {"duties & taxes", "duties and taxes", "duty"}
+
+    def _current_fy_start() -> str:
+        today = date.today()
+        fy_start_year = today.year if today.month >= 4 else today.year - 1
+        return f"{fy_start_year}0401"
+
+    def _state_name_from_gstin(gstin: str) -> str:
+        gstin_text = str(gstin or "").strip().upper()
+        state_map = {
+            "01": "Jammu And Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
+            "05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh",
+            "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur",
+            "15": "Mizoram", "16": "Tripura", "17": "Meghalaya", "18": "Assam", "19": "West Bengal",
+            "20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh",
+            "24": "Gujarat", "25": "Daman And Diu", "26": "Dadra And Nagar Haveli And Daman And Diu",
+            "27": "Maharashtra", "29": "Karnataka", "30": "Goa", "31": "Lakshadweep", "32": "Kerala",
+            "33": "Tamil Nadu", "34": "Puducherry", "35": "Andaman And Nicobar Islands", "36": "Telangana",
+            "37": "Andhra Pradesh", "38": "Ladakh", "97": "Other Territory", "99": "Centre Jurisdiction",
+        }
+        return state_map.get(gstin_text[:2], "")
+
+    def _normalize_gst_applicable(value: str, gstin: str = "") -> str:
+        raw = str(value or "").strip()
+        key = raw.casefold()
+        if key in {"applicable", "yes", "y", "true", "1", "registered", "regular", "gst applicable"}:
+            return "Applicable"
+        if key in {"not applicable", "no", "n", "false", "0", "na", "n/a", "notapplicable"}:
+            return "Not Applicable"
+        if gstin:
+            return "Applicable"
+        return raw
+
+    def _normalize_gst_registration_type(value: str, gstin: str = "", gst_applicable: str = "") -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            if gstin or str(gst_applicable).strip().casefold() == "applicable":
+                return "Regular"
+            return ""
+
+        key = raw.casefold()
+        mapping = {
+            "regular": "Regular",
+            "registered": "Regular",
+            "composition": "Composition",
+            "consumer": "Consumer",
+            "unregistered": "Unregistered",
+            "sez": "SEZ",
+            "sez unit": "SEZ",
+            "sez developer": "SEZ",
+            "overseas": "Overseas",
+        }
+        return mapping.get(key, raw)
+
+    def _normalize_state_for_ledger(value: str) -> str:
+        text = str(value or "").strip()
+        if text.casefold() in {"not applicable", "* not applicable", "na", "n/a"}:
+            return ""
+        return text
+
     a('<?xml version="1.0" encoding="UTF-8"?>')
     a('<ENVELOPE>')
     a(' <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>')
@@ -802,12 +869,116 @@ def generate_ledger_xml(ledgers: list, company: str) -> str:
     a('  </REQUESTDESC>')
     a('  <REQUESTDATA>')
     for led in ledgers:
-        name = xml_escape(led["Name"])
-        parent = xml_escape(led.get("Parent", "Suspense A/c"))
+        name_raw = str(led.get("Name", "") or "").strip()
+        if not name_raw:
+            continue
+
+        parent_raw = str(led.get("Parent", "Suspense A/c") or "Suspense A/c").strip()
+        gstin_raw = str(led.get("GSTIN", "") or "").strip().upper()
+        state_raw = _normalize_state_for_ledger(
+            str(led.get("StateOfSupply", "") or "").strip()
+            or str(led.get("PlaceOfSupply", "") or "").strip()
+            or str(led.get("State", "") or "").strip()
+        )
+        address1_raw = (
+            str(led.get("Address1", "") or "").strip()
+            or str(led.get("AddressLine1", "") or "").strip()
+            or str(led.get("Address Line 1", "") or "").strip()
+        )
+        address2_raw = (
+            str(led.get("Address2", "") or "").strip()
+            or str(led.get("AddressLine2", "") or "").strip()
+            or str(led.get("Address Line 2", "") or "").strip()
+        )
+        if not state_raw and gstin_raw:
+            state_raw = _state_name_from_gstin(gstin_raw)
+
+        is_party = _is_party_parent(parent_raw)
+        gst_app_raw = str(led.get("GSTApplicable", "") or "").strip()
+        gst_app_value = _normalize_gst_applicable(gst_app_raw, gstin=gstin_raw)
+        reg_type_raw = (
+            str(led.get("GSTRegistrationType", "") or "").strip()
+            or str(led.get("RegistrationType", "") or "").strip()
+            or str(led.get("RegType", "") or "").strip()
+        )
+        reg_type = _normalize_gst_registration_type(reg_type_raw, gstin=gstin_raw, gst_applicable=gst_app_value)
+
+        name = xml_escape(name_raw)
+        parent = xml_escape(parent_raw)
+        gst_app = xml_escape(gst_app_value)
+        gstin = xml_escape(gstin_raw)
+        state = xml_escape(state_raw)
+        address1 = xml_escape(address1_raw)
+        address2 = xml_escape(address2_raw)
+
+        tax_type_raw = str(led.get("TypeOfTaxation", "") or "").strip()
+        if tax_type_raw.casefold() in {"not applicable", "na", "n/a"}:
+            tax_type_raw = ""
+        tax_type = xml_escape(tax_type_raw)
+        gst_rate = str(led.get("GSTRate", "") or "").strip()
+        applicable_from = _current_fy_start()
+
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
         a(f'    <LEDGER NAME="{name}" ACTION="Create">')
         a(f'     <NAME>{name}</NAME>')
         a(f'     <PARENT>{parent}</PARENT>')
+
+        if is_party:
+            a('     <ISBILLWISEON>Yes</ISBILLWISEON>')
+        if gst_app:
+            a(f'     <GSTAPPLICABLE>{gst_app}</GSTAPPLICABLE>')
+        if reg_type:
+            a(f'     <GSTREGISTRATIONTYPE>{xml_escape(reg_type)}</GSTREGISTRATIONTYPE>')
+        if gstin:
+            a(f'     <PARTYGSTIN>{gstin}</PARTYGSTIN>')
+        if state:
+            a(f'     <PRIORSTATENAME>{state}</PRIORSTATENAME>')
+            a(f'     <LEDSTATENAME>{state}</LEDSTATENAME>')
+
+        a('     <LANGUAGENAME.LIST>')
+        a('      <NAME.LIST TYPE="String">')
+        a(f'       <NAME>{name}</NAME>')
+        a('      </NAME.LIST>')
+        a('      <LANGUAGEID>1033</LANGUAGEID>')
+        a('     </LANGUAGENAME.LIST>')
+
+        if is_party and (gstin or reg_type):
+            a('     <LEDGSTREGDETAILS.LIST>')
+            a(f'      <APPLICABLEFROM>{applicable_from}</APPLICABLEFROM>')
+            if reg_type:
+                a(f'      <GSTREGISTRATIONTYPE>{xml_escape(reg_type)}</GSTREGISTRATIONTYPE>')
+            if state:
+                a(f'      <PLACEOFSUPPLY>{state}</PLACEOFSUPPLY>')
+            if gstin:
+                a(f'      <GSTIN>{gstin}</GSTIN>')
+            a('      <ISOTHTERRITORYASSESSEE>No</ISOTHTERRITORYASSESSEE>')
+            a('      <CONSIDERPURCHASEFOREXPORT>No</CONSIDERPURCHASEFOREXPORT>')
+            a('      <ISTRANSPORTER>No</ISTRANSPORTER>')
+            a('      <ISCOMMONPARTY>No</ISCOMMONPARTY>')
+            a('     </LEDGSTREGDETAILS.LIST>')
+
+        if is_party and (state or gstin or address1 or address2):
+            a('     <LEDMAILINGDETAILS.LIST>')
+            if address1 or address2:
+                a('      <ADDRESS.LIST TYPE="String">')
+                if address1:
+                    a(f'       <ADDRESS>{address1}</ADDRESS>')
+                if address2:
+                    a(f'       <ADDRESS>{address2}</ADDRESS>')
+                a('      </ADDRESS.LIST>')
+            a(f'      <APPLICABLEFROM>{applicable_from}</APPLICABLEFROM>')
+            a(f'      <MAILINGNAME>{name}</MAILINGNAME>')
+            if state:
+                a(f'      <STATE>{state}</STATE>')
+            a('      <COUNTRY>India</COUNTRY>')
+            a('     </LEDMAILINGDETAILS.LIST>')
+
+        if _is_duties_parent(parent_raw):
+            if tax_type:
+                a(f'     <TAXTYPE>{tax_type}</TAXTYPE>')
+            if gst_rate:
+                a(f'     <GSTRATE>{gst_rate}</GSTRATE>')
+
         a('    </LEDGER>')
         a('   </TALLYMESSAGE>')
     a('  </REQUESTDATA>')
