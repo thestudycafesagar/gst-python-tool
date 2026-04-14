@@ -2323,13 +2323,18 @@ class App(ctk.CTk):
         ctk.CTkLabel(self.config_26as, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
         f_frame = ctk.CTkFrame(self.config_26as, fg_color="transparent")
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
-        self.entry_file_26as = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
+        self.entry_file_26as = ctk.CTkEntry(f_frame, placeholder_text="Add PAN, Password, DOB manually...")
         self.entry_file_26as.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        ctk.CTkButton(btn_actions, text="BROWSE", command=lambda: self.browse_file("26as"), width=80).pack(side="left", padx=(0, 5))
         ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
         ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("26as"), width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
+        self.btn_view_26as = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("26as"), width=95, fg_color="#546e7a", hover_color="#37474f", font=("Arial", 11, "bold"))
+        self.btn_view_26as.pack(side="left", padx=(5, 0))
+        self.btn_delete_26as = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("26as"), width=105, fg_color="#8e24aa", hover_color="#6a1b9a", font=("Arial", 11, "bold"))
+        self.btn_delete_26as.pack(side="left", padx=(5, 0))
+        self.btn_view_26as.configure(state="disabled")
+        self.btn_delete_26as.configure(state="disabled")
 
         pref_frame = ctk.CTkFrame(self.config_26as, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
@@ -2370,13 +2375,18 @@ class App(ctk.CTk):
         ctk.CTkLabel(self.config_ais, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
         f_frame = ctk.CTkFrame(self.config_ais, fg_color="transparent")
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
-        self.entry_file_ais = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
+        self.entry_file_ais = ctk.CTkEntry(f_frame, placeholder_text="Add PAN, Password, DOB manually...")
         self.entry_file_ais.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        ctk.CTkButton(btn_actions, text="BROWSE", command=lambda: self.browse_file("ais"), width=80).pack(side="left", padx=(0, 5))
         ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
         ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("ais"), width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
+        self.btn_view_ais = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("ais"), width=95, fg_color="#546e7a", hover_color="#37474f", font=("Arial", 11, "bold"))
+        self.btn_view_ais.pack(side="left", padx=(5, 0))
+        self.btn_delete_ais = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("ais"), width=105, fg_color="#8e24aa", hover_color="#6a1b9a", font=("Arial", 11, "bold"))
+        self.btn_delete_ais.pack(side="left", padx=(5, 0))
+        self.btn_view_ais.configure(state="disabled")
+        self.btn_delete_ais.configure(state="disabled")
 
         pref_frame = ctk.CTkFrame(self.config_ais, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
@@ -2417,13 +2427,18 @@ class App(ctk.CTk):
         ctk.CTkLabel(self.config_tis, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
         f_frame = ctk.CTkFrame(self.config_tis, fg_color="transparent")
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
-        self.entry_file_tis = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Password, DOB)...")
+        self.entry_file_tis = ctk.CTkEntry(f_frame, placeholder_text="Add PAN, Password, DOB manually...")
         self.entry_file_tis.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        ctk.CTkButton(btn_actions, text="BROWSE", command=lambda: self.browse_file("tis"), width=80).pack(side="left", padx=(0, 5))
         ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
         ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("tis"), width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
+        self.btn_view_tis = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("tis"), width=95, fg_color="#546e7a", hover_color="#37474f", font=("Arial", 11, "bold"))
+        self.btn_view_tis.pack(side="left", padx=(5, 0))
+        self.btn_delete_tis = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("tis"), width=105, fg_color="#8e24aa", hover_color="#6a1b9a", font=("Arial", 11, "bold"))
+        self.btn_delete_tis.pack(side="left", padx=(5, 0))
+        self.btn_view_tis.configure(state="disabled")
+        self.btn_delete_tis.configure(state="disabled")
 
         pref_frame = ctk.CTkFrame(self.config_tis, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
@@ -2484,6 +2499,7 @@ class App(ctk.CTk):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
         if filename:
             self.manual_credentials = []
+            self._refresh_manual_controls()
             if mode == "26as":
                 self.excel_file_path_26as = filename
                 self.entry_file_26as.delete(0, "end")
@@ -2499,6 +2515,49 @@ class App(ctk.CTk):
                 self.entry_file_tis.delete(0, "end")
                 self.entry_file_tis.insert(0, filename)
                 self.log_to_gui_tis(f"File Loaded: {os.path.basename(filename)}")
+
+    def _get_saved_user_id(self):
+        if not self.manual_credentials:
+            return ""
+        return str(self.manual_credentials[0].get("PAN", "")).strip()
+
+    def _refresh_manual_controls(self):
+        has_manual = bool(self.manual_credentials)
+        for btn_attr in ["btn_view_26as", "btn_delete_26as", "btn_view_ais", "btn_delete_ais", "btn_view_tis", "btn_delete_tis"]:
+            btn = getattr(self, btn_attr, None)
+            if btn is not None:
+                btn.configure(state="normal" if has_manual else "disabled")
+
+        if has_manual:
+            user_id = self._get_saved_user_id()
+            manual_text = f"Selected ID: {user_id}"
+            for entry_attr in ["entry_file_26as", "entry_file_ais", "entry_file_tis"]:
+                entry = getattr(self, entry_attr, None)
+                if entry is not None:
+                    entry.delete(0, "end")
+                    entry.insert(0, manual_text)
+
+    def view_saved_user(self, mode=None):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        messagebox.showinfo("Saved User ID", f"Current ID: {user_id}")
+
+    def delete_saved_user(self, mode=None):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        if not messagebox.askyesno("Delete ID", f"Delete saved ID {user_id}?"):
+            return
+        self.manual_credentials = []
+        for entry_attr in ["entry_file_26as", "entry_file_ais", "entry_file_tis"]:
+            entry = getattr(self, entry_attr, None)
+            if entry is not None:
+                entry.delete(0, "end")
+        self._refresh_manual_controls()
+        messagebox.showinfo("Deleted", "Saved ID deleted successfully.")
 
     def add_id_password(self, mode):
         dialog = ctk.CTkToplevel(self)
@@ -2534,21 +2593,20 @@ class App(ctk.CTk):
                 messagebox.showerror("Missing Data", "Please enter PAN/User ID and Password", parent=dialog)
                 return
 
-            self.manual_credentials.append({"PAN": user_id, "Password": password, "DOB": dob})
+            existing_user = self._get_saved_user_id()
+            if existing_user and not messagebox.askyesno(
+                "Overwrite ID",
+                "Your previous ID will be overwritten with this.",
+                parent=dialog
+            ):
+                return
+
+            self.manual_credentials = [{"PAN": user_id, "Password": password, "DOB": dob}]
             self.excel_file_path_26as = ""
             self.excel_file_path_ais = ""
             self.excel_file_path_tis = ""
 
-            manual_text = f"Manual IDs added: {len(self.manual_credentials)}"
-            if mode == "26as":
-                self.entry_file_26as.delete(0, "end")
-                self.entry_file_26as.insert(0, manual_text)
-            elif mode == "ais":
-                self.entry_file_ais.delete(0, "end")
-                self.entry_file_ais.insert(0, manual_text)
-            elif mode == "tis":
-                self.entry_file_tis.delete(0, "end")
-                self.entry_file_tis.insert(0, manual_text)
+            self._refresh_manual_controls()
 
             messagebox.showinfo("Added", f"Credential saved for {user_id}", parent=dialog)
             dialog.destroy()

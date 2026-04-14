@@ -1,6 +1,7 @@
 import threading
 import time
 import os
+import random
 import glob
 import base64
 import zipfile
@@ -33,9 +34,10 @@ IMS_DASHBOARD_URL = "https://return.gst.gov.in/imsweb/auth/imsDashboard"
 
 
 class IMSWorker:
-    def __init__(self, app_instance, excel_path):
+    def __init__(self, app_instance, excel_path, credentials=None):
         self.app = app_instance
         self.excel_path = excel_path
+        self.credentials = credentials or []
         self.keep_running = True
         self.driver = None
         self.captcha_response = None
@@ -89,28 +91,52 @@ class IMSWorker:
     def log(self, message):
         self.app.update_log_safe(message)
 
+    def human_delay(self, base_s=5.0, extra_s=1.5):
+        time.sleep(base_s + random.uniform(0.0, extra_s))
+
+    def type_like_human(self, element, text):
+        element.clear()
+        for ch in str(text):
+            element.send_keys(ch)
+            time.sleep(random.uniform(0.06, 0.18))
+
     def run(self):
         self.log("Initializing IMS Dashboard Downloader...")
 
         try:
-            df = pd.read_excel(self.excel_path)
-            clean_cols = {c.lower().strip(): c for c in df.columns}
-            user_col = next((clean_cols[c] for c in clean_cols if 'user' in c or 'name' in c), None)
-            pass_col = next((clean_cols[c] for c in clean_cols if 'pass' in c or 'pwd' in c), None)
+            if self.credentials:
+                df = pd.DataFrame(self.credentials)
+                user_col, pass_col = "Username", "Password"
+                self.log(f"Loaded {len(df)} users from Add ID Password.")
+            else:
+                if not self.excel_path:
+                    self.app.process_finished_safe("Please add ID/Password first")
+                    return
 
-            if not user_col or not pass_col:
-                self.app.process_finished_safe("Column Error: Need Username/Password columns in Excel")
+                df = pd.read_excel(self.excel_path)
+                clean_cols = {c.lower().strip(): c for c in df.columns}
+                user_col = next((clean_cols[c] for c in clean_cols if 'user' in c or 'name' in c), None)
+                pass_col = next((clean_cols[c] for c in clean_cols if 'pass' in c or 'pwd' in c), None)
+
+                if not user_col or not pass_col:
+                    self.app.process_finished_safe("Column Error: Need Username/Password columns")
+                    return
+                self.log(f"Loaded {len(df)} users from Excel.")
+
+            if df.empty:
+                self.app.process_finished_safe("No credentials found to process")
                 return
 
             total = len(df)
-            self.log(f"Loaded {total} users.")
 
             base_dir = os.path.join(os.getcwd(), "IMS_Downloads")
             if not os.path.exists(base_dir):
                 os.makedirs(base_dir)
 
+            stopped_by_user = False
             for index, row in df.iterrows():
                 if not self.keep_running:
+                    stopped_by_user = True
                     break
 
                 username = str(row[user_col]).strip()
@@ -138,7 +164,21 @@ class IMSWorker:
                     "Saved To": os.path.basename(user_dir)
                 })
 
+                if not self.keep_running:
+                    stopped_by_user = True
+                    break
+
                 self.log("-" * 40)
+
+            if stopped_by_user or not self.keep_running:
+                if self.report_data:
+                    self.generate_report()
+                    self.log("🛑 Process stopped by user. Partial report saved.")
+                    self.app.process_finished_safe("Stopped by user. Partial report saved.")
+                else:
+                    self.log("🛑 Process stopped by user.")
+                    self.app.process_finished_safe("Stopped by user.")
+                return
 
             self.generate_report()
             self.app.update_progress_safe(1.0)
@@ -197,6 +237,8 @@ class IMSWorker:
             login_ok, login_msg = self.perform_login(username, password, wait)
             if not login_ok:
                 return "Login Failed", login_msg
+
+            self.human_delay()
 
             # --- STEP 1: CLICK 'Services' IN NAVBAR ---
             self.log("   Clicking 'Services' in navbar...")
@@ -341,7 +383,11 @@ class IMSWorker:
             return "Error", f"Browser error: {str(e)[:80]}"
         finally:
             if self.driver:
-                self.driver.quit()
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
 
     def perform_login(self, username, password, wait):
         self.log("   Opening GST Portal...")
@@ -351,11 +397,11 @@ class IMSWorker:
             if not self.keep_running:
                 return False, "Stopped"
             try:
-                wait.until(EC.visibility_of_element_located((By.ID, "username"))).clear()
-                self.driver.find_element(By.ID, "username").send_keys(username)
+                user_box = wait.until(EC.visibility_of_element_located((By.ID, "username")))
+                self.type_like_human(user_box, username)
 
-                self.driver.find_element(By.ID, "user_pass").clear()
-                self.driver.find_element(By.ID, "user_pass").send_keys(password)
+                pass_box = self.driver.find_element(By.ID, "user_pass")
+                self.type_like_human(pass_box, password)
 
                 self._save_captcha_image(wait, "temp_captcha.png")
 
@@ -368,11 +414,11 @@ class IMSWorker:
                 if not self.captcha_response:
                     return False, "Captcha Cancelled"
 
-                self.driver.find_element(By.ID, "captcha").clear()
-                self.driver.find_element(By.ID, "captcha").send_keys(self.captcha_response)
+                cap_box = self.driver.find_element(By.ID, "captcha")
+                self.type_like_human(cap_box, self.captcha_response)
                 self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
 
-                time.sleep(3)
+                self.human_delay()
 
                 src = self.driver.page_source
                 if "Invalid Username or Password" in src:
@@ -381,7 +427,7 @@ class IMSWorker:
 
                 if "Enter valid Letters" in src or "Invalid Captcha" in src:
                     self.log("   Invalid Captcha. Retrying...")
-                    time.sleep(1)
+                    self.human_delay(1.0, 1.0)
                     continue
 
                 if "Dashboard" in self.driver.title or "Return Dashboard" in src or "fowelcome" in self.driver.current_url:
@@ -389,13 +435,13 @@ class IMSWorker:
                     self.app.close_captcha_safe()
 
                     # --- POPUP HANDLER ---
-                    time.sleep(3)
+                    self.human_delay()
                     try:
                         aadhaar_skip = self.driver.find_elements(By.XPATH, "//a[contains(text(),'Remind me later')]")
                         if aadhaar_skip and aadhaar_skip[0].is_displayed():
                             self.log("   Closing Aadhaar Popup...")
                             aadhaar_skip[0].click()
-                            time.sleep(1.5)
+                            self.human_delay()
                     except:
                         pass
 
@@ -404,7 +450,7 @@ class IMSWorker:
                         if generic_skip and generic_skip[0].is_displayed():
                             self.log("   Closing Generic Popup...")
                             generic_skip[0].click()
-                            time.sleep(1.5)
+                            self.human_delay()
                     except:
                         pass
 
@@ -436,6 +482,7 @@ class App(ctk.CTk):
 
         self.worker = None
         self.excel_file = ""
+        self.manual_credentials = []
 
         # HEADER
         self.head = ctk.CTkFrame(self, fg_color="#1a237e", corner_radius=0, height=70)
@@ -456,23 +503,31 @@ class App(ctk.CTk):
 
         card = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
         card.pack(fill="x")
-        ctk.CTkLabel(card, text="Credentials Source (Excel)", font=("Arial", 14, "bold")).pack(
+        ctk.CTkLabel(card, text="Credentials Source", font=("Arial", 14, "bold")).pack(
             anchor="w", padx=15, pady=(15, 5)
         )
         self.ent_file = ctk.CTkEntry(
-            card, placeholder_text="Select Excel file with Username / Password columns...", height=35
+            card, placeholder_text="Add ID/Password manually (optional)...", height=35
         )
         self.ent_file.pack(fill="x", padx=15, pady=(5, 5))
-        ctk.CTkButton(
-            card, text="Browse File", command=self.browse_file,
-            fg_color="#3949ab", hover_color="#283593", height=35
-        ).pack(fill="x", padx=15, pady=(0, 5))
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
         btn_row.pack(fill="x", padx=15, pady=(5, 15))
-        self.btn_download = ctk.CTkButton(btn_row, text="📥 Sample Excel", command=self.download_sample, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
+        self.btn_download = ctk.CTkButton(btn_row, text="➕ Add ID Password", command=self.add_id_password, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
         self.btn_download.pack(side="left", expand=True, fill="x", padx=(0, 5))
         self.btn_demo = ctk.CTkButton(btn_row, text="▶ View Demo", command=self.open_demo_link, fg_color="#e53935", hover_color="#b71c1c", height=28, font=("Arial", 12, "bold"))
         self.btn_demo.pack(side="left", expand=True, fill="x", padx=(5, 0))
+        manage_row = ctk.CTkFrame(card, fg_color="transparent")
+        manage_row.pack(fill="x", padx=15, pady=(0, 10))
+        self.btn_view_id = ctk.CTkButton(manage_row, text="👁 View ID", command=self.view_saved_user,
+                         fg_color="#546e7a", hover_color="#37474f", height=28, width=100,
+                         font=("Arial", 11, "bold"))
+        self.btn_view_id.pack(side="left")
+        self.btn_delete_id = ctk.CTkButton(manage_row, text="🗑 Delete ID", command=self.delete_saved_user,
+                           fg_color="#8e24aa", hover_color="#6a1b9a", height=28, width=110,
+                           font=("Arial", 11, "bold"))
+        self.btn_delete_id.pack(side="left", padx=(8, 0))
+        self.btn_view_id.configure(state="disabled")
+        self.btn_delete_id.configure(state="disabled")
 
         # LOG BOX
         self.log_frame = ctk.CTkFrame(self)
@@ -532,22 +587,88 @@ class App(ctk.CTk):
                                       fg_color="#c62828", hover_color="#8e0000", command=self.stop_process, width=150)
         self.btn_stop.pack(side="left", padx=(10, 0))
         self.btn_stop.pack_forget()
-    def download_sample(self):
-        import shutil
-        import os
-        from tkinter import messagebox
-        sample_path = os.path.join(os.path.dirname(__file__), "IMS Sample File.xlsx")
-        if not os.path.exists(sample_path):
-            messagebox.showerror("Download Error", f"Sample file not found: {sample_path}")
+
+    def _get_saved_user_id(self):
+        if not self.manual_credentials:
+            return ""
+        return str(self.manual_credentials[0].get("Username", "")).strip()
+
+    def _refresh_manual_controls(self):
+        has_manual = bool(self.manual_credentials)
+        self.btn_view_id.configure(state="normal" if has_manual else "disabled")
+        self.btn_delete_id.configure(state="normal" if has_manual else "disabled")
+        if has_manual:
+            user_id = self._get_saved_user_id()
+            self.ent_file.delete(0, "end")
+            self.ent_file.insert(0, f"Selected ID: {user_id}")
+
+    def view_saved_user(self):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
             return
-        
-        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="IMS Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
-        if save_path:
-            try:
-                shutil.copy2(sample_path, save_path)
-                messagebox.showinfo("Success", f"Sample downloaded to {save_path}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to download: {e}")
+        messagebox.showinfo("Saved User ID", f"Current ID: {user_id}")
+
+    def delete_saved_user(self):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        if not messagebox.askyesno("Delete ID", f"Delete saved ID {user_id}?"):
+            return
+        self.manual_credentials = []
+        self.ent_file.delete(0, "end")
+        self._refresh_manual_controls()
+        messagebox.showinfo("Deleted", "Saved ID deleted successfully.")
+
+    def add_id_password(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add ID Password")
+        dialog.geometry("420x240")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        card = ctk.CTkFrame(dialog, fg_color="transparent")
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ctk.CTkLabel(card, text="GST ID/Username").pack(anchor="w")
+        ent_user = ctk.CTkEntry(card, placeholder_text="Enter GST ID/Username")
+        ent_user.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(card, text="GST Password").pack(anchor="w")
+        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter GST Password", show="*")
+        ent_pass.pack(fill="x", pady=(4, 14))
+
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x")
+
+        def _save():
+            username = (ent_user.get() or "").strip()
+            password = (ent_pass.get() or "").strip()
+            if not username or not password:
+                messagebox.showerror("Missing Data", "Please enter both GST ID and Password", parent=dialog)
+                return
+
+            existing_user = self._get_saved_user_id()
+            if existing_user and not messagebox.askyesno(
+                "Overwrite ID",
+                "Your previous ID will be overwritten with this.",
+                parent=dialog
+            ):
+                return
+
+            self.manual_credentials = [{"Username": username, "Password": password}]
+            self.excel_file = ""
+            self._refresh_manual_controls()
+            messagebox.showinfo("Added", f"Credential saved for {username}", parent=dialog)
+            dialog.destroy()
+
+        ctk.CTkButton(btn_row, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Add", width=110, command=_save).pack(side="right", padx=(0, 8))
+
+        ent_user.focus_set()
+        dialog.bind("<Return>", lambda _e: _save())
 
     def open_demo_link(self):
         import webbrowser
@@ -557,6 +678,8 @@ class App(ctk.CTk):
         f = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
         if f:
             self.excel_file = f
+            self.manual_credentials = []
+            self._refresh_manual_controls()
             self.ent_file.delete(0, "end")
             self.ent_file.insert(0, f)
 
@@ -573,13 +696,22 @@ class App(ctk.CTk):
         self.after(0, lambda: self.prog_bar.set(val))
 
     def process_finished_safe(self, msg):
-        self.after(0, lambda: messagebox.showinfo("Done", msg))
-        self.after(0, lambda: self.btn_start.configure(state="normal", text="START IMS DOWNLOAD"))
-        self.after(0, lambda: self.btn_stop.pack_forget())
-        self.after(0, lambda: self.btn_stop.configure(state="normal", text="⏹ STOP"))
+        def _finish_ui():
+            messagebox.showinfo("Done", msg)
+            is_stopped = "stopped" in (msg or "").lower()
+            self.close_captcha_safe()
+            self.btn_start.configure(state="normal", text="STOPPED" if is_stopped else "START IMS DOWNLOAD")
+            self.btn_stop.pack_forget()
+            self.btn_stop.configure(state="normal", text="⏹ STOP")
+            self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+            if is_stopped:
+                self.after(1200, lambda: self.btn_start.configure(text="START IMS DOWNLOAD"))
+        self.after(0, _finish_ui)
 
     def request_captcha_safe(self, img_path):
         def show():
+            if not self.worker or not self.worker.keep_running:
+                return
             with Image.open(img_path) as raw_img:
                 pil_img = raw_img.convert("RGB")
 
@@ -624,19 +756,38 @@ class App(ctk.CTk):
         self.after(0, lambda: self.cap_frame.grid_forget())
 
     def start_process(self):
-        if not self.excel_file:
-            messagebox.showerror("Error", "Please select an Excel file first.")
+        credentials = list(self.manual_credentials)
+        if not credentials and not self.excel_file:
+            messagebox.showerror("Error", "Please add ID/Password first")
             return
+        self.close_captcha_safe()
+        self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+        self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.pack(side="left", padx=(10, 0))
-        self.worker = IMSWorker(self, self.excel_file)
+        self.worker = IMSWorker(self, self.excel_file, credentials=credentials)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self):
-        if self.worker:
-            self.worker.keep_running = False
-        self.btn_stop.configure(state="disabled", text="STOPPING...")
-        self.update_log_safe("🛑 Stop requested — will halt after current user...")
+        if not self.worker:
+            return
+
+        self.worker.keep_running = False
+        self.worker.captcha_response = None
+        self.worker.captcha_event.set()
+
+        try:
+            if self.worker.driver:
+                self.worker.driver.quit()
+                self.worker.driver = None
+                self.update_log_safe("🛑 Chrome browser closed.")
+        except Exception as e:
+            self.update_log_safe(f"⚠️ Error closing Chrome: {e}")
+
+        self.close_captcha_safe()
+        self.btn_stop.configure(state="disabled", text="STOPPED")
+        self.cap_stop_btn.configure(state="disabled", text="STOPPED")
+        self.update_log_safe("🛑 Process stopped by user.")
 
 
 if __name__ == "__main__":

@@ -426,15 +426,11 @@ class App(ctk.CTk):
         self.file_frame = ctk.CTkFrame(self.config_frame, fg_color="transparent")
         self.file_frame.pack(fill="x", padx=15, pady=(0, 5))
         
-        self.entry_file = ctk.CTkEntry(self.file_frame, placeholder_text="Select Excel file (Columns: 'PAN' or 'User ID' & 'Password')...")
+        self.entry_file = ctk.CTkEntry(self.file_frame, placeholder_text="Add PAN/User ID and Password manually...")
         self.entry_file.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
         self.file_actions_frame = ctk.CTkFrame(self.file_frame, fg_color="transparent")
         self.file_actions_frame.pack(side="right")
-        
-        self.btn_browse = ctk.CTkButton(self.file_actions_frame, text="BROWSE FILE",
-                                      command=self.browse_file, width=100)
-        self.btn_browse.pack(side="left", padx=(0, 5))
         self.btn_demo = ctk.CTkButton(self.file_actions_frame, text="▶ Demo", command=self.open_demo_link,
                                       fg_color="#e53935", hover_color="#b71c1c", width=80,
                                       font=("Arial", 12, "bold"))
@@ -443,6 +439,16 @@ class App(ctk.CTk):
                         fg_color="#43a047", hover_color="#2e7d32", width=150,
                                         font=("Arial", 12, "bold"))
         self.btn_sample.pack(side="left")
+        self.btn_view_id = ctk.CTkButton(self.file_actions_frame, text="👁 View ID", command=self.view_saved_user,
+                         fg_color="#546e7a", hover_color="#37474f", width=95,
+                         font=("Arial", 11, "bold"))
+        self.btn_view_id.pack(side="left", padx=(5, 0))
+        self.btn_delete_id = ctk.CTkButton(self.file_actions_frame, text="🗑 Delete ID", command=self.delete_saved_user,
+                           fg_color="#8e24aa", hover_color="#6a1b9a", width=105,
+                           font=("Arial", 11, "bold"))
+        self.btn_delete_id.pack(side="left", padx=(5, 0))
+        self.btn_view_id.configure(state="disabled")
+        self.btn_delete_id.configure(state="disabled")
 
         # 1.2 Year Selection
         self.step2_label = ctk.CTkLabel(self.config_frame, text="2. DOWNLOAD SETTINGS", 
@@ -523,9 +529,43 @@ class App(ctk.CTk):
         if filename:
             self.excel_file_path = filename
             self.manual_credentials = []
+            self._refresh_manual_controls()
             self.entry_file.delete(0, "end")
             self.entry_file.insert(0, filename)
             self.log_to_gui(f"File Selected: {os.path.basename(filename)}")
+
+    def _get_saved_user_id(self):
+        if not self.manual_credentials:
+            return ""
+        return str(self.manual_credentials[0].get("User ID", "")).strip()
+
+    def _refresh_manual_controls(self):
+        has_manual = bool(self.manual_credentials)
+        self.btn_view_id.configure(state="normal" if has_manual else "disabled")
+        self.btn_delete_id.configure(state="normal" if has_manual else "disabled")
+        if has_manual:
+            user_id = self._get_saved_user_id()
+            self.entry_file.delete(0, "end")
+            self.entry_file.insert(0, f"Selected ID: {user_id}")
+
+    def view_saved_user(self):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        messagebox.showinfo("Saved User ID", f"Current ID: {user_id}")
+
+    def delete_saved_user(self):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        if not messagebox.askyesno("Delete ID", f"Delete saved ID {user_id}?"):
+            return
+        self.manual_credentials = []
+        self.entry_file.delete(0, "end")
+        self._refresh_manual_controls()
+        messagebox.showinfo("Deleted", "Saved ID deleted successfully.")
 
     def add_id_password(self):
         dialog = ctk.CTkToplevel(self)
@@ -556,10 +596,17 @@ class App(ctk.CTk):
                 messagebox.showerror("Missing Data", "Please enter User ID/PAN and Password", parent=dialog)
                 return
 
-            self.manual_credentials.append({"User ID": user_id, "Password": password})
+            existing_user = self._get_saved_user_id()
+            if existing_user and not messagebox.askyesno(
+                "Overwrite ID",
+                "Your previous ID will be overwritten with this.",
+                parent=dialog
+            ):
+                return
+
+            self.manual_credentials = [{"User ID": user_id, "Password": password}]
             self.excel_file_path = ""
-            self.entry_file.delete(0, "end")
-            self.entry_file.insert(0, f"Manual IDs added: {len(self.manual_credentials)}")
+            self._refresh_manual_controls()
             messagebox.showinfo("Added", f"Credential saved for {user_id}", parent=dialog)
             dialog.destroy()
 
@@ -597,7 +644,7 @@ class App(ctk.CTk):
             excel_path = self._create_manual_excel()
 
         if not excel_path:
-            messagebox.showwarning("Missing File", "Please select an Excel file or add ID/Password first.")
+            messagebox.showwarning("Missing File", "Please add ID/Password first.")
             return
 
         selected_pref = self.combo_years.get()

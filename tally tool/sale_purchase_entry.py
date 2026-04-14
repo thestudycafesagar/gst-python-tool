@@ -1813,14 +1813,14 @@ class TallySalesApp(ctk.CTk):
             font=("Segoe UI", 10),
             text_color=COLORS["text_muted"],
         )
-        self.connection_status_label.pack(anchor="w")
+        self.connection_status_label.pack(side="left", padx=(0, 15))
         self.company_status_label = ctk.CTkLabel(
             status_row,
             textvariable=self.company_status_var,
             font=("Segoe UI", 10),
             text_color=COLORS["text_muted"],
         )
-        self.company_status_label.pack(anchor="w")
+        self.company_status_label.pack(side="left", padx=(0, 15))
 
         self.today_date_checkbox = ctk.CTkCheckBox(
             settings_card,
@@ -2072,9 +2072,11 @@ class TallySalesApp(ctk.CTk):
                              xscrollcommand=tree_scroll_x.set)
         tree_scroll_y.config(command=tree.yview)
         tree_scroll_x.config(command=tree.xview)
-        tree_scroll_y.pack(side="right", fill="y")
-        tree_scroll_x.pack(side="bottom", fill="x")
-        tree.pack(fill="both", expand=True)
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+        tree.grid(row=0, column=0, sticky="nsew")
+        tree_scroll_y.grid(row=0, column=1, sticky="ns")
+        tree_scroll_x.grid(row=1, column=0, sticky="ew")
 
         # Action buttons
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent")

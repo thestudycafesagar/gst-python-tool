@@ -107,7 +107,7 @@ class GSTWorker:
                 self.log(f"📊 Loaded {len(df)} users from Add ID Password.")
             else:
                 if not self.excel_path:
-                    self.app.process_finished_safe("Please add ID/Password or select Excel file")
+                    self.app.process_finished_safe("Please add ID/Password first")
                     return
 
                 df = pd.read_excel(self.excel_path)
@@ -290,12 +290,20 @@ class GSTWorker:
             }
 
             selected_q = self.settings['quarter']
-            selected_m = self.settings['month']
-            if selected_q not in q_map or selected_m not in q_map[selected_q]:
+            period_mode = self.settings.get('period_mode', 'Monthly')
+            if selected_q not in q_map:
                 return "Config Error", "Invalid Month/Quarter Selection"
 
-            tasks = [{"q": selected_q, "m": selected_m}]
-            self.log(f"   📅 Mode: Monthly ({selected_m})")
+            if period_mode == "Quarterly":
+                selected_m = q_map[selected_q][-1]
+                tasks = [{"q": selected_q, "m": selected_m}]
+                self.log(f"   📅 Mode: Quarterly ({selected_q} -> {selected_m})")
+            else:
+                selected_m = self.settings['month']
+                if selected_m not in q_map[selected_q]:
+                    return "Config Error", "Invalid Month/Quarter Selection"
+                tasks = [{"q": selected_q, "m": selected_m}]
+                self.log(f"   📅 Mode: Monthly ({selected_m})")
             
             # 3. EXECUTE LOOP
             self.human_delay()
@@ -552,15 +560,11 @@ class App(ctk.CTk):
         cred_row = ctk.CTkFrame(self.card_cred, fg_color="transparent")
         cred_row.pack(fill="x", padx=15, pady=(5, 15))
 
-        self.ent_file = ctk.CTkEntry(cred_row, placeholder_text="Add ID/Password or select Excel file (optional)...", height=35)
+        self.ent_file = ctk.CTkEntry(cred_row, placeholder_text="Add ID/Password manually (optional)...", height=35)
         self.ent_file.pack(side="left", expand=True, fill="x", padx=(0, 10))
 
         action_row = ctk.CTkFrame(cred_row, fg_color="transparent")
         action_row.pack(side="right")
-        self.btn_browse = ctk.CTkButton(action_row, text="Browse File", command=self.browse_file,
-                fg_color="#2b6ea6", hover_color="#245f90", height=35, width=110,
-                font=("Arial", 12, "bold"))
-        self.btn_browse.pack(side="left", padx=(0, 8))
         self.btn_download = ctk.CTkButton(action_row, text="➕ Add ID Password", command=self.add_id_password,
                           fg_color="#43a047", hover_color="#2e7d32", height=35, width=150,
                           font=("Arial", 12, "bold"))
@@ -569,6 +573,19 @@ class App(ctk.CTk):
                           fg_color="#e53935", hover_color="#b71c1c", height=35, width=150,
                           font=("Arial", 12, "bold"))
         self.btn_demo.pack(side="left")
+
+        manage_row = ctk.CTkFrame(self.card_cred, fg_color="transparent")
+        manage_row.pack(fill="x", padx=15, pady=(0, 10))
+        self.btn_view_id = ctk.CTkButton(manage_row, text="👁 View ID", command=self.view_saved_user,
+                         fg_color="#546e7a", hover_color="#37474f", height=28, width=100,
+                         font=("Arial", 11, "bold"))
+        self.btn_view_id.pack(side="left")
+        self.btn_delete_id = ctk.CTkButton(manage_row, text="🗑 Delete ID", command=self.delete_saved_user,
+                           fg_color="#8e24aa", hover_color="#6a1b9a", height=28, width=110,
+                           font=("Arial", 11, "bold"))
+        self.btn_delete_id.pack(side="left", padx=(8, 0))
+        self.btn_view_id.configure(state="disabled")
+        self.btn_delete_id.configure(state="disabled")
 
         # Period Settings Card
         self.card_period = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
@@ -587,9 +604,19 @@ class App(ctk.CTk):
         self.cb_year.set(year_list[0]) 
         self.cb_year.pack(side="right", expand=True, fill="x")
         
-        # Monthly mode only
         self.chk_all_qtr_var = ctk.BooleanVar(value=False)
-        ctk.CTkLabel(self.card_period, text="Monthly download mode enabled", text_color="gray").pack(anchor="w", padx=15, pady=5)
+        self.period_mode_var = ctk.StringVar(value="Monthly")
+        self.frm_mode = ctk.CTkFrame(self.card_period, fg_color="transparent")
+        self.frm_mode.pack(fill="x", padx=15, pady=(4, 6))
+        ctk.CTkLabel(self.frm_mode, text="Mode:", width=100, anchor="w").pack(side="left")
+        self.mode_tabs = ctk.CTkSegmentedButton(
+            self.frm_mode,
+            values=["Monthly", "Quarterly"],
+            variable=self.period_mode_var,
+            command=self.toggle_inputs,
+            width=180
+        )
+        self.mode_tabs.pack(side="right", expand=True, fill="x")
 
         # Quarter & Month
         self.frm_qtr = ctk.CTkFrame(self.card_period, fg_color="transparent")
@@ -609,6 +636,7 @@ class App(ctk.CTk):
         self.cb_month = ctk.CTkComboBox(self.frm_mon, values=["April", "May", "June"], width=150)
         self.cb_month.set("April")
         self.cb_month.pack(side="right", expand=True, fill="x")
+        self.toggle_inputs()
 
         # LOGS
         self.log_frame = ctk.CTkFrame(self)
@@ -657,9 +685,14 @@ class App(ctk.CTk):
         self.btn_stop.pack(side="left", padx=(10, 0))
         self.btn_stop.pack_forget()
 
-    def toggle_inputs(self):
+    def toggle_inputs(self, mode_choice=None):
+        if mode_choice and hasattr(self, "period_mode_var"):
+            self.period_mode_var.set(mode_choice)
         self.cb_qtr.configure(state="normal")
+        mode = self.period_mode_var.get() if hasattr(self, "period_mode_var") else "Monthly"
         self.cb_month.configure(state="normal")
+        self.update_months_based_on_qtr(self.cb_qtr.get())
+        self.cb_month.configure(state="disabled" if mode == "Quarterly" else "normal")
 
     def update_months_based_on_qtr(self, choice):
         if "Quarter 1" in choice: vals = ["April", "May", "June"]
@@ -667,8 +700,50 @@ class App(ctk.CTk):
         elif "Quarter 3" in choice: vals = ["October", "November", "December"]
         elif "Quarter 4" in choice: vals = ["January", "February", "March"]
         else: vals = ["April", "May", "June"]
+        if not hasattr(self, "cb_month"):
+            return
+        prev_month_state = self.cb_month.cget("state")
+        if prev_month_state != "normal":
+            self.cb_month.configure(state="normal")
         self.cb_month.configure(values=vals)
-        self.cb_month.set(vals[0])
+        mode = self.period_mode_var.get() if hasattr(self, "period_mode_var") else "Monthly"
+        self.cb_month.set(vals[-1] if mode == "Quarterly" else vals[0])
+        if prev_month_state != "normal":
+            self.cb_month.configure(state=prev_month_state)
+
+    def _get_saved_user_id(self):
+        if not self.manual_credentials:
+            return ""
+        return str(self.manual_credentials[0].get("Username", "")).strip()
+
+    def _refresh_manual_controls(self):
+        has_manual = bool(self.manual_credentials)
+        self.btn_view_id.configure(state="normal" if has_manual else "disabled")
+        self.btn_delete_id.configure(state="normal" if has_manual else "disabled")
+        if has_manual:
+            user_id = self._get_saved_user_id()
+            self.ent_file.delete(0, "end")
+            self.ent_file.insert(0, f"Selected ID: {user_id}")
+
+    def view_saved_user(self):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        messagebox.showinfo("Saved User ID", f"Current ID: {user_id}")
+
+    def delete_saved_user(self):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        if not messagebox.askyesno("Delete ID", f"Delete saved ID {user_id}?"):
+            return
+        self.manual_credentials = []
+        self.ent_file.delete(0, "end")
+        self._refresh_manual_controls()
+        messagebox.showinfo("Deleted", "Saved ID deleted successfully.")
+
     def add_id_password(self):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Add ID Password")
@@ -698,10 +773,17 @@ class App(ctk.CTk):
                 messagebox.showerror("Missing Data", "Please enter both GST ID and Password", parent=dialog)
                 return
 
-            self.manual_credentials.append({"Username": username, "Password": password})
+            existing_user = self._get_saved_user_id()
+            if existing_user and not messagebox.askyesno(
+                "Overwrite ID",
+                "Your previous ID will be overwritten with this.",
+                parent=dialog
+            ):
+                return
+
+            self.manual_credentials = [{"Username": username, "Password": password}]
             self.excel_file = ""
-            self.ent_file.delete(0, "end")
-            self.ent_file.insert(0, f"Manual IDs added: {len(self.manual_credentials)}")
+            self._refresh_manual_controls()
             messagebox.showinfo("Added", f"Credential saved for {username}", parent=dialog)
             dialog.destroy()
 
@@ -720,6 +802,7 @@ class App(ctk.CTk):
         if f:
             self.excel_file = f
             self.manual_credentials = []
+            self._refresh_manual_controls()
             self.ent_file.delete(0, "end")
             self.ent_file.insert(0, f)
 
@@ -797,12 +880,13 @@ class App(ctk.CTk):
     def start_process(self):
         credentials = list(self.manual_credentials)
         if not credentials and not self.excel_file:
-            messagebox.showerror("Error", "Please add ID/Password or select Excel file")
+            messagebox.showerror("Error", "Please add ID/Password first")
             return
         settings = {
             "year": self.cb_year.get(),
             "month": self.cb_month.get(),
             "quarter": self.cb_qtr.get(),
+            "period_mode": self.period_mode_var.get(),
             "all_quarters": False
         }
         self.close_captcha_safe()

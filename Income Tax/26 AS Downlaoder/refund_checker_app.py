@@ -1,6 +1,7 @@
 import threading
 import time
 import os
+import tempfile
 import pandas as pd
 import customtkinter as ctk
 from datetime import datetime
@@ -488,6 +489,7 @@ class RefundCheckerApp(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         self.worker = None
+        self.manual_credentials = []
 
         # --- Header ---
         header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
@@ -509,16 +511,23 @@ class RefundCheckerApp(ctk.CTk):
         config_frame = ctk.CTkFrame(self.content)
         config_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
-        ctk.CTkLabel(config_frame, text="1. UPLOAD EXCEL FILE",
+        ctk.CTkLabel(config_frame, text="1. CREDENTIALS SOURCE",
                      font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
 
         f_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
-        self.entry_file_filed = ctk.CTkEntry(f_frame, placeholder_text="Excel File (Headers: PAN, Assessment Year, etc.)...")
+        self.entry_file_filed = ctk.CTkEntry(f_frame, placeholder_text="Add PAN and Assessment Year manually...")
         self.entry_file_filed.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(f_frame, text="BROWSE", command=self.browse_file, width=80).pack(side="right")
-        ctk.CTkButton(f_frame, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
-        ctk.CTkButton(f_frame, text="📥 Sample", command=self.download_sample, width=100, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="right", padx=(0, 5))
+        btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
+        btn_actions.pack(side="right")
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=self.add_id_password, width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
+        self.btn_view_id = ctk.CTkButton(btn_actions, text="👁 View ID", command=self.view_saved_user, width=95, fg_color="#546e7a", hover_color="#37474f", font=("Arial", 11, "bold"))
+        self.btn_view_id.pack(side="left", padx=(5, 0))
+        self.btn_delete_id = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=self.delete_saved_user, width=105, fg_color="#8e24aa", hover_color="#6a1b9a", font=("Arial", 11, "bold"))
+        self.btn_delete_id.pack(side="left", padx=(5, 0))
+        self.btn_view_id.configure(state="disabled")
+        self.btn_delete_id.configure(state="disabled")
 
         pref_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 15))
@@ -591,17 +600,128 @@ class RefundCheckerApp(ctk.CTk):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
         if filename:
             self.excel_file_path_filed = filename
+            self.manual_credentials = []
+            self._refresh_manual_controls()
             self.entry_file_filed.delete(0, "end")
             self.entry_file_filed.insert(0, filename)
             self.log_to_gui_filed(f"File Loaded: {os.path.basename(filename)}")
 
+    def _get_saved_user_id(self):
+        if not self.manual_credentials:
+            return ""
+        return str(self.manual_credentials[0].get("PAN", "")).strip()
+
+    def _refresh_manual_controls(self):
+        has_manual = bool(self.manual_credentials)
+        self.btn_view_id.configure(state="normal" if has_manual else "disabled")
+        self.btn_delete_id.configure(state="normal" if has_manual else "disabled")
+        if has_manual:
+            user_id = self._get_saved_user_id()
+            self.entry_file_filed.delete(0, "end")
+            self.entry_file_filed.insert(0, f"Selected ID: {user_id}")
+
+    def view_saved_user(self):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        messagebox.showinfo("Saved User ID", f"Current ID: {user_id}")
+
+    def delete_saved_user(self):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        if not messagebox.askyesno("Delete ID", f"Delete saved ID {user_id}?"):
+            return
+        self.manual_credentials = []
+        self.entry_file_filed.delete(0, "end")
+        self._refresh_manual_controls()
+        messagebox.showinfo("Deleted", "Saved ID deleted successfully.")
+
+    def add_id_password(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add ID Password")
+        dialog.geometry("430x300")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        card = ctk.CTkFrame(dialog, fg_color="transparent")
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ctk.CTkLabel(card, text="PAN / User ID").pack(anchor="w")
+        ent_user = ctk.CTkEntry(card, placeholder_text="Enter PAN / User ID")
+        ent_user.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(card, text="Password").pack(anchor="w")
+        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter Password", show="*")
+        ent_pass.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(card, text="DOB (optional)").pack(anchor="w")
+        ent_dob = ctk.CTkEntry(card, placeholder_text="DD/MM/YYYY")
+        ent_dob.pack(fill="x", pady=(4, 14))
+
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x")
+
+        def _save():
+            user_id = (ent_user.get() or "").strip()
+            password = (ent_pass.get() or "").strip()
+            dob = (ent_dob.get() or "").strip()
+            if not user_id or not password:
+                messagebox.showerror("Missing Data", "Please enter PAN/User ID and Password", parent=dialog)
+                return
+
+            existing_user = self._get_saved_user_id()
+            if existing_user and not messagebox.askyesno(
+                "Overwrite ID",
+                "Your previous ID will be overwritten with this.",
+                parent=dialog
+            ):
+                return
+
+            self.manual_credentials = [{"PAN": user_id, "Password": password, "DOB": dob}]
+            self.excel_file_path_filed = ""
+            self._refresh_manual_controls()
+            messagebox.showinfo("Added", f"Credential saved for {user_id}", parent=dialog)
+            dialog.destroy()
+
+        ctk.CTkButton(btn_row, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Add", width=110, command=_save).pack(side="right", padx=(0, 8))
+
+        ent_user.focus_set()
+        dialog.bind("<Return>", lambda _e: _save())
+
+    def _create_manual_excel(self):
+        rows = []
+        for item in self.manual_credentials:
+            user_id = str(item.get("PAN", "")).strip()
+            password = str(item.get("Password", "")).strip()
+            dob = str(item.get("DOB", "")).strip()
+            if user_id and password:
+                rows.append({"PAN": user_id, "Password": password, "DOB": dob})
+
+        if not rows:
+            return ""
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx", prefix="it_refund_manual_") as tmp:
+            temp_excel = tmp.name
+        pd.DataFrame(rows, columns=["PAN", "Password", "DOB"]).to_excel(temp_excel, index=False)
+        return temp_excel
+
     def start_process(self):
-        if not self.excel_file_path_filed:
-            return messagebox.showwarning("Error", "Select file first")
+        excel_path = self.excel_file_path_filed
+        if not excel_path and self.manual_credentials:
+            excel_path = self._create_manual_excel()
+
+        if not excel_path:
+            return messagebox.showwarning("Error", "Select file or add ID/Password first")
+
         self.btn_start_filed.configure(state="disabled", text="GENERATING...", fg_color="gray")
         self.btn_stop.grid()
         self.progress_filed.set(0)
-        self.worker = FiledReturnWorker(self, self.excel_file_path_filed, self.combo_years_filed.get())
+        self.worker = FiledReturnWorker(self, excel_path, self.combo_years_filed.get())
         threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self):

@@ -426,10 +426,13 @@ class App(ctk.CTk):
         
         self.entry_file = ctk.CTkEntry(self.file_frame, placeholder_text="Select Excel file (Columns: 'PAN' or 'User ID' & 'Password')...")
         self.entry_file.pack(side="left", fill="x", expand=True, padx=(0, 10))
+
+        self.file_actions_frame = ctk.CTkFrame(self.file_frame, fg_color="transparent")
+        self.file_actions_frame.pack(side="right")
         
-        self.btn_browse = ctk.CTkButton(self.file_frame, text="BROWSE FILE", 
+        self.btn_browse = ctk.CTkButton(self.file_actions_frame, text="BROWSE FILE", 
                                       command=self.browse_file, width=120)
-        self.btn_browse.pack(side="right")
+        self.btn_browse.pack(side="left")
 
         # 1.2 Year Selection
         self.step2_label = ctk.CTkLabel(self.config_frame, text="2. DOWNLOAD SETTINGS", 

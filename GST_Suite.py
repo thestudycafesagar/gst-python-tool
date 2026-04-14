@@ -548,39 +548,41 @@ PDF_TOOLS = [
 ]
 
 BANK_TOOLS = [
-    {"key": "Bank_Excel", "tab": "🏦  Bank → Excel", "module": os.path.join(_BANK_BASE, "bank_to_excel.py"), "class": "App", "tk": True, "desc": "Convert bank statement PDFs to formatted Excel sheets. Supports HDFC, ICICI, SBI, Axis, Kotak, IDFC, BOI, Yes, UCO & Equitas."},
+    {"key": "Bank_Excel", "tab": "🏦  Bank → Excel", "module": os.path.join(_BANK_BASE, "bank_to_excel.py"), "class": "App", "tk": False, "desc": "Convert bank statement PDFs to formatted Excel sheets. Supports HDFC, ICICI, SBI, Axis, Kotak, IDFC, BOI, Yes, UCO & Equitas."},
 ]
 
 EMAIL_TOOLS = [
-    {"key": "Email_GST_Request", "tab": "📋  GST Return Request", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",      "tk": True, "desc": "Send bulk GST return data request emails via Outlook. Auto-fills month, return type, deadlines and contact details."},
-    {"key": "Email_Invoice",     "tab": "🧾  Invoice Sender",     "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": True, "desc": "Dispatch personalised invoices to clients in bulk via Outlook. Supports per-row service, period, amount & PDF attachments."},
-    {"key": "Email_Payment",     "tab": "💰  Payment Reminder",   "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": True, "desc": "Send outstanding payment reminder emails in bulk via Outlook. Includes interest clause, deadline and per-client amounts."},
+    {"key": "Email_GST_Request", "tab": "📋  GST Return Request", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Outlook. Auto-fills month, return type, deadlines and contact details."},
+    {"key": "Email_Invoice",     "tab": "🧾  Invoice Sender",     "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Outlook. Supports per-row service, period, amount & PDF attachments."},
+    {"key": "Email_Payment",     "tab": "💰  Payment Reminder",   "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Outlook. Includes interest clause, deadline and per-client amounts."},
 ]
 
 GMAIL_TOOLS = [
-    {"key": "Gmail_GST_Request", "tab": "📋  GST Return Request", "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",      "tk": True, "desc": "Send bulk GST return data request emails via Gmail. Auto-fills month, return type, deadlines and contact details."},
-    {"key": "Gmail_Invoice",     "tab": "🧾  Invoice Sender",     "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": True, "desc": "Dispatch personalised invoices to clients in bulk via Gmail. Supports per-row service, period, amount & PDF attachments."},
-    {"key": "Gmail_Payment",     "tab": "💰  Payment Reminder",   "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": True, "desc": "Send outstanding payment reminder emails in bulk via Gmail. Includes interest clause, deadline and per-client amounts."},
+    {"key": "Gmail_GST_Request", "tab": "📋  GST Return Request", "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Gmail. Auto-fills month, return type, deadlines and contact details."},
+    {"key": "Gmail_Invoice",     "tab": "🧾  Invoice Sender",     "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Gmail. Supports per-row service, period, amount & PDF attachments."},
+    {"key": "Gmail_Payment",     "tab": "💰  Payment Reminder",   "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Gmail. Includes interest clause, deadline and per-client amounts."},
 ]
 
 COMBINED_EMAIL_TOOLS = [
-    {"key": "Email_GST_Request", "tab": "📧  Outlook | GST Request",    "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",      "tk": True, "desc": "Send bulk GST return data request emails via Outlook. Auto-fills month, return type, deadlines and contact details."},
-    {"key": "Email_Invoice",     "tab": "📧  Outlook | Invoice Sender",  "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": True, "desc": "Dispatch personalised invoices to clients in bulk via Outlook. Supports per-row service, period, amount & PDF attachments."},
-    {"key": "Email_Payment",     "tab": "📧  Outlook | Payment Reminder","module": os.path.join(_EMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": True, "desc": "Send outstanding payment reminder emails in bulk via Outlook. Includes interest clause, deadline and per-client amounts."},
-    {"key": "Gmail_GST_Request", "tab": "✉  Gmail | GST Request",       "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",      "tk": True, "desc": "Send bulk GST return data request emails via Gmail. Auto-fills month, return type, deadlines and contact details."},
-    {"key": "Gmail_Invoice",     "tab": "✉  Gmail | Invoice Sender",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": True, "desc": "Dispatch personalised invoices to clients in bulk via Gmail. Supports per-row service, period, amount & PDF attachments."},
-    {"key": "Gmail_Payment",     "tab": "✉  Gmail | Payment Reminder",  "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": True, "desc": "Send outstanding payment reminder emails in bulk via Gmail. Includes interest clause, deadline and per-client amounts."},
+    {"key": "Email_GST_Request", "tab": "📧  Outlook | GST Request",    "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Outlook. Auto-fills month, return type, deadlines and contact details."},
+    {"key": "Email_Invoice",     "tab": "📧  Outlook | Invoice Sender",  "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Outlook. Supports per-row service, period, amount & PDF attachments."},
+    {"key": "Email_Payment",     "tab": "📧  Outlook | Payment Reminder","module": os.path.join(_EMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Outlook. Includes interest clause, deadline and per-client amounts."},
+    {"key": "Gmail_GST_Request", "tab": "✉  Gmail | GST Request",       "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Gmail. Auto-fills month, return type, deadlines and contact details."},
+    {"key": "Gmail_Invoice",     "tab": "✉  Gmail | Invoice Sender",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Gmail. Supports per-row service, period, amount & PDF attachments."},
+    {"key": "Gmail_Payment",     "tab": "✉  Gmail | Payment Reminder",  "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Gmail. Includes interest clause, deadline and per-client amounts."},
 ]
 
 MAIL_GROUP_TOOLS = [
-    {"key": "Email_Suite", "tab": "📧  Outlook Email Tools", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": True, "desc": "Outlook suite with 3 templates: GST Return Request, Invoice Sender, and Payment Reminder."},
-    {"key": "Gmail_Suite", "tab": "✉  Gmail Email Tools",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": True, "desc": "Gmail suite with 3 templates: GST Return Request, Invoice Sender, and Payment Reminder."},
+    {"key": "Email_Suite", "tab": "📧  Outlook Email Tools", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Outlook suite with 3 templates: GST Return Request, Invoice Sender, and Payment Reminder.", "is_card_only": True, "action_cat": "email"},
+    {"key": "Gmail_Suite", "tab": "✉  Gmail Email Tools",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Gmail suite with 3 templates: GST Return Request, Invoice Sender, and Payment Reminder.", "is_card_only": True, "action_cat": "gmail"},
 ]
 
 TALLY_TOOLS = [
     {"key": "Tally_Automation", "tab": "🧾  GSTR-2B → Tally", "module": os.path.join(_TALLY_BASE, "main.py"), "class": "GSTR2BTallyApp", "desc": "Convert GSTR-2B and Tally sheets into Tally-ready outputs with XML generation, mapping and automation helpers."},
     {"key": "Tally_Bank", "tab": "🏦  Bank Statement → Tally", "module": os.path.join(_TALLY_BASE, "Bank_Statment_to_Tally.py"), "class": "TallyBankApp", "desc": "Convert bank statement Excel to Tally Payment/Receipt vouchers and push XML directly to Tally."},
     {"key": "Tally_Sales", "tab": "🛒  Tally Entry", "module": os.path.join(_TALLY_BASE, "sale_purchase_entry.py"), "class": "TallySalesApp", "desc": "Automate sales and purchase entries in Tally."},
+    {"key": "Tally_Credit_Debit_Note", "tab": "📝  Credit/Debit Note", "module": os.path.join(_TALLY_BASE, "credit-debit-note.py"), "class": "TallyNoteEntryApp", "desc": "Create Credit/Debit Note vouchers from Excel or manual entry, then export or push XML directly to TallyPrime."},
+    {"key": "Tally_Journal", "tab": "📒  Journal Entry", "module": os.path.join(_TALLY_BASE, "journal_entry.py"), "class": "TallyJournalApp", "desc": "Create Journal vouchers from Excel upload or manual entry, with XML export and direct push to TallyPrime."},
 ]
 _RECO_ACCENTS = [
     ("#0f766e", "#2dd4bf"),
@@ -1091,6 +1093,8 @@ class GSTSuite(_RealCTk):
             "Tally_Automation": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
             "Tally_Bank": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
             "Tally_Sales": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
+            "Tally_Credit_Debit_Note": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
+            "Tally_Journal": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
             "Email_Suite": {
                 "EMAIL", "EMAIL_TOOLS", "OUTLOOK", "OUTLOOK TOOLS", "OUTLOOK EMAIL TOOLS",
                 "EMAIL_GST_REQUEST", "EMAIL_INVOICE", "EMAIL_PAYMENT",
@@ -1444,6 +1448,8 @@ class GSTSuite(_RealCTk):
 
         # Tool tabs (lazy; locked tabs get placeholder immediately)
         for t in tools:
+            if t.get("is_card_only"):
+                continue
             tv.add(t["tab"])
             if not self._is_tool_allowed(t.get("key")):
                 self._loaded[t["tab"]] = True   # skip lazy-loader
@@ -1584,9 +1590,14 @@ class GSTSuite(_RealCTk):
                          text_color=ac).pack(anchor="w", pady=(10, 0))
 
             # Make card clickable (only if not locked) — switches directly to the tool's tab
-            if tv is not None and not is_locked:
-                def _make_attach(tab_name=tool["tab"], _card=card):
-                    def _click(_=None): tv.set(tab_name)
+            if not is_locked:
+                action_cat = tool.get("action_cat")
+                def _make_attach(tab_name=tool["tab"], _card=card, _action_cat=action_cat):
+                    def _click(_=None):
+                        if _action_cat:
+                            self._show_category(_action_cat)
+                        elif tv is not None:
+                            tv.set(tab_name)
                     def _enter(_=None):
                         try: _card.configure(fg_color=_C["surface"])
                         except Exception: pass
@@ -2316,3 +2327,7 @@ if __name__ == "__main__":
         run_app_lifecycle()
     finally:
         _close_boot_splash()
+
+
+
+

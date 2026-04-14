@@ -216,6 +216,15 @@ class ChallExtractorApp(tk.Tk):
 
         self._build_ui()
         self._center()
+        self.after(200, self._show_supported_reports_notice)
+
+    def _show_supported_reports_notice(self):
+        messagebox.showwarning(
+            "Important Notice",
+            "This tool works only with reports downloaded from the official GST website.\n"
+            "Third-party reports are not supported.",
+            parent=self,
+        )
 
     # ── layout ────────────────────────────────────────────
     def _build_ui(self):

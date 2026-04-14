@@ -23,12 +23,14 @@ ctk.set_default_color_theme("blue")
 
 # --- WORKER THREAD ---
 class GSTWorker:
-    def __init__(self, app, file_path):
+    def __init__(self, app, file_path, manual_gstins=None):
         self.app = app
         self.file_path = file_path
+        self.manual_gstins = manual_gstins or []
         self.keep_running = True
         self.user_captcha_response = None
         self.is_waiting_for_captcha = False
+        self.driver = None
 
     def log(self, message, tag=None):
         self.app.update_log(message, tag)
@@ -41,25 +43,35 @@ class GSTWorker:
         options.add_argument("--disable-blink-features=AutomationControlled") 
         
         try:
-            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver = self.driver
         except Exception as e:
             self.log(f"❌ Failed to start browser: {e}", "error")
             return
 
         try:
-            # Load Excel
-            df = pd.read_excel(self.file_path)
-            
-            # --- FIX: NORMALIZE COLUMN NAMES (Case-Insensitive) ---
-            # Remove spaces and convert to UPPERCASE
-            df.columns = df.columns.str.strip().str.upper()
-            
-            if 'GSTIN' not in df.columns:
-                self.log("❌ Error: Excel must have a column named 'GSTIN' (case-insensitive)", "error")
-                driver.quit()
-                return
-            
-            gstin_list = df['GSTIN'].astype(str).unique().tolist()
+            if self.manual_gstins:
+                gstin_list = [str(x).strip() for x in self.manual_gstins if str(x).strip()]
+            else:
+                # Load Excel
+                df = pd.read_excel(self.file_path)
+
+                # --- FIX: NORMALIZE COLUMN NAMES (Case-Insensitive) ---
+                # Remove spaces and convert to UPPERCASE
+                df.columns = df.columns.str.strip().str.upper()
+
+                if 'GSTIN' not in df.columns:
+                    self.log("❌ Error: Excel must have a column named 'GSTIN' (case-insensitive)", "error")
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+                    self.driver = None
+                    return
+
+                gstin_list = df['GSTIN'].astype(str).unique().tolist()
+
+            gstin_list = list(dict.fromkeys(gstin_list))
             results = []
             total = len(gstin_list)
 
@@ -310,6 +322,21 @@ class GSTWorker:
                 except Exception as e:
                     self.log(f"❌ Error processing {gstin}: {str(e)}", "error")
                     results.append({"GSTIN": gstin, "Status": "Error"})
+
+            if not self.keep_running:
+                self.log("🛑 Process stopped by user.", "warning")
+                if results:
+                    timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+                    output_file = f"GST_Report_{timestamp}.xlsx"
+                    try:
+                        pd.DataFrame(results).to_excel(output_file, index=False)
+                        self.app.process_finished(f"Stopped by user. Partial report saved as {output_file}")
+                    except Exception as e:
+                        self.app.log_message(f"CRITICAL ERROR: Could not save report. {e}", "fatal")
+                        self.app.process_finished("Stopped by user.")
+                else:
+                    self.app.process_finished("Stopped by user.")
+                return
             
             # Export
             self.app.update_progress(1.0)
@@ -326,13 +353,26 @@ class GSTWorker:
         except Exception as e:
             self.log(f"CRITICAL ERROR: {e}", "fatal")
         finally:
-            driver.quit()
+            if self.driver:
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
 
     def receive_captcha_input(self, text):
         self.user_captcha_response = text
 
     def stop(self):
         self.keep_running = False
+        self.user_captcha_response = ""
+        self.is_waiting_for_captcha = False
+        try:
+            if self.driver:
+                self.driver.quit()
+                self.driver = None
+        except Exception:
+            pass
 
 
 # --- MODERN GUI CLASS (CustomTkinter + Rich Text) ---
@@ -343,6 +383,7 @@ class GSTApp(ctk.CTk):
         self.title("GST Bulk Verification Pro")
         self.geometry("700x800")
         self.worker = None
+        self.manual_credentials = []
         
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1) 
@@ -366,17 +407,23 @@ class GSTApp(ctk.CTk):
         self.lbl_step1 = ctk.CTkLabel(self.frame_file, text="STEP 1: Upload Data", font=("Roboto", 14, "bold"))
         self.lbl_step1.pack(anchor="w", padx=15, pady=(10, 5))
         
-        self.file_entry = ctk.CTkEntry(self.frame_file, placeholder_text="Select Excel file (.xlsx)...", width=400)
+        self.file_entry = ctk.CTkEntry(self.frame_file, placeholder_text="Add ID/Password manually...", width=400)
         self.file_entry.pack(side="left", padx=15, pady=(0, 15), expand=True, fill="x")
-        
-        self.btn_browse = ctk.CTkButton(self.frame_file, text="Browse File", width=100, command=self.browse_file)
-        
-        self.btn_browse.pack(side="right", padx=15, pady=(0, 15))
         
         self.btn_demo = ctk.CTkButton(self.frame_file, text="▶ View Demo", command=self.open_demo_link, fg_color="#e53935", hover_color="#b71c1c", height=28, font=("Arial", 12, "bold"))
         self.btn_demo.pack(side="right", padx=(0, 5), pady=(0, 15))
-        self.btn_download = ctk.CTkButton(self.frame_file, text="📥 Sample Excel", command=self.download_sample, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
+        self.btn_download = ctk.CTkButton(self.frame_file, text="➕ Add ID Password", command=self.add_id_password, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
         self.btn_download.pack(side="right", padx=15, pady=(0, 15))
+        self.btn_view_id = ctk.CTkButton(self.frame_file, text="👁 View ID", command=self.view_saved_user,
+                         fg_color="#546e7a", hover_color="#37474f", height=28,
+                         font=("Arial", 11, "bold"))
+        self.btn_view_id.pack(side="right", padx=(0, 5), pady=(0, 15))
+        self.btn_delete_id = ctk.CTkButton(self.frame_file, text="🗑 Delete ID", command=self.delete_saved_user,
+                           fg_color="#8e24aa", hover_color="#6a1b9a", height=28,
+                           font=("Arial", 11, "bold"))
+        self.btn_delete_id.pack(side="right", padx=(0, 5), pady=(0, 15))
+        self.btn_view_id.configure(state="disabled")
+        self.btn_delete_id.configure(state="disabled")
 
         # --- 2. RICH LOG & PROGRESS ---
         self.frame_log = ctk.CTkFrame(self)
@@ -432,23 +479,6 @@ class GSTApp(ctk.CTk):
         self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=("Roboto", 16, "bold"), height=50, command=self.stop_process, fg_color="#c62828", hover_color="#8e0000", width=150)
         self.btn_stop.grid(row=0, column=1, padx=(10, 0))
         self.btn_stop.grid_remove()
-    def download_sample(self):
-        import shutil
-        import os
-        from tkinter import messagebox
-        sample_path = os.path.join(os.path.dirname(__file__), "GST Verification Tools Sample File.xlsx")
-        if not os.path.exists(sample_path):
-            messagebox.showerror("Download Error", f"Sample file not found: {sample_path}")
-            return
-        
-        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="GST Verification Tools Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
-        if save_path:
-            try:
-                shutil.copy2(sample_path, save_path)
-                messagebox.showinfo("Success", f"Sample downloaded to {save_path}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to download: {e}")
-
     def open_demo_link(self):
         import webbrowser
         webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
@@ -458,7 +488,90 @@ class GSTApp(ctk.CTk):
         if filename:
             self.file_entry.delete(0, "end")
             self.file_entry.insert(0, filename)
+            self.manual_credentials = []
+            self._refresh_manual_controls()
             self.log_message(f"✅ File loaded: {filename.split('/')[-1]}", "info")
+
+    def _get_saved_user_id(self):
+        if not self.manual_credentials:
+            return ""
+        return str(self.manual_credentials[0].get("Username", "")).strip()
+
+    def _refresh_manual_controls(self):
+        has_manual = bool(self.manual_credentials)
+        self.btn_view_id.configure(state="normal" if has_manual else "disabled")
+        self.btn_delete_id.configure(state="normal" if has_manual else "disabled")
+        if has_manual:
+            user_id = self._get_saved_user_id()
+            self.file_entry.delete(0, "end")
+            self.file_entry.insert(0, f"Selected ID: {user_id}")
+
+    def view_saved_user(self):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        messagebox.showinfo("Saved User ID", f"Current ID: {user_id}")
+
+    def delete_saved_user(self):
+        user_id = self._get_saved_user_id()
+        if not user_id:
+            messagebox.showinfo("Info", "No saved ID found.")
+            return
+        if not messagebox.askyesno("Delete ID", f"Delete saved ID {user_id}?"):
+            return
+        self.manual_credentials = []
+        self.file_entry.delete(0, "end")
+        self._refresh_manual_controls()
+        messagebox.showinfo("Deleted", "Saved ID deleted successfully.")
+
+    def add_id_password(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add ID Password")
+        dialog.geometry("420x240")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        card = ctk.CTkFrame(dialog, fg_color="transparent")
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ctk.CTkLabel(card, text="GST ID/Username").pack(anchor="w")
+        ent_user = ctk.CTkEntry(card, placeholder_text="Enter GST ID/Username")
+        ent_user.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(card, text="GST Password").pack(anchor="w")
+        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter GST Password", show="*")
+        ent_pass.pack(fill="x", pady=(4, 14))
+
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x")
+
+        def _save():
+            username = (ent_user.get() or "").strip()
+            password = (ent_pass.get() or "").strip()
+            if not username or not password:
+                messagebox.showerror("Missing Data", "Please enter both GST ID and Password", parent=dialog)
+                return
+
+            existing_user = self._get_saved_user_id()
+            if existing_user and not messagebox.askyesno(
+                "Overwrite ID",
+                "Your previous ID will be overwritten with this.",
+                parent=dialog
+            ):
+                return
+
+            self.manual_credentials = [{"Username": username, "Password": password}]
+            self._refresh_manual_controls()
+            messagebox.showinfo("Added", f"Credential saved for {username}", parent=dialog)
+            dialog.destroy()
+
+        ctk.CTkButton(btn_row, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Add", width=110, command=_save).pack(side="right", padx=(0, 8))
+
+        ent_user.focus_set()
+        dialog.bind("<Return>", lambda _e: _save())
 
     def log_message(self, message, tag="normal"):
         self.log_text.config(state="normal")
@@ -468,27 +581,53 @@ class GSTApp(ctk.CTk):
 
     def start_process(self):
         file_path = self.file_entry.get()
-        if not file_path:
-            messagebox.showwarning("Warning", "Please select an Excel file first!")
+        manual_gstins = [
+            row.get("Username", "").strip()
+            for row in self.manual_credentials
+            if row.get("Username", "").strip()
+        ]
+
+        if not file_path and not manual_gstins:
+            messagebox.showwarning("Warning", "Please add ID/Password first!")
             return
         
+        self.frame_captcha.grid()
+        self.reset_status_label()
+        self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+        self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.grid()
         self.log_message("🚀 Starting Automation Thread...", "info")
-        self.worker = GSTWorker(self, file_path)
+        self.worker = GSTWorker(self, file_path, manual_gstins=manual_gstins)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self):
-        if self.worker:
-            self.worker.keep_running = False
-        self.btn_stop.configure(state="disabled", text="STOPPING...")
-        self.update_log("🛑 Stop requested — will halt after current user...", "warning")
+        if not self.worker:
+            return
+        self.worker.stop()
+        self.close_captcha_safe()
+        self.btn_stop.configure(state="disabled", text="STOPPED")
+        self.cap_stop_btn.configure(state="disabled", text="STOPPED")
+        self.update_log("🛑 Chrome browser closed.", "warning")
+        self.update_log("🛑 Process stopped by user.", "warning")
 
     def update_log(self, message, tag):
         self.after(0, lambda: self.log_message(message, tag))
 
     def update_progress(self, val):
         self.after(0, lambda: self.progress_bar.set(val))
+
+    def close_captcha_safe(self):
+        def hide_ui():
+            self.frame_captcha.grid_remove()
+            self.lbl_image.configure(image=None, text="[Waiting for Process...]")
+            self.lbl_image.image = None
+            self.entry_captcha.configure(state="disabled")
+            self.entry_captcha.delete(0, "end")
+            self.btn_submit.configure(state="disabled", fg_color="gray", text="SUBMIT CAPTCHA")
+            self.frame_captcha.configure(border_color="#444")
+            self.lbl_captcha_title.configure(text="CAPTCHA ACTION REQUIRED", text_color="gray")
+        self.after(0, hide_ui)
 
     def show_invalid_gst_alert(self):
         def update():
@@ -507,6 +646,9 @@ class GSTApp(ctk.CTk):
 
     def show_captcha_popup(self, image_data, gstin):
         def update_ui():
+            if not self.worker or not self.worker.keep_running:
+                return
+            self.frame_captcha.grid()
             self.frame_captcha.configure(border_color="#00ff00") 
             self.lbl_captcha_title.configure(text=f"ENTER CAPTCHA FOR: {gstin}", text_color="#00ff00")
             
@@ -546,12 +688,17 @@ class GSTApp(ctk.CTk):
 
     def process_finished(self, msg):
         def finish():
-            self.log_message(f"\n🎉 DONE: {msg}", "success")
-            self.btn_start.configure(state="normal", text="START AUTOMATION")
+            is_stopped = "stopped" in (msg or "").lower()
+            self.log_message(f"\n🎉 DONE: {msg}", "warning" if is_stopped else "success")
+            self.close_captcha_safe()
+            self.btn_start.configure(state="normal", text="STOPPED" if is_stopped else "START AUTOMATION")
             self.btn_stop.grid_remove()
             self.btn_stop.configure(state="normal", text="⏹ STOP")
-            self.lbl_captcha_title.configure(text="PROCESS COMPLETED", text_color="gray")
-            messagebox.showinfo("Success", msg)
+            self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+            self.lbl_captcha_title.configure(text="PROCESS STOPPED" if is_stopped else "PROCESS COMPLETED", text_color="gray")
+            messagebox.showinfo("Info", msg)
+            if is_stopped:
+                self.after(1200, lambda: self.btn_start.configure(text="START AUTOMATION"))
         self.after(0, finish)
 
     def on_closing(self):
