@@ -2236,6 +2236,56 @@ def _apply_ledger_mapping_to_xml(xml_content, ledger_mapping):
     return ET.tostring(root, encoding="unicode"), replaced
 
 
+def _build_auto_party_mapping_from_sheet(usage_map, party_ledger_map, existing_ledger_keys):
+    """Build PARTYLEDGER remap from mapping sheet when mapped target exists in Tally."""
+    remap = {}
+    if not usage_map or not party_ledger_map or not existing_ledger_keys:
+        return remap
+
+    usage_party_by_key = {}
+    for ledger_name, meta in (usage_map or {}).items():
+        if not isinstance(meta, dict) or not meta.get("is_party"):
+            continue
+        normalized = _normalize_ledger_name(ledger_name)
+        if not normalized:
+            continue
+        key = _ledger_key(normalized)
+        if key and key not in usage_party_by_key:
+            usage_party_by_key[key] = normalized
+
+    for raw_party, raw_target in (party_ledger_map or {}).items():
+        party_key = _ledger_key(raw_party)
+        src_name = usage_party_by_key.get(party_key)
+        if not src_name:
+            continue
+
+        target_name = _normalize_ledger_name(raw_target)
+        if not target_name:
+            continue
+        target_key = _ledger_key(target_name)
+        if not target_key or target_key == party_key:
+            continue
+        if target_key in existing_ledger_keys:
+            remap[src_name] = target_name
+
+    return remap
+
+
+def _collect_missing_ledgers_from_usage(usage_map, existing_ledger_keys):
+    missing = []
+    seen = set()
+    for ledger_name in (usage_map or {}).keys():
+        normalized = _normalize_ledger_name(ledger_name)
+        if not normalized:
+            continue
+        key = _ledger_key(normalized)
+        if not key or key in existing_ledger_keys or key in seen:
+            continue
+        seen.add(key)
+        missing.append(normalized)
+    return sorted(missing, key=lambda x: _ledger_key(x))
+
+
 def _post_xml_with_fallbacks(tally_url, xml_content, timeout=30, allow_company_fallback=True):
     meta = {
         "forced_date_count": 0,
@@ -4598,12 +4648,36 @@ class GSTR2BTallyApp(ctk.CTk):
         tally_ledgers = []
         usage_map = {}
         ledger_fetch_error = ""
+        mapping_sheet_remap_count = 0
         try:
             xml_content = _read_xml_text_safely(xml_path)
             xml_content, forced_date_count = _force_voucher_dates_to_today(xml_content)
             if selected_company:
                 xml_content, _ = _set_svcurrentcompany(xml_content, selected_company)
             usage_map = _extract_ledger_usage_from_xml(xml_content)
+
+            fetch_result = _fetch_tally_ledgers(tally_url, timeout=min(timeout, 20), company_name=selected_company)
+            if fetch_result.get("success"):
+                tally_ledgers = fetch_result.get("ledgers", [])
+                existing_keys = {_ledger_key(x) for x in tally_ledgers}
+
+                auto_remap = _build_auto_party_mapping_from_sheet(
+                    usage_map,
+                    getattr(self.engine, "party_ledger_map", {}),
+                    existing_keys,
+                )
+                if auto_remap:
+                    xml_content, mapping_sheet_remap_count = _apply_ledger_mapping_to_xml(xml_content, auto_remap)
+                    usage_map = _extract_ledger_usage_from_xml(xml_content)
+
+                precheck_missing = _collect_missing_ledgers_from_usage(usage_map, existing_keys)
+                if precheck_missing:
+                    posted_xml_content = xml_content
+                    missing_ledgers = precheck_missing
+                    result = {"success": False, "error": "Missing ledgers found before posting."}
+                    raise RuntimeError("PRECHECK_MISSING_LEDGERS")
+            else:
+                ledger_fetch_error = str(fetch_result.get("error") or "")
 
             result, posted_xml_content, retry_meta = _post_xml_with_fallbacks(
                 tally_url,
@@ -4620,17 +4694,20 @@ class GSTR2BTallyApp(ctk.CTk):
             if not result.get("success"):
                 parsed_missing = _extract_missing_ledger_names(result.get("error", ""))
                 if parsed_missing:
-                    fetch_result = _fetch_tally_ledgers(tally_url, timeout=min(timeout, 20), company_name=selected_company)
-                    if fetch_result.get("success"):
-                        tally_ledgers = fetch_result.get("ledgers", [])
+                    if not tally_ledgers:
+                        fetch_result = _fetch_tally_ledgers(tally_url, timeout=min(timeout, 20), company_name=selected_company)
+                        if fetch_result.get("success"):
+                            tally_ledgers = fetch_result.get("ledgers", [])
+                        else:
+                            ledger_fetch_error = str(fetch_result.get("error") or "")
+
+                    if tally_ledgers:
                         existing_keys = {_ledger_key(x) for x in tally_ledgers}
                         xml_ledgers = _extract_ledger_names_from_xml(posted_xml_content)
                         for name in xml_ledgers:
                             n_name = _normalize_ledger_name(name)
                             if _ledger_key(n_name) not in existing_keys and _ledger_key(n_name) not in {_ledger_key(x) for x in missing_ledgers}:
                                 missing_ledgers.append(n_name)
-                    else:
-                        ledger_fetch_error = str(fetch_result.get("error") or "")
 
                     for missing in parsed_missing:
                         n_missing = _normalize_ledger_name(missing)
@@ -4641,10 +4718,17 @@ class GSTR2BTallyApp(ctk.CTk):
                     if not usage_map:
                         usage_map = _extract_ledger_usage_from_xml(posted_xml_content)
         except Exception as e:
-            result = {"success": False, "error": str(e)}
+            if str(e) != "PRECHECK_MISSING_LEDGERS":
+                result = {"success": False, "error": str(e)}
 
         def done():
             self._set_tally_push_running_ui(False)
+
+            if mapping_sheet_remap_count > 0:
+                self.log_panel.log(
+                    f"Applied {mapping_sheet_remap_count} mapping-sheet remap(s) before strict ledger check.",
+                    "map",
+                )
 
             if result.get("success"):
                 self.progress_bar.set(1.0)
@@ -5400,6 +5484,9 @@ class GSTR2BTallyApp(ctk.CTk):
         # Auto-fetch a fresh full list once the dialog is visible.
         self.after(120, do_refresh_ledgers)
 
+        retry_state = {"started": False}
+        retry_btn_ref = {"btn": None}
+
         def do_save_all_details():
             saved_rows = 0
             for row in row_controls:
@@ -5412,6 +5499,9 @@ class GSTR2BTallyApp(ctk.CTk):
             messagebox.showinfo("Details Saved", f"Saved details for {saved_rows} row(s).")
 
         def do_retry_push():
+            if retry_state["started"] or self.tally_push_is_running:
+                return
+
             ledger_mapping = {}
             create_specs = []
             unresolved = []
@@ -5474,6 +5564,10 @@ class GSTR2BTallyApp(ctk.CTk):
                 seen_new.add(key)
                 dedup_create.append(spec)
 
+            retry_state["started"] = True
+            if retry_btn_ref["btn"] is not None:
+                retry_btn_ref["btn"].configure(state="disabled", text="Retrying...")
+
             dialog.destroy()
             self._retry_post_with_ledger_resolution(
                 xml_path=xml_path,
@@ -5499,7 +5593,7 @@ class GSTR2BTallyApp(ctk.CTk):
             command=do_save_all_details,
         ).pack(side="left", padx=6)
 
-        ctk.CTkButton(
+        retry_btn = ctk.CTkButton(
             btn_row,
             text="Apply & Retry Push",
             height=38,
@@ -5509,7 +5603,9 @@ class GSTR2BTallyApp(ctk.CTk):
             text_color="#FFFFFF",
             corner_radius=8,
             command=do_retry_push,
-        ).pack(side="left", fill="x", expand=True, padx=6)
+        )
+        retry_btn.pack(side="left", fill="x", expand=True, padx=6)
+        retry_btn_ref["btn"] = retry_btn
 
         ctk.CTkButton(
             btn_row,
@@ -5535,6 +5631,9 @@ class GSTR2BTallyApp(ctk.CTk):
         forced_date_count,
         selected_company="",
     ):
+        if self.tally_push_is_running:
+            return
+
         self._set_tally_push_running_ui(True, "Applying ledger resolution and retrying push...", COLORS["warning"])
         self.status_label.configure(text="Retrying", text_color=COLORS["warning"])
         self.progress_bar.set(0.35)
@@ -5578,6 +5677,7 @@ class GSTR2BTallyApp(ctk.CTk):
         tally_ledgers = []
         usage_map = _extract_ledger_usage_from_xml(base_xml_content or "")
         ledger_fetch_error = ""
+        mapping_sheet_remap_count = 0
 
         try:
             if not working_xml:
@@ -5606,6 +5706,30 @@ class GSTR2BTallyApp(ctk.CTk):
                 else:
                     create_failures.append((spec, create_result))
 
+            fetch_result = _fetch_tally_ledgers(tally_url, timeout=min(timeout, 20), company_name=selected_company)
+            if fetch_result.get("success"):
+                tally_ledgers = fetch_result.get("ledgers", [])
+                existing_keys = {_ledger_key(x) for x in tally_ledgers}
+                existing_keys.update({_ledger_key(x) for x in created_ledgers})
+
+                usage_map = _extract_ledger_usage_from_xml(working_xml)
+                auto_remap = _build_auto_party_mapping_from_sheet(
+                    usage_map,
+                    getattr(self.engine, "party_ledger_map", {}),
+                    existing_keys,
+                )
+                if auto_remap:
+                    working_xml, mapping_sheet_remap_count = _apply_ledger_mapping_to_xml(working_xml, auto_remap)
+                    usage_map = _extract_ledger_usage_from_xml(working_xml)
+
+                precheck_missing = _collect_missing_ledgers_from_usage(usage_map, existing_keys)
+                if precheck_missing:
+                    missing_ledgers = precheck_missing
+                    result = {"success": False, "error": "Missing ledgers found before retry-posting."}
+                    raise RuntimeError("PRECHECK_MISSING_LEDGERS")
+            else:
+                ledger_fetch_error = str(fetch_result.get("error") or "")
+
             result, working_xml, retry_meta = _post_xml_with_fallbacks(
                 tally_url,
                 working_xml,
@@ -5621,17 +5745,20 @@ class GSTR2BTallyApp(ctk.CTk):
             if not result.get("success"):
                 parsed_missing = _extract_missing_ledger_names(result.get("error", ""))
                 if parsed_missing:
-                    fetch_result = _fetch_tally_ledgers(tally_url, timeout=min(timeout, 20), company_name=selected_company)
-                    if fetch_result.get("success"):
-                        tally_ledgers = fetch_result.get("ledgers", [])
+                    if not tally_ledgers:
+                        fetch_result = _fetch_tally_ledgers(tally_url, timeout=min(timeout, 20), company_name=selected_company)
+                        if fetch_result.get("success"):
+                            tally_ledgers = fetch_result.get("ledgers", [])
+                        else:
+                            ledger_fetch_error = str(fetch_result.get("error") or "")
+
+                    if tally_ledgers:
                         existing_keys = {_ledger_key(x) for x in tally_ledgers}
                         xml_ledgers = _extract_ledger_names_from_xml(working_xml)
                         for name in xml_ledgers:
                             n_name = _normalize_ledger_name(name)
                             if _ledger_key(n_name) not in existing_keys and _ledger_key(n_name) not in {_ledger_key(x) for x in missing_ledgers}:
                                 missing_ledgers.append(n_name)
-                    else:
-                        ledger_fetch_error = str(fetch_result.get("error") or "")
 
                     for missing in parsed_missing:
                         n_missing = _normalize_ledger_name(missing)
@@ -5642,13 +5769,19 @@ class GSTR2BTallyApp(ctk.CTk):
                     if not usage_map:
                         usage_map = _extract_ledger_usage_from_xml(working_xml)
         except Exception as exc:
-            result = {"success": False, "error": str(exc)}
+            if str(exc) != "PRECHECK_MISSING_LEDGERS":
+                result = {"success": False, "error": str(exc)}
 
         def done():
             self._set_tally_push_running_ui(False)
 
             if replaced_count > 0:
                 self.log_panel.log(f"Applied {replaced_count} XML ledger-name replacement(s).", "info")
+            if mapping_sheet_remap_count > 0:
+                self.log_panel.log(
+                    f"Applied {mapping_sheet_remap_count} mapping-sheet remap(s) before strict ledger check.",
+                    "map",
+                )
             for spec, create_result in create_failures:
                 self.log_panel.log(
                     f"Could not create ledger '{spec['name']}' under '{spec['parent']}': {create_result.get('error', 'Unknown error')}",
