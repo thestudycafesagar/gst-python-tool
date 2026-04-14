@@ -48,6 +48,14 @@ class LoginWorker(QThread):
 
         try:
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
+            })
             driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             wait = WebDriverWait(driver, 20)
             actions = ActionChains(driver) 

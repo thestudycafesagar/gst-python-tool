@@ -199,6 +199,24 @@ class GSTWorker:
         except Exception as e:
             self.log(f"⚠️ Failed to save report: {e}")
 
+    def _robust_find_clickable(self, by, value, timeout=10, refreshes=2, alert_msg="Element not found"):
+        """Wait for element. If not found, refresh and retry. If still not found, show alert."""
+        for attempt in range(refreshes + 1):
+            try:
+                el = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((by, value)))
+                if el: return el
+            except Exception: pass
+                
+            if attempt < refreshes:
+                self.log(f"   ⚠️ '{value}' not found. Refreshing page (Attempt {attempt+1}/{refreshes})...")
+                try: self.driver.refresh()
+                except: pass
+                time.sleep(4)
+                
+        self.log(f"   ❌ Search failed! {alert_msg}")
+        self.app.after(0, lambda: messagebox.showwarning("Portal Issue", f"{alert_msg}. The browser may be detecting automation or the portal is slow."))
+        return None
+
     def process_single_user(self, username, password, user_root):
         """ Returns (Overall Status, Reason String) """
         try:
@@ -219,9 +237,15 @@ class GSTWorker:
             options.add_experimental_option("prefs", prefs)
             
             self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            self.driver.maximize_window()
             
             self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
             })
 
             wait = WebDriverWait(self.driver, 20)
@@ -281,19 +305,23 @@ class GSTWorker:
                 for attempt in range(3):
                     try:
                         # 1. Selection
-                        year_el = wait.until(EC.element_to_be_clickable((By.NAME, "fin")))
+                        year_el = self._robust_find_clickable(By.NAME, "fin", timeout=5, refreshes=2, alert_msg="Year dropdown missing")
+                        if not year_el: raise Exception("Year missing")
                         Select(year_el).select_by_visible_text(fin_year)
                         time.sleep(0.5)
 
-                        qtr_el = self.driver.find_element(By.NAME, "quarter")
+                        qtr_el = self._robust_find_clickable(By.NAME, "quarter", timeout=5, refreshes=1, alert_msg="Quarter dropdown missing")
+                        if not qtr_el: raise Exception("Quarter missing")
                         Select(qtr_el).select_by_visible_text(q_text)
                         time.sleep(0.5)
 
-                        mon_el = self.driver.find_element(By.NAME, "mon")
+                        mon_el = self._robust_find_clickable(By.NAME, "mon", timeout=5, refreshes=1, alert_msg="Month dropdown missing")
+                        if not mon_el: raise Exception("Month missing")
                         Select(mon_el).select_by_visible_text(m_text)
                         time.sleep(0.5)
 
-                        search_btn = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Search')]")
+                        search_btn = self._robust_find_clickable(By.XPATH, "//button[contains(text(), 'Search')]", timeout=5, refreshes=1, alert_msg="Search missing")
+                        if not search_btn: raise Exception("Search missing")
                         self.driver.execute_script("arguments[0].click();", search_btn)
                         time.sleep(3) 
 
@@ -343,6 +371,26 @@ class GSTWorker:
 
     def reset_to_dashboard(self, wait):
         try:
+            # 1. Try hitting the "Back" button if it exists
+            back_btns = self.driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(), 'BACK', 'back'), 'back')]")
+            for b in back_btns:
+                if b.is_displayed():
+                    try:
+                        b.click()
+                        time.sleep(2)
+                        return
+                    except: pass
+
+            # 2. Try Return Dashboard breadcrumb explicitly
+            bread_btns = self.driver.find_elements(By.XPATH, "//a[contains(translate(normalize-space(), 'DASHBOARD', 'dashboard'), 'dashboard')]")
+            for b in bread_btns:
+                if b.is_displayed():
+                    try:
+                        b.click()
+                        time.sleep(2)
+                        return
+                    except: pass
+
             db_btn = self.driver.find_element(By.XPATH, "//button[contains(., 'Return Dashboard')]")
             self.driver.execute_script("arguments[0].click();", db_btn)
         except:
@@ -432,14 +480,15 @@ class GSTWorker:
         # 1. Locate GSTR-1 Tile
         xpath_r1_tile = "//p[contains(text(),'GSTR1')]/ancestor::div[contains(@class,'col-sm-4')]//button[contains(text(),'Download')]"
         
-        try:
-            tile_btn = wait.until(EC.element_to_be_clickable((By.XPATH, xpath_r1_tile)))
-            self.log("     ✅ Found GSTR-1 Tile. Clicking Download...")
-            self.driver.execute_script("arguments[0].click();", tile_btn)
-            time.sleep(4)
-        except:
+        tile_btn = self._robust_find_clickable(By.XPATH, xpath_r1_tile, timeout=5, refreshes=1, alert_msg="GSTR-1 Target Tile missing")
+        if not tile_btn:
             self.log("     ⚠️ GSTR-1 Tile Not Found or Disabled.")
             return False, "Tile Missing"
+            
+        self.log("     ✅ Found GSTR-1 Tile. Clicking Download...")
+        try: tile_btn.click()
+        except: self.driver.execute_script("arguments[0].click();", tile_btn)
+        time.sleep(4)
 
         if mode == "Request JSON":
             try:

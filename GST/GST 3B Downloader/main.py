@@ -216,11 +216,30 @@ class GSTWorker:
                 time.sleep(1)
         except: pass
 
+    def _robust_find_clickable(self, by, value, timeout=10, refreshes=2, alert_msg="Element not found"):
+        """Wait for element. If not found, refresh and retry. If still not found, show alert."""
+        for attempt in range(refreshes + 1):
+            try:
+                el = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((by, value)))
+                if el:
+                    return el
+            except Exception:
+                pass
+                
+            if attempt < refreshes:
+                self.log(f"   ⚠️ '{value}' not found. Refreshing page (Attempt {attempt+1}/{refreshes})...")
+                try:
+                    self.driver.refresh()
+                except:
+                    pass
+                time.sleep(4)
+                
+        self.log(f"   ❌ Search failed! {alert_msg}")
+        self.app.after(0, lambda: messagebox.showwarning("Portal Issue", f"{alert_msg}. The browser may be detecting automation or the portal is slow."))
+        return None
+
     def ensure_return_dashboard(self, wait):
-        """ 
-        Checks if we are on the Return Dashboard.
-        If not (e.g. kicked to Home), it handles popups and navigates back.
-        """
+        """ Checks if we are on the Return Dashboard safely avoiding direct URL nav. """
         try:
             # Check if Financial Year dropdown is present
             if self.driver.find_elements(By.NAME, "fin"):
@@ -231,14 +250,33 @@ class GSTWorker:
             # 1. Handle Popups (in case we are on Home Page)
             self.handle_popups()
 
-            # 2. Click "Return Dashboard" button
+            # 2. Try Back buttons to avoid URL nav penalty
+            back_btns = self.driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(), 'BACK', 'back'), 'back')]")
+            for b in back_btns:
+                if b.is_displayed():
+                    try:
+                        b.click()
+                        time.sleep(2)
+                    except: pass
+                    if self.driver.find_elements(By.NAME, "fin"): return True
+
+            # 3. Try Breadcrumb Native Clicks
+            bread_btns = self.driver.find_elements(By.XPATH, "//a[contains(translate(normalize-space(), 'DASHBOARD', 'dashboard'), 'dashboard')]")
+            for b in bread_btns:
+                if b.is_displayed():
+                    try:
+                        b.click()
+                        time.sleep(2)
+                    except: pass
+                    if self.driver.find_elements(By.NAME, "fin"): return True
+                    
+            # 4. Click "Return Dashboard" directly
             try:
                 dash_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Return Dashboard')]")))
                 dash_btn.click()
                 time.sleep(3)
                 return True
             except:
-                # Try JS Click fallback
                 try:
                     btn = self.driver.find_element(By.XPATH, "//button[contains(., 'Return Dashboard')]")
                     self.driver.execute_script("arguments[0].click();", btn)
@@ -270,9 +308,15 @@ class GSTWorker:
             options.add_experimental_option("prefs", prefs)
             
             self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            self.driver.maximize_window()
             
             self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
             })
 
             wait = WebDriverWait(self.driver, 20)
@@ -343,22 +387,28 @@ class GSTWorker:
                             continue # Try next attempt
 
                         # 2. Select Year
-                        year_el = wait.until(EC.element_to_be_clickable((By.NAME, "fin")))
+                        year_el = self._robust_find_clickable(By.NAME, "fin", timeout=5, refreshes=2, alert_msg="Year dropdown missing")
+                        if not year_el: raise Exception("Year dropdown missing")
                         Select(year_el).select_by_visible_text(fin_year)
                         time.sleep(0.5)
 
                         # 3. Select Quarter
-                        qtr_el = self.driver.find_element(By.NAME, "quarter")
+                        qtr_el = self._robust_find_clickable(By.NAME, "quarter", timeout=5, refreshes=1, alert_msg="Quarter dropdown missing")
+                        if not qtr_el: raise Exception("Quarter dropdown missing")
                         Select(qtr_el).select_by_visible_text(q_text)
                         time.sleep(0.5)
 
                         # 4. Select Month
-                        mon_el = self.driver.find_element(By.NAME, "mon")
+                        mon_el = self._robust_find_clickable(By.NAME, "mon", timeout=5, refreshes=1, alert_msg="Month dropdown missing")
+                        if not mon_el: raise Exception("Month dropdown missing")
                         Select(mon_el).select_by_visible_text(m_text)
                         time.sleep(0.5)
 
                         # 5. Click Search
-                        self.driver.find_element(By.XPATH, "//button[contains(text(), 'Search')]").click()
+                        search_btn = self._robust_find_clickable(By.XPATH, "//button[contains(text(), 'Search')]", timeout=5, refreshes=1, alert_msg="Search button missing")
+                        if not search_btn: raise Exception("Search button missing")
+                        try: search_btn.click()
+                        except: self.driver.execute_script("arguments[0].click();", search_btn)
                         time.sleep(4) 
 
                         # 6. Download
@@ -479,8 +529,10 @@ class GSTWorker:
 
         xpath_3b_btn = "//p[contains(text(),'GSTR-3B')]/ancestor::div[contains(@class,'col-sm-4')]//button[contains(text(),'Download')]"
         
-        try:
-            found_btn = self.driver.find_element(By.XPATH, xpath_3b_btn)
+        found_btn = self._robust_find_clickable(By.XPATH, xpath_3b_btn, timeout=5, refreshes=1, alert_msg="GSTR-3B Target Tile missing")
+        if not found_btn:
+            self.log("   ⚠️ GSTR-3B Tile Not Found.")
+            return False, "Not Found"
             
             if not found_btn.is_displayed():
                 self.log("   ⚠️ GSTR-3B Tile hidden (Not Filed/Available).")

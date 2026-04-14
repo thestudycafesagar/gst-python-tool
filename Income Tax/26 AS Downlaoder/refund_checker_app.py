@@ -162,6 +162,14 @@ class FiledReturnWorker:
             options.add_argument("--disable-blink-features=AutomationControlled")
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
+            })
             driver.set_page_load_timeout(30)
             driver.set_script_timeout(30)
             driver.implicitly_wait(10)

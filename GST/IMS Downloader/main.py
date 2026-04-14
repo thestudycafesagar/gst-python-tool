@@ -200,6 +200,24 @@ class IMSWorker:
         except Exception as e:
             self.log(f"Failed to save report: {e}")
 
+    def _robust_find_clickable(self, by, value, timeout=10, refreshes=2, alert_msg="Element not found"):
+        """Wait for element. If not found, refresh and retry. If still not found, show alert."""
+        for attempt in range(refreshes + 1):
+            try:
+                el = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((by, value)))
+                if el: return el
+            except Exception: pass
+                
+            if attempt < refreshes:
+                self.log(f"   ⚠️ '{value}' not found. Refreshing page (Attempt {attempt+1}/{refreshes})...")
+                try: self.driver.refresh()
+                except: pass
+                time.sleep(4)
+                
+        self.log(f"   ❌ Search failed! {alert_msg}")
+        self.app.after(0, lambda: messagebox.showwarning("Portal Issue", f"{alert_msg}. The browser may be detecting automation or the portal is slow."))
+        return None
+
     def process_single_user(self, username, password, user_dir):
         try:
             # --- BROWSER SETUP (ANTI-DETECT) ---
@@ -221,10 +239,16 @@ class IMSWorker:
             options.add_experimental_option("prefs", prefs)
 
             self.driver = webdriver.Chrome(options=options)
+            self.driver.maximize_window()
 
             # Stealth JS Injection
             self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"""
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
             })
             self.driver.execute_cdp_cmd(
                 "Page.setDownloadBehavior",
@@ -242,51 +266,35 @@ class IMSWorker:
 
             # --- STEP 1: CLICK 'Services' IN NAVBAR ---
             self.log("   Clicking 'Services' in navbar...")
-            try:
-                services_btn = wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//a[contains(text(), 'Services') or contains(normalize-space(),'Services')]")
-                ))
-                self.driver.execute_script("arguments[0].click();", services_btn)
-                time.sleep(2)
-            except Exception as e:
-                self.log(f"   Could not click Services: {e}")
-                return "Failed", "Services navbar not found"
+            s_xpath = "//a[contains(text(), 'Services') or contains(normalize-space(),'Services')]"
+            services_btn = self._robust_find_clickable(By.XPATH, s_xpath, timeout=5, refreshes=1, alert_msg="Services navbar not found")
+            if not services_btn: return "Failed", "Services navbar not found"
+            self.driver.execute_script("arguments[0].click();", services_btn)
+            time.sleep(2)
 
             # --- STEP 2: CLICK 'Returns' IN NAVBAR ---
             self.log("   Clicking 'Returns' in navbar...")
-            try:
-                returns_btn = wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//a[contains(text(), 'Returns')]")
-                ))
-                self.driver.execute_script("arguments[0].click();", returns_btn)
-                time.sleep(2)
-            except Exception as e:
-                self.log(f"   Could not click Returns: {e}")
-                return "Failed", "Returns navbar not found"
+            r_xpath = "//a[contains(text(), 'Returns')]"
+            returns_btn = self._robust_find_clickable(By.XPATH, r_xpath, timeout=5, refreshes=0, alert_msg="Returns navbar not found")
+            if not returns_btn: return "Failed", "Returns navbar not found"
+            self.driver.execute_script("arguments[0].click();", returns_btn)
+            time.sleep(2)
 
             # --- STEP 3: CLICK 'Invoice Management System (IMS) Dashboard' LINK ---
             self.log("   Clicking IMS Dashboard link...")
-            try:
-                ims_link = wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//a[contains(@href,'imsDashboard')]")
-                ))
-                self.driver.execute_script("arguments[0].click();", ims_link)
-                time.sleep(5)
-            except Exception as e:
-                self.log(f"   Could not click IMS Dashboard link: {e}")
-                return "Failed", "IMS Dashboard link not found"
+            ims_xpath = "//a[contains(@href,'imsDashboard')]"
+            ims_link = self._robust_find_clickable(By.XPATH, ims_xpath, timeout=5, refreshes=0, alert_msg="IMS Dashboard link not found")
+            if not ims_link: return "Failed", "IMS Dashboard link not found"
+            self.driver.execute_script("arguments[0].click();", ims_link)
+            time.sleep(5)
 
             # --- STEP 4: CLICK 'View' UNDER INWARD SUPPLIES ---
             self.log("   Clicking Inward Supplies > View...")
-            try:
-                view_btn = wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//button[contains(@data-ng-click,'navigateInwsupDashboard')]")
-                ))
-                self.driver.execute_script("arguments[0].click();", view_btn)
-                time.sleep(5)
-            except Exception as e:
-                self.log(f"   Could not click Inward Supplies View: {e}")
-                return "Failed", "Inward Supplies View button not found"
+            v_xpath = "//button[contains(@data-ng-click,'navigateInwsupDashboard')]"
+            view_btn = self._robust_find_clickable(By.XPATH, v_xpath, timeout=5, refreshes=0, alert_msg="Inward Supplies View button not found")
+            if not view_btn: return "Failed", "Inward Supplies View button not found"
+            self.driver.execute_script("arguments[0].click();", view_btn)
+            time.sleep(5)
 
             # --- STEP 5: DISMISS INFORMATION POPUP (click OKAY) ---
             self.log("   Handling Information popup...")
@@ -315,22 +323,18 @@ class IMSWorker:
 
             # --- STEP 6: CLICK DOWNLOAD IMS DETAILS (EXCEL) ---
             self.log("   Clicking DOWNLOAD IMS DETAILS (EXCEL)...")
-            try:
-                dl_btn = wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//button[contains(@data-ng-click,'downloadIMSSummary')] | //button[contains(text(), 'DOWNLOAD IMS DETAILS (EXCEL)')]")
-                ))
-                self.driver.execute_script("arguments[0].click();", dl_btn)
-                time.sleep(5)
-            except Exception as e:
-                self.log(f"   Download button error: {e}")
-                return "Failed", "Download button not found"
+            dl_xpath = "//button[contains(@data-ng-click,'downloadIMSSummary')] | //button[contains(text(), 'DOWNLOAD IMS DETAILS (EXCEL)')]"
+            dl_btn = self._robust_find_clickable(By.XPATH, dl_xpath, timeout=5, refreshes=1, alert_msg="Download button not found")
+            if not dl_btn: return "Failed", "Download button not found"
+            self.driver.execute_script("arguments[0].click();", dl_btn)
+            time.sleep(5)
 
             # --- STEP 7: CLICK THE GENERATED DOWNLOAD LINK ---
             self.log("   Waiting for the file generation link to appear (this may take up to 2 mins)...")
+            # We don't want to refresh this, because generating is an async task we wait for. So we use wait.until here.
             try:
-                # We use a longer wait here because GST server processing takes time
                 long_wait = WebDriverWait(self.driver, 120)
-                file_link = long_wait.until(EC.presence_of_element_located(
+                file_link = long_wait.until(EC.element_to_be_clickable(
                     (By.XPATH, "//a[contains(@href, 'imsExcel') or contains(., 'download file')]")
                 ))
                 self.driver.execute_script("arguments[0].click();", file_link)

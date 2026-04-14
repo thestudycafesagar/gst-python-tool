@@ -176,6 +176,14 @@ class IncomeTaxWorker:
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
+            })
             wait = WebDriverWait(driver, 15)
             actions = ActionChains(driver)
 

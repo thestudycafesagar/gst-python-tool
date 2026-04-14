@@ -378,6 +378,14 @@ class Tax26ASWorker:
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
+            })
             
             # Set aggressive timeouts to prevent hanging
             driver.set_page_load_timeout(30)  # 30 seconds for page load
@@ -806,6 +814,14 @@ class AISWorker:
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
+            })
             
             # Set aggressive timeouts to prevent hanging
             driver.set_page_load_timeout(30)  # 30 seconds for page load
@@ -1290,6 +1306,14 @@ class TISWorker:
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
+            })
             
             # Set aggressive timeouts to prevent hanging
             driver.set_page_load_timeout(30)  # 30 seconds for page load
@@ -1755,6 +1779,14 @@ class FiledReturnWorker:
             options.add_argument("--disable-blink-features=AutomationControlled")
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
+            })
             
             # Set aggressive timeouts to prevent hanging
             driver.set_page_load_timeout(30)  # 30 seconds for page load

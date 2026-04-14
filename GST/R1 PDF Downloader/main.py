@@ -238,7 +238,26 @@ class GSTWorker:
             self.handle_popups()
 
             try:
-                # Try clicking "Return Dashboard"
+                # 1. Try hitting the "Back" button if it exists
+                back_btns = self.driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(), 'BACK', 'back'), 'back')]")
+                for b in back_btns:
+                    if b.is_displayed():
+                        try:
+                            b.click()
+                            time.sleep(2)
+                            return True
+                        except: pass
+
+                # 2. Try Return Dashboard breadcrumb explicitly
+                bread_btns = self.driver.find_elements(By.XPATH, "//a[contains(translate(normalize-space(), 'DASHBOARD', 'dashboard'), 'dashboard')]")
+                for b in bread_btns:
+                    if b.is_displayed():
+                        try:
+                            b.click()
+                            time.sleep(2)
+                            return True
+                        except: pass
+
                 dash_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Return Dashboard')] | //a[contains(., 'Return Dashboard')]")))
                 dash_btn.click()
                 self.human_delay(3.0, 4.0)
@@ -256,6 +275,24 @@ class GSTWorker:
         except Exception as e:
             self.log(f"      ⚠️ Recovery Exception: {e}")
             return False
+
+    def _robust_find_clickable(self, by, value, timeout=10, refreshes=2, alert_msg="Element not found"):
+        """Wait for element. If not found, refresh and retry. If still not found, show alert."""
+        for attempt in range(refreshes + 1):
+            try:
+                el = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((by, value)))
+                if el: return el
+            except Exception: pass
+                
+            if attempt < refreshes:
+                self.log(f"   ⚠️ '{value}' not found. Refreshing page (Attempt {attempt+1}/{refreshes})...")
+                try: self.driver.refresh()
+                except: pass
+                time.sleep(4)
+                
+        self.log(f"   ❌ Search failed! {alert_msg}")
+        self.app.after(0, lambda: messagebox.showwarning("Portal Issue", f"{alert_msg}. The browser may be detecting automation or the portal is slow."))
+        return None
 
     def process_single_user(self, username, password, user_root):
         try:
@@ -276,8 +313,15 @@ class GSTWorker:
             options.add_experimental_option("prefs", prefs)
             
             self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            self.driver.maximize_window()
+            
             self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
             })
 
             wait = WebDriverWait(self.driver, 20)
@@ -346,19 +390,23 @@ class GSTWorker:
                             continue 
 
                         # 2. Selection Logic (Year -> Quarter -> Month -> Search)
-                        year_el = wait.until(EC.element_to_be_clickable((By.NAME, "fin")))
+                        year_el = self._robust_find_clickable(By.NAME, "fin", timeout=5, refreshes=2, alert_msg="Year dropdown missing")
+                        if not year_el: raise Exception("Year missing")
                         Select(year_el).select_by_visible_text(fin_year)
                         self.human_delay(1.5, 3.0)
 
-                        qtr_el = self.driver.find_element(By.NAME, "quarter")
+                        qtr_el = self._robust_find_clickable(By.NAME, "quarter", timeout=5, refreshes=1, alert_msg="Quarter dropdown missing")
+                        if not qtr_el: raise Exception("Quarter missing")
                         Select(qtr_el).select_by_visible_text(q_text)
                         self.human_delay(1.5, 3.0)
 
-                        mon_el = self.driver.find_element(By.NAME, "mon")
+                        mon_el = self._robust_find_clickable(By.NAME, "mon", timeout=5, refreshes=1, alert_msg="Month dropdown missing")
+                        if not mon_el: raise Exception("Month missing")
                         Select(mon_el).select_by_visible_text(m_text)
                         self.human_delay(1.5, 3.0)
 
-                        search_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Search')]")))
+                        search_btn = self._robust_find_clickable(By.XPATH, "//button[contains(text(), 'Search')]", timeout=5, refreshes=1, alert_msg="Search missing")
+                        if not search_btn: raise Exception("Search missing")
                         search_btn.click()
                         self.human_delay(3.0, 5.0) 
 
@@ -499,43 +547,33 @@ class GSTWorker:
 
         # 1. Click GSTR-1 'VIEW' button on the Dashboard
         xpath_r1_view = "//p[contains(text(),'GSTR1')]/ancestor::div[contains(@class,'col-')]//button[contains(normalize-space(),'VIEW')]"
-        try:
-            view_btn = wait.until(EC.element_to_be_clickable((By.XPATH, xpath_r1_view)))
-            view_btn.click()
-            self.human_delay(3.0, 5.0) # Wait for View page
-        except Exception as e:
+        view_btn = self._robust_find_clickable(By.XPATH, xpath_r1_view, timeout=5, refreshes=1, alert_msg="GSTR-1 Target Tile missing")
+        if not view_btn:
             self.log("      ⚠️ GSTR-1 Tile/View button missing.")
             return False, "Tile Not Found"
+        view_btn.click()
+        self.human_delay(3.0, 5.0) # Wait for View page
 
         # 2. Click 'VIEW SUMMARY' Button
-        # Logic: If this button is missing, it usually means the return is not filed yet.
         self.log(f"      📄 Finding 'VIEW SUMMARY'...")
-        try:
-            # We look for the button containing "VIEW SUMMARY" or matching the specific ng-click
-            summary_xpath = "//button[contains(@data-ng-click, 'gstr1sum')] | //span[contains(text(), 'VIEW SUMMARY')]/parent::button"
-            
-            summary_btn = wait.until(EC.element_to_be_clickable((By.XPATH, summary_xpath)))
-            
-            # Check if button is disabled (Edge case)
-            if "disabled" in summary_btn.get_attribute("class"):
-                 self.log("      ⚠️ View Summary button is disabled.")
-                 return False, "Not Filed"
-
-            summary_btn.click()
-            self.human_delay(3.0, 5.0) # Wait for Summary page
-        except TimeoutException:
-            self.log("      ⚠️ 'VIEW SUMMARY' button not found (Likely Not Filed).")
+        summary_xpath = "//button[contains(@data-ng-click, 'gstr1sum')] | //span[contains(text(), 'VIEW SUMMARY')]/parent::button"
+        summary_btn = self._robust_find_clickable(By.XPATH, summary_xpath, timeout=5, refreshes=1, alert_msg="View Summary missing (Likely Not Filed)")
+        if not summary_btn:
             return False, "Not Filed"
-        except Exception as e:
-            return False, "Summary Error"
+        
+        if "disabled" in summary_btn.get_attribute("class"):
+             self.log("      ⚠️ View Summary button is disabled.")
+             return False, "Not Filed"
+
+        summary_btn.click()
+        self.human_delay(3.0, 5.0) # Wait for Summary page
 
         # 3. Click 'DOWNLOAD (PDF)' Button
         self.log(f"      ⬇️ Clicking 'DOWNLOAD (PDF)'...")
         try:
-            # Matches the genratepdfNew() function or text "DOWNLOAD (PDF)"
             pdf_xpath = "//button[contains(@data-ng-click, 'genratepdfNew')] | //span[contains(text(), 'DOWNLOAD (PDF)')]/parent::button"
-            
-            pdf_btn = wait.until(EC.element_to_be_clickable((By.XPATH, pdf_xpath)))
+            pdf_btn = self._robust_find_clickable(By.XPATH, pdf_xpath, timeout=5, refreshes=1, alert_msg="Download PDF button missing")
+            if not pdf_btn: return False, "Download Button Missing"
             pdf_btn.click()
             
             # 4. Wait for File

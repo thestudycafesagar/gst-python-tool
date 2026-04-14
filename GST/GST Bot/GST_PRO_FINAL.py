@@ -43,6 +43,15 @@ class GSTWorker(QThread):
         
         try:
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.maximize_window()
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
+            })
         except Exception as e:
             self.log_signal.emit(f"Failed to start browser: {e}")
             return

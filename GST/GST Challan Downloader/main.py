@@ -198,6 +198,24 @@ class GSTWorker:
         except Exception as e:
             self.log(f"⚠️ Failed to save report: {e}")
 
+    def _robust_find_clickable(self, by, value, timeout=10, refreshes=2, alert_msg="Element not found"):
+        """Wait for element. If not found, refresh and retry. If still not found, show alert."""
+        for attempt in range(refreshes + 1):
+            try:
+                el = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((by, value)))
+                if el: return el
+            except Exception: pass
+                
+            if attempt < refreshes:
+                self.log(f"   ⚠️ '{value}' not found. Refreshing page (Attempt {attempt+1}/{refreshes})...")
+                try: self.driver.refresh()
+                except: pass
+                time.sleep(4)
+                
+        self.log(f"   ❌ Search failed! {alert_msg}")
+        self.app.after(0, lambda: messagebox.showwarning("Portal Issue", f"{alert_msg}. The browser may be detecting automation or the portal is slow."))
+        return None
+
     def process_single_user(self, username, password, user_root):
         """ Returns (Overall Status, Reason String) """
         try:
@@ -219,10 +237,16 @@ class GSTWorker:
             options.add_experimental_option("prefs", prefs)
             
             self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            self.driver.maximize_window()
             
             # Stealth JS Injection
             self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"""
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
             })
 
             wait = WebDriverWait(self.driver, 20)
@@ -323,29 +347,28 @@ class GSTWorker:
     def navigate_to_challan_history(self, wait):
         """ Navigates via UI: Services → Payments → Challan History. Returns (status, msg) """
         try:
-            # Step 1: Click the top-level "Services" dropdown in navbar
             self.log("   🖱️ Clicking 'Services' menu...")
-            services_menu = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, "//li[contains(@class,'menuList')]//a[contains(text(),'Services') and contains(@class,'dropdown-toggle')]")
-            ))
+            services_menu = self._robust_find_clickable(
+                By.XPATH, "//li[contains(@class,'menuList')]//a[contains(text(),'Services') and contains(@class,'dropdown-toggle')]",
+                timeout=5, refreshes=1, alert_msg="Services menu not found"
+            )
+            if not services_menu: return False, "Missing Services Menu"
             self.driver.execute_script("arguments[0].click();", services_menu)
             time.sleep(1.5)
 
-            # Step 2: Hover over "Payments" to reveal its sub-menu
             self.log("   🖱️ Hovering over 'Payments' sub-menu...")
-            payments_link = wait.until(EC.visibility_of_element_located(
-                (By.XPATH, "//a[@data-ng-show=\"udata && udata.role == 'login'\" and contains(@href,'quicklinks/payments') and normalize-space(text())='Payments']")
-            ))
-            # Use ActionChains to hover so sub-menu opens
+            py_xpath = "//a[@data-ng-show=\"udata && udata.role == 'login'\" and contains(@href,'quicklinks/payments') and normalize-space(text())='Payments']"
+            payments_link = self._robust_find_clickable(By.XPATH, py_xpath, timeout=5, refreshes=0, alert_msg="Payments menu not found")
+            if not payments_link: return False, "Missing Payments Menu"
+            
             from selenium.webdriver.common.action_chains import ActionChains
             ActionChains(self.driver).move_to_element(payments_link).perform()
             time.sleep(1.5)
 
-            # Step 3: Click "Challan History" inside the Payments sub-menu (logged-in link)
             self.log("   🖱️ Clicking 'Challan History'...")
-            challan_history_link = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, "//a[@data-ng-href='//payment.gst.gov.in/payment/auth/challanhistory' and @data-ng-show and contains(@data-ng-show,'login')]")
-            ))
+            ch_xpath = "//a[@data-ng-href='//payment.gst.gov.in/payment/auth/challanhistory' and @data-ng-show and contains(@data-ng-show,'login')]"
+            challan_history_link = self._robust_find_clickable(By.XPATH, ch_xpath, timeout=5, refreshes=0, alert_msg="Challan history not found")
+            if not challan_history_link: return False, "Missing Challan History Link"
             self.driver.execute_script("arguments[0].click();", challan_history_link)
             time.sleep(3)
 
@@ -471,20 +494,16 @@ class GSTWorker:
                     self.log(f"   💾 Downloading CPIN: {cpin}...")
 
                     # Re-find the CPIN anchor (DOM can refresh between iterations)
-                    cpin_link = wait.until(EC.element_to_be_clickable(
-                        (By.XPATH,
-                         f"//td[@data-title-text='CPIN']//a[span[@data-ng-bind='user.cpin' and normalize-space(text())='{cpin}']]"
-                        )
-                    ))
+                    cpin_xpath = f"//td[@data-title-text='CPIN']//a[span[@data-ng-bind='user.cpin' and normalize-space(text())='{cpin}']]"
+                    cpin_link = self._robust_find_clickable(By.XPATH, cpin_xpath, timeout=5, refreshes=1, alert_msg=f"CPIN link {cpin} missing")
+                    if not cpin_link: raise Exception(f"CPIN missing: {cpin}")
                     self.driver.execute_script("arguments[0].click();", cpin_link)
                     time.sleep(3)
 
                     # Click Download button on detail page
-                    dl_btn = wait.until(EC.element_to_be_clickable(
-                        (By.XPATH, "//button[contains(@class,'btn-primary') and contains(text(),'Download')]"
-                                   " | //button[@data-ng-click='pdfControllerReceipt(challanData)']"
-                                   " | //button[normalize-space(text())='Download']")
-                    ))
+                    dl_xpath = "//button[contains(@class,'btn-primary') and contains(text(),'Download')] | //button[@data-ng-click='pdfControllerReceipt(challanData)']"
+                    dl_btn = self._robust_find_clickable(By.XPATH, dl_xpath, timeout=5, refreshes=0, alert_msg="Download challan button missing")
+                    if not dl_btn: raise Exception("Download btn missing")
                     self.driver.execute_script("arguments[0].click();", dl_btn)
                     self.log(f"   ⬇️ Download triggered for {cpin}.")
 

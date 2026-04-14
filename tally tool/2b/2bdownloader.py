@@ -154,6 +154,14 @@ class GSTWorker:
             options.add_experimental_option("prefs", prefs)
             
             self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
+            })
             
             # Stealth JS Injection
             self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {

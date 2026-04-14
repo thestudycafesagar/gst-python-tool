@@ -225,10 +225,16 @@ class GSTWorker:
             options.add_experimental_option("prefs", prefs)
             
             self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            self.driver.maximize_window()
             
             # Stealth JS Injection
             self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"""
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
             })
 
             wait = WebDriverWait(self.driver, 20)
@@ -300,42 +306,44 @@ class GSTWorker:
                             fail_reason = "Re-login Failed"
                             break  # no point retrying if re-login itself fails
 
-                        # Refresh dashboard before selecting dropdowns — fixes stale UI state
-                        self.log("   🔄 Refreshing dashboard...")
-                        try:
-                            self.driver.get("https://return.gst.gov.in/returns/auth/dashboard")
-                        except: pass
-                        time.sleep(3)
-                        self.driver.refresh()
-                        time.sleep(3)
-                        if not self.check_session_and_relogin(username, password, wait):
-                            fail_reason = "Re-login Failed after Refresh"
-                            break
+                        self.log("   ⏳ Checking dashboard readiness...")
+                        time.sleep(1)
 
                         # Select Year
-                        year_el = wait.until(EC.element_to_be_clickable((By.NAME, "fin")))
+                        year_el = self._robust_find_clickable(By.NAME, "fin", timeout=8, refreshes=2, alert_msg="Year selection element (name='fin') not found")
+                        if not year_el:
+                            fail_reason = "Year (fin) not found. Blocked or slow."
+                            break
                         Select(year_el).select_by_visible_text(fin_year)
                         self.driver.execute_script(
                             "var e=arguments[0]; angular.element(e).triggerHandler('change');", year_el)
                         time.sleep(1)
 
                         # Select Quarter — must trigger Angular ng-change so months load
-                        qtr_el = wait.until(EC.element_to_be_clickable((By.NAME, "quarter")))
+                        qtr_el = self._robust_find_clickable(By.NAME, "quarter", timeout=5, refreshes=1, alert_msg="Quarter selection element not found")
+                        if not qtr_el:
+                            fail_reason = "Quarter selection not found"
+                            break
                         Select(qtr_el).select_by_visible_text(q_text)
                         self.driver.execute_script(
                             "var e=arguments[0]; angular.element(e).triggerHandler('change');", qtr_el)
                         time.sleep(1.5)  # wait for month dropdown to populate
 
                         # Select Month
-                        mon_el = wait.until(EC.element_to_be_clickable((By.NAME, "mon")))
+                        mon_el = self._robust_find_clickable(By.NAME, "mon", timeout=5, refreshes=1, alert_msg="Month selection element not found")
+                        if not mon_el:
+                            fail_reason = "Month selection not found"
+                            break
                         Select(mon_el).select_by_visible_text(m_text)
                         self.driver.execute_script(
                             "var e=arguments[0]; angular.element(e).triggerHandler('change');", mon_el)
                         time.sleep(0.5)
 
                         # Click Search
-                        search_btn = wait.until(EC.element_to_be_clickable(
-                            (By.XPATH, "//button[contains(text(), 'Search')]")))
+                        search_btn = self._robust_find_clickable(By.XPATH, "//button[contains(text(), 'Search')]", timeout=5, refreshes=1, alert_msg="Search button not found")
+                        if not search_btn:
+                            fail_reason = "Search button not found"
+                            break
                         self.driver.execute_script("arguments[0].click();", search_btn)
                         time.sleep(5)
 
@@ -465,6 +473,28 @@ class GSTWorker:
                 self.log(f"   ⚠️ Login Exception: {e}")
                 return False, f"Login Error: {str(e)[:20]}"
 
+    def _robust_find_clickable(self, by, value, timeout=10, refreshes=2, alert_msg="Element not found"):
+        """Wait for element. If not found, refresh and retry. If still not found, show alert."""
+        for attempt in range(refreshes + 1):
+            try:
+                el = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((by, value)))
+                if el:
+                    return el
+            except Exception:
+                pass
+                
+            if attempt < refreshes:
+                self.log(f"   ⚠️ '{value}' not found. Refreshing page (Attempt {attempt+1}/{refreshes})...")
+                try:
+                    self.driver.refresh()
+                except:
+                    pass
+                time.sleep(4)
+                
+        self.log(f"   ❌ Search failed! {alert_msg}")
+        self.app.after(0, lambda: messagebox.showwarning("GST Portal Issue", f"{alert_msg}. The browser may be detecting automation or the GST portal is slow."))
+        return None
+
     def _wait_for_recent_download(self, download_path, started_at, timeout=60):
         """Wait for a new downloaded file created after started_at."""
         deadline = time.time() + timeout
@@ -498,8 +528,31 @@ class GSTWorker:
         return None
 
     def _go_to_return_dashboard(self):
-        """Move to Return Dashboard without relying on browser history."""
+        """Move to Return Dashboard safely avoiding direct URL navigation that trips bot detection."""
         try:
+            # 1. Try hitting the "Back" button if it exists
+            back_btns = self.driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(), 'BACK', 'back'), 'back')]")
+            for b in back_btns:
+                if b.is_displayed():
+                    try:
+                        b.click()
+                        time.sleep(2)
+                        return True
+                    except:
+                        pass
+                        
+            # 2. Try Return Dashboard breadcrumb explicitly
+            bread_btns = self.driver.find_elements(By.XPATH, "//a[contains(translate(normalize-space(), 'DASHBOARD', 'dashboard'), 'dashboard')]")
+            for b in bread_btns:
+                if b.is_displayed():
+                    try:
+                        b.click()
+                        time.sleep(2)
+                        return True
+                    except:
+                        pass
+                        
+            # Fallback (may trigger tracking)
             self.driver.get("https://return.gst.gov.in/returns/auth/dashboard")
             return True
         except Exception:
@@ -547,9 +600,8 @@ class GSTWorker:
 
     def _download_gstr2b_portal_buttons(self, wait, download_path, summary_btn_xpath, details_btn_xpath):
         """Download using GST portal's new Summary/Details buttons."""
-        try:
-            summary_btn = WebDriverWait(self.driver, 8).until(EC.element_to_be_clickable((By.XPATH, summary_btn_xpath)))
-        except:
+        summary_btn = self._robust_find_clickable(By.XPATH, summary_btn_xpath, timeout=8, refreshes=1, alert_msg="GSTR-2B Summary download button missing")
+        if not summary_btn:
             return False, "Portal Controls Missing"
 
         summary_started = time.time()
@@ -564,9 +616,8 @@ class GSTWorker:
             return False, "Summary Timeout"
         self.log(f"   ✅ Saved: {os.path.basename(summary_file)}")
 
-        try:
-            details_btn = WebDriverWait(self.driver, 8).until(EC.element_to_be_clickable((By.XPATH, details_btn_xpath)))
-        except:
+        details_btn = self._robust_find_clickable(By.XPATH, details_btn_xpath, timeout=8, refreshes=0, alert_msg="GSTR-2B Details download button missing")
+        if not details_btn:
             return False, "Details Controls Missing"
 
         details_started = time.time()
@@ -590,9 +641,8 @@ class GSTWorker:
         xls_xpath = "//span[contains(@class,'xls') and contains(@title,'Download Return Excel')]"
         popup_download_xpath = "//button[contains(normalize-space(),'Download Return Excel') or contains(@onclick,'DownloadReturnExcelV2')]"
 
-        try:
-            xls_btn = WebDriverWait(self.driver, 8).until(EC.element_to_be_clickable((By.XPATH, xls_xpath)))
-        except:
+        xls_btn = self._robust_find_clickable(By.XPATH, xls_xpath, timeout=8, refreshes=1, alert_msg="CompuTax Excel download icon missing")
+        if not xls_btn:
             return False, "CompuTax Controls Missing"
 
         # 1) PDF click (best-effort)
@@ -655,17 +705,29 @@ class GSTWorker:
         ]
 
         view_btn = None
-        for xpath in view_btn_xpaths:
-            try:
-                view_btn = WebDriverWait(self.driver, 10).until(EC.element_to_be_clickable((By.XPATH, xpath)))
-                if view_btn:
-                    break
-            except Exception:
-                continue
+        for attempt in range(2): # allow 1 refresh if not found
+            for xpath in view_btn_xpaths:
+                try:
+                    view_btn = WebDriverWait(self.driver, 8).until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                    if view_btn:
+                        break
+                except Exception:
+                    continue
+                    
+            if view_btn:
+                break
+            else:
+                if attempt < 1:
+                    self.log("   ⚠️ View button not found. Refreshing page...")
+                    try:
+                        self.driver.refresh()
+                    except:
+                        pass
+                    time.sleep(4)
 
         if not view_btn:
             self.log("   ⚠️ GSTR-2B View button not found.")
-            self.app.after(0, lambda: messagebox.showwarning("Portal Error", "Class name not found (GSTR-2B View button). GST portal may be slow or layout changed."))
+            self.app.after(0, lambda: messagebox.showwarning("Portal Error", "Class name not found (GSTR-2B View button). GST portal may be slow or layout changed. Detected as missing!"))
             return False, "View Missing"
 
         summary_btn_xpath = (
