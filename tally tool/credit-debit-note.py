@@ -500,6 +500,7 @@ def _create_tally_ledger(
     address2: str = "",
     billwise_on: bool = True,
     timeout: float = 30.0,
+    gst_applicable: str = "",
 ) -> dict:
     name = _normalize_ledger_name(ledger_name)
     parent = _normalize_ledger_name(parent_name) or "Sundry Debtors"
@@ -513,7 +514,24 @@ def _create_tally_ledger(
     mailing_clean = _normalize_ledger_name(mailing_name) or name
     addr1_clean = _normalize_ledger_name(address1)
     addr2_clean = _normalize_ledger_name(address2)
-    reg_type = "Regular" if gstin_clean else "Unknown"
+
+    parent_key = _parent_group_key(parent)
+    is_party_ledger = parent_key in {"SUNDRY DEBTORS", "SUNDRY CREDITORS"}
+
+    gst_app_raw = _normalize_ledger_name(gst_applicable)
+    gst_app_key = gst_app_raw.casefold()
+    if gst_app_key in {"applicable", "yes", "y", "true", "1", "registered", "regular", "gst applicable"}:
+        gst_app_text = "Applicable"
+    elif gst_app_key in {"not applicable", "no", "n", "false", "0", "na", "n/a", "notapplicable"}:
+        gst_app_text = "Not Applicable"
+    else:
+        gst_app_text = "Applicable" if gstin_clean else "Not Applicable"
+
+    reg_type = "Regular" if (gstin_clean or gst_app_text == "Applicable") else ""
+
+    today = datetime.today().date()
+    fy_start_year = today.year if today.month >= 4 else today.year - 1
+    applicable_from = f"{fy_start_year}0401"
 
     envelope = ET.Element("ENVELOPE")
     header = ET.SubElement(envelope, "HEADER")
@@ -534,34 +552,62 @@ def _create_tally_ledger(
 
     ledger = ET.SubElement(tally_msg, "LEDGER")
     ledger.set("NAME", name)
+    ledger.set("RESERVEDNAME", "")
     ledger.set("ACTION", "Create")
     ET.SubElement(ledger, "NAME").text = name
     ET.SubElement(ledger, "PARENT").text = parent
-    ET.SubElement(ledger, "ISBILLWISEON").text = "Yes" if billwise_on else "No"
+    ET.SubElement(ledger, "ISBILLWISEON").text = "Yes" if (billwise_on and is_party_ledger) else "No"
     ET.SubElement(ledger, "ISCOSTCENTRESON").text = "No"
     ET.SubElement(ledger, "ISINTERESTON").text = "No"
     ET.SubElement(ledger, "ALLOWINMOBILE").text = "No"
+    ET.SubElement(ledger, "ISUPDATINGTARGETID").text = "No"
+    ET.SubElement(ledger, "ASORIGINAL").text = "Yes"
     ET.SubElement(ledger, "AFFECTSSTOCK").text = "No"
+    ET.SubElement(ledger, "CURRENCYNAME").text = "INR"
     ET.SubElement(ledger, "COUNTRYOFRESIDENCE").text = country_clean
+
+    if is_party_ledger:
+        ET.SubElement(ledger, "GSTAPPLICABLE").text = gst_app_text
+        if reg_type:
+            ET.SubElement(ledger, "GSTREGISTRATIONTYPE").text = reg_type
+        if gstin_clean:
+            ET.SubElement(ledger, "PARTYGSTIN").text = gstin_clean
+
     if state_clean:
         ET.SubElement(ledger, "PRIORSTATENAME").text = state_clean
+        if is_party_ledger:
+            ET.SubElement(ledger, "LEDSTATENAME").text = state_clean
 
-    if gstin_clean or state_clean:
+    language_list = ET.SubElement(ledger, "LANGUAGENAME.LIST")
+    name_list = ET.SubElement(language_list, "NAME.LIST")
+    name_list.set("TYPE", "String")
+    ET.SubElement(name_list, "NAME").text = name
+    ET.SubElement(language_list, "LANGUAGEID").text = "1033"
+
+    if is_party_ledger and (gstin_clean or reg_type):
         gst_list = ET.SubElement(ledger, "LEDGSTREGDETAILS.LIST")
-        ET.SubElement(gst_list, "GSTREGISTRATIONTYPE").text = reg_type
+        ET.SubElement(gst_list, "APPLICABLEFROM").text = applicable_from
+        if reg_type:
+            ET.SubElement(gst_list, "GSTREGISTRATIONTYPE").text = reg_type
         if state_clean:
             ET.SubElement(gst_list, "PLACEOFSUPPLY").text = state_clean
         if gstin_clean:
             ET.SubElement(gst_list, "GSTIN").text = gstin_clean
+        ET.SubElement(gst_list, "ISOTHTERRITORYASSESSEE").text = "No"
+        ET.SubElement(gst_list, "CONSIDERPURCHASEFOREXPORT").text = "No"
+        ET.SubElement(gst_list, "ISTRANSPORTER").text = "No"
+        ET.SubElement(gst_list, "ISCOMMONPARTY").text = "No"
 
-    if addr1_clean or addr2_clean or state_clean or country_clean or pincode_clean:
+    if is_party_ledger and (addr1_clean or addr2_clean or state_clean or country_clean or pincode_clean):
         mailing_list = ET.SubElement(ledger, "LEDMAILINGDETAILS.LIST")
         if addr1_clean or addr2_clean:
             addr_list = ET.SubElement(mailing_list, "ADDRESS.LIST")
+            addr_list.set("TYPE", "String")
             if addr1_clean:
                 ET.SubElement(addr_list, "ADDRESS").text = addr1_clean
             if addr2_clean:
                 ET.SubElement(addr_list, "ADDRESS").text = addr2_clean
+        ET.SubElement(mailing_list, "APPLICABLEFROM").text = applicable_from
         ET.SubElement(mailing_list, "MAILINGNAME").text = mailing_clean
         if pincode_clean:
             ET.SubElement(mailing_list, "PINCODE").text = pincode_clean

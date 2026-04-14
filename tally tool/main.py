@@ -1482,21 +1482,27 @@ def _ledger_key(value):
     return _normalize_ledger_name(value).upper()
 
 
+_GST_STATE_CODE_MAP = {
+    "01": "Jammu And Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
+    "05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh",
+    "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur",
+    "15": "Mizoram", "16": "Tripura", "17": "Meghalaya", "18": "Assam", "19": "West Bengal",
+    "20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh",
+    "24": "Gujarat", "25": "Daman And Diu", "26": "Dadra And Nagar Haveli And Daman And Diu",
+    "27": "Maharashtra", "29": "Karnataka", "30": "Goa", "31": "Lakshadweep", "32": "Kerala",
+    "33": "Tamil Nadu", "34": "Puducherry", "35": "Andaman And Nicobar Islands", "36": "Telangana",
+    "37": "Andhra Pradesh", "38": "Ladakh", "97": "Other Territory", "99": "Centre Jurisdiction",
+}
+
+LEDGER_STATE_OPTIONS = sorted(set(_GST_STATE_CODE_MAP.values()), key=lambda x: x.upper())
+LEDGER_COUNTRY_OPTIONS = ["India"]
+LEDGER_GST_APPLICABLE_OPTIONS = ["Applicable", "Not Applicable"]
+
+
 def _state_name_from_gstin(gstin):
     gstin_text = _normalize_ledger_name(gstin).upper()
     code = gstin_text[:2]
-    state_map = {
-        "01": "Jammu And Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
-        "05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh",
-        "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur",
-        "15": "Mizoram", "16": "Tripura", "17": "Meghalaya", "18": "Assam", "19": "West Bengal",
-        "20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh",
-        "24": "Gujarat", "25": "Daman And Diu", "26": "Dadra And Nagar Haveli And Daman And Diu",
-        "27": "Maharashtra", "29": "Karnataka", "30": "Goa", "31": "Lakshadweep", "32": "Kerala",
-        "33": "Tamil Nadu", "34": "Puducherry", "35": "Andaman And Nicobar Islands", "36": "Telangana",
-        "37": "Andhra Pradesh", "38": "Ladakh", "97": "Other Territory", "99": "Centre Jurisdiction",
-    }
-    return state_map.get(code, "")
+    return _GST_STATE_CODE_MAP.get(code, "")
 
 
 def _set_svcurrentcompany(xml_content, company_name):
@@ -1761,7 +1767,7 @@ def _fetch_tally_party_details_by_gstin(tally_url, gstin, timeout=15, company_na
         "<TDL><TDLMESSAGE>"
         "<COLLECTION NAME='GSTIN Ledger Lookup'>"
         "<TYPE>Ledger</TYPE>"
-        "<FETCH>Name,PartyGSTIN,GSTIN,GSTREGISTRATIONTYPE,StateName,PriorStateName,Pincode,CountryOfResidence,MailingName,Address,ISBILLWISEON</FETCH>"
+        "<FETCH>Name,GSTApplicable,PartyGSTIN,GSTIN,GSTREGISTRATIONTYPE,StateName,PriorStateName,Pincode,CountryOfResidence,MailingName,Address,ISBILLWISEON</FETCH>"
         "<FILTERS>ByGSTIN</FILTERS>"
         "</COLLECTION>"
         f"<SYSTEM TYPE='Formulae' NAME='ByGSTIN'>{formula_text}</SYSTEM>"
@@ -1820,6 +1826,18 @@ def _fetch_tally_party_details_by_gstin(tally_url, gstin, timeout=15, company_na
             or ledger.findtext("./LEDGSTREGDETAILS.LIST/GSTREGISTRATIONTYPE")
             or ""
         )
+        gst_app_text = _normalize_ledger_name(
+            ledger.findtext("GSTAPPLICABLE")
+            or ledger.findtext("ISGSTAPPLICABLE")
+            or ""
+        )
+        if gst_app_text:
+            if gst_app_text.upper() in {"YES", "Y", "TRUE", "1", "APPLICABLE", "GST APPLICABLE"}:
+                gst_app_text = "Applicable"
+            elif gst_app_text.upper() in {"NO", "N", "FALSE", "0", "NOT APPLICABLE", "NA", "N/A"}:
+                gst_app_text = "Not Applicable"
+        else:
+            gst_app_text = "Applicable" if gstin_text else "Not Applicable"
         billwise_text = _normalize_ledger_name(ledger.findtext("ISBILLWISEON") or "")
         if billwise_text:
             billwise_text = "Yes" if billwise_text.upper() in {"YES", "Y", "TRUE", "1"} else "No"
@@ -1834,6 +1852,7 @@ def _fetch_tally_party_details_by_gstin(tally_url, gstin, timeout=15, company_na
             "country": country_text,
             "pincode": pincode_text,
             "gstin": gstin_text,
+            "gst_applicable": gst_app_text,
             "reg_type": reg_type_text or ("Regular" if gstin_text else "Unknown"),
             "billwise": billwise_text,
             "name": name_text,
@@ -1892,7 +1911,7 @@ def _fetch_tally_ledger_details_by_name(tally_url, ledger_name, timeout=15, comp
         "<TDL><TDLMESSAGE>"
         "<COLLECTION NAME='Name Ledger Lookup'>"
         "<TYPE>Ledger</TYPE>"
-        "<FETCH>Name,PartyGSTIN,GSTIN,GSTREGISTRATIONTYPE,StateName,PriorStateName,Pincode,CountryOfResidence,MailingName,Address,ISBILLWISEON</FETCH>"
+        "<FETCH>Name,GSTApplicable,PartyGSTIN,GSTIN,GSTREGISTRATIONTYPE,StateName,PriorStateName,Pincode,CountryOfResidence,MailingName,Address,ISBILLWISEON</FETCH>"
         "<FILTERS>ByName</FILTERS>"
         "</COLLECTION>"
         f"<SYSTEM TYPE='Formulae' NAME='ByName'>{formula_text}</SYSTEM>"
@@ -1951,6 +1970,18 @@ def _fetch_tally_ledger_details_by_name(tally_url, ledger_name, timeout=15, comp
             or ledger.findtext("./LEDGSTREGDETAILS.LIST/GSTREGISTRATIONTYPE")
             or ""
         )
+        gst_app_text = _normalize_ledger_name(
+            ledger.findtext("GSTAPPLICABLE")
+            or ledger.findtext("ISGSTAPPLICABLE")
+            or ""
+        )
+        if gst_app_text:
+            if gst_app_text.upper() in {"YES", "Y", "TRUE", "1", "APPLICABLE", "GST APPLICABLE"}:
+                gst_app_text = "Applicable"
+            elif gst_app_text.upper() in {"NO", "N", "FALSE", "0", "NOT APPLICABLE", "NA", "N/A"}:
+                gst_app_text = "Not Applicable"
+        else:
+            gst_app_text = "Applicable" if gstin_text else "Not Applicable"
         billwise_text = _normalize_ledger_name(ledger.findtext("ISBILLWISEON") or "")
         if billwise_text:
             billwise_text = "Yes" if billwise_text.upper() in {"YES", "Y", "TRUE", "1"} else "No"
@@ -1965,6 +1996,7 @@ def _fetch_tally_ledger_details_by_name(tally_url, ledger_name, timeout=15, comp
             "country": country_text,
             "pincode": pincode_text,
             "gstin": gstin_text,
+            "gst_applicable": gst_app_text,
             "reg_type": reg_type_text or ("Regular" if gstin_text else "Unknown"),
             "billwise": billwise_text,
             "name": name_text,
@@ -2031,15 +2063,47 @@ def _create_tally_ledger(tally_url, ledger_name, parent_name, timeout=30, is_par
     mailing_name = _normalize_ledger_name(extra_info.get("mailing_name") or "") or name
     address1 = _normalize_ledger_name(extra_info.get("address1") or "")
     address2 = _normalize_ledger_name(extra_info.get("address2") or "")
+
+    parent_key = _ledger_key(parent)
+    is_party_ledger = bool(is_party) or parent_key in {"SUNDRY DEBTORS", "SUNDRY CREDITORS"}
+
+    gst_app_raw = _normalize_ledger_name(
+        extra_info.get("gst_applicable")
+        or extra_info.get("gst_app")
+        or extra_info.get("gst")
+        or ""
+    )
+    gst_app_key = gst_app_raw.casefold()
+    if gst_app_key in {"applicable", "yes", "y", "true", "1", "registered", "regular", "gst applicable"}:
+        gst_applicable = "Applicable"
+    elif gst_app_key in {"not applicable", "no", "n", "false", "0", "na", "n/a", "notapplicable"}:
+        gst_applicable = "Not Applicable"
+    else:
+        gst_applicable = "Applicable" if gstin else "Not Applicable"
+
     reg_type = _normalize_ledger_name(extra_info.get("reg_type") or "")
-    if not reg_type:
-        reg_type = "Regular" if gstin else "Unknown"
+    reg_key = reg_type.casefold()
+    reg_map = {
+        "regular": "Regular",
+        "registered": "Regular",
+        "composition": "Composition",
+        "consumer": "Consumer",
+        "unregistered": "Unregistered",
+        "sez": "SEZ",
+        "sez unit": "SEZ",
+        "sez developer": "SEZ",
+        "overseas": "Overseas",
+    }
+    if reg_key in reg_map:
+        reg_type = reg_map[reg_key]
+    elif not reg_type:
+        reg_type = "Regular" if (gstin or gst_applicable == "Applicable") else ""
 
     billwise_raw = _normalize_ledger_name(extra_info.get("billwise") or "")
     if billwise_raw:
         billwise_on = billwise_raw.strip().upper() in {"YES", "Y", "TRUE", "1"}
     else:
-        billwise_on = bool(is_party)
+        billwise_on = bool(is_party_ledger)
 
     envelope = ET.Element("ENVELOPE")
     header = ET.SubElement(envelope, "HEADER")
@@ -2073,8 +2137,18 @@ def _create_tally_ledger(tally_url, ledger_name, parent_name, timeout=30, is_par
     ET.SubElement(ledger, "AFFECTSSTOCK").text = "No"
     ET.SubElement(ledger, "CURRENCYNAME").text = "INR"
     ET.SubElement(ledger, "COUNTRYOFRESIDENCE").text = country_name
+
+    if is_party_ledger:
+        ET.SubElement(ledger, "GSTAPPLICABLE").text = gst_applicable
+        if reg_type:
+            ET.SubElement(ledger, "GSTREGISTRATIONTYPE").text = reg_type
+        if gstin:
+            ET.SubElement(ledger, "PARTYGSTIN").text = gstin
+
     if state_name:
         ET.SubElement(ledger, "PRIORSTATENAME").text = state_name
+        if is_party_ledger:
+            ET.SubElement(ledger, "LEDSTATENAME").text = state_name
 
     language_list = ET.SubElement(ledger, "LANGUAGENAME.LIST")
     name_list = ET.SubElement(language_list, "NAME.LIST")
@@ -2082,10 +2156,11 @@ def _create_tally_ledger(tally_url, ledger_name, parent_name, timeout=30, is_par
     ET.SubElement(name_list, "NAME").text = name
     ET.SubElement(language_list, "LANGUAGEID").text = "1033"
 
-    if gstin or reg_type:
+    if is_party_ledger and (gstin or reg_type):
         gst_list = ET.SubElement(ledger, "LEDGSTREGDETAILS.LIST")
         ET.SubElement(gst_list, "APPLICABLEFROM").text = applicable_from
-        ET.SubElement(gst_list, "GSTREGISTRATIONTYPE").text = reg_type
+        if reg_type:
+            ET.SubElement(gst_list, "GSTREGISTRATIONTYPE").text = reg_type
         if state_name:
             ET.SubElement(gst_list, "PLACEOFSUPPLY").text = state_name
         if gstin:
@@ -2095,7 +2170,7 @@ def _create_tally_ledger(tally_url, ledger_name, parent_name, timeout=30, is_par
         ET.SubElement(gst_list, "ISTRANSPORTER").text = "No"
         ET.SubElement(gst_list, "ISCOMMONPARTY").text = "No"
 
-    if address1 or address2 or state_name or country_name or pincode:
+    if is_party_ledger and (address1 or address2 or state_name or country_name or pincode):
         mailing_list = ET.SubElement(ledger, "LEDMAILINGDETAILS.LIST")
         if address1 or address2:
             addr_list = ET.SubElement(mailing_list, "ADDRESS.LIST")
@@ -3522,28 +3597,34 @@ class GSTR2BTallyApp(ctk.CTk):
 
         geo_row = ctk.CTkFrame(self.create_ledger_card, fg_color="transparent")
         geo_row.pack(fill="x", padx=16, pady=(0, 6))
-        self.create_ledger_state_entry = ctk.CTkEntry(
+        self.create_ledger_state_entry = ctk.CTkComboBox(
             geo_row,
+            values=[""] + LEDGER_STATE_OPTIONS,
             height=34,
             fg_color=COLORS["bg_input"],
             border_color=COLORS["border"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
             text_color=COLORS["text_primary"],
-            placeholder_text="State",
             font=("Segoe UI", 10),
             corner_radius=8,
         )
+        self.create_ledger_state_entry.set("")
         self.create_ledger_state_entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        self.create_ledger_country_entry = ctk.CTkEntry(
+        self.create_ledger_country_entry = ctk.CTkComboBox(
             geo_row,
+            values=LEDGER_COUNTRY_OPTIONS,
             width=120,
             height=34,
             fg_color=COLORS["bg_input"],
             border_color=COLORS["border"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
             text_color=COLORS["text_primary"],
             font=("Segoe UI", 10),
             corner_radius=8,
         )
-        self.create_ledger_country_entry.insert(0, "India")
+        self.create_ledger_country_entry.set("India")
         self.create_ledger_country_entry.pack(side="left", padx=(4, 0))
 
         gst_row = ctk.CTkFrame(self.create_ledger_card, fg_color="transparent")
@@ -3574,6 +3655,19 @@ class GSTR2BTallyApp(ctk.CTk):
 
         type_row = ctk.CTkFrame(self.create_ledger_card, fg_color="transparent")
         type_row.pack(fill="x", padx=16, pady=(0, 10))
+        self.create_ledger_gst_app_cb = ctk.CTkComboBox(
+            type_row,
+            values=LEDGER_GST_APPLICABLE_OPTIONS,
+            width=150,
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            font=("Segoe UI", 10),
+        )
+        self.create_ledger_gst_app_cb.set("Applicable")
+        self.create_ledger_gst_app_cb.pack(side="left", padx=(0, 6))
+
         self.create_ledger_reg_type_cb = ctk.CTkComboBox(
             type_row,
             values=["Regular", "Composition", "Unregistered", "Consumer", "Unknown"],
@@ -4295,6 +4389,8 @@ class GSTR2BTallyApp(ctk.CTk):
                     self._set_create_ledger_widget_value(self.create_ledger_pincode_entry, fetched.get("pincode"))
                 if fetched.get("gstin"):
                     self._set_create_ledger_widget_value(self.create_ledger_gstin_entry, fetched.get("gstin"))
+                if fetched.get("gst_applicable"):
+                    self._set_create_ledger_widget_value(self.create_ledger_gst_app_cb, fetched.get("gst_applicable"))
                 if fetched.get("reg_type"):
                     self._set_create_ledger_widget_value(self.create_ledger_reg_type_cb, fetched.get("reg_type"))
                 if fetched.get("billwise"):
@@ -4307,6 +4403,7 @@ class GSTR2BTallyApp(ctk.CTk):
                 self._set_create_ledger_widget_value(self.create_ledger_state_entry, inferred_state)
             if not _normalize_ledger_name(self.create_ledger_country_entry.get() or ""):
                 self._set_create_ledger_widget_value(self.create_ledger_country_entry, "India")
+            self._set_create_ledger_widget_value(self.create_ledger_gst_app_cb, "Applicable")
             self._set_create_ledger_widget_value(self.create_ledger_reg_type_cb, "Regular")
             self.log_panel.log(
                 f"Create Ledger: GST lookup fallback used ({fetch_result.get('error', 'Unknown')}).",
@@ -4346,6 +4443,7 @@ class GSTR2BTallyApp(ctk.CTk):
             "country": _normalize_ledger_name(self.create_ledger_country_entry.get() or "") or "India",
             "pincode": _normalize_ledger_name(self.create_ledger_pincode_entry.get() or ""),
             "gstin": gstin,
+            "gst_applicable": _normalize_ledger_name(self.create_ledger_gst_app_cb.get() or "") or ("Applicable" if gstin else "Not Applicable"),
             "reg_type": _normalize_ledger_name(self.create_ledger_reg_type_cb.get() or "") or ("Regular" if gstin else "Unknown"),
             "billwise": _normalize_ledger_name(self.create_ledger_billwise_cb.get() or "") or ("Yes" if self.create_ledger_is_party_var.get() else "No"),
         }
@@ -4395,6 +4493,8 @@ class GSTR2BTallyApp(ctk.CTk):
                     fetched = verify_result.get("details") or {}
                     if fetched.get("mailing_name"):
                         self._set_create_ledger_widget_value(self.create_ledger_mailing_entry, fetched.get("mailing_name"))
+                    if fetched.get("gst_applicable"):
+                        self._set_create_ledger_widget_value(self.create_ledger_gst_app_cb, fetched.get("gst_applicable"))
                     if fetched.get("state"):
                         self._set_create_ledger_widget_value(self.create_ledger_state_entry, fetched.get("state"))
                     if fetched.get("country"):
@@ -4922,6 +5022,9 @@ class GSTR2BTallyApp(ctk.CTk):
         def _default_extra_for_missing(missing_name):
             base = dict((usage_map.get(missing_name) or {}).get("extra", {}))
             gstin = _normalize_ledger_name(base.get("gstin") or "").upper()
+            gst_applicable = _normalize_ledger_name(base.get("gst_applicable") or "")
+            if not gst_applicable:
+                gst_applicable = "Applicable" if gstin else "Not Applicable"
             reg_type = _normalize_ledger_name(base.get("reg_type") or "")
             if not reg_type:
                 reg_type = "Regular" if gstin else "Unknown"
@@ -4936,6 +5039,7 @@ class GSTR2BTallyApp(ctk.CTk):
                 "country": _normalize_ledger_name(base.get("country") or "India") or "India",
                 "pincode": _normalize_ledger_name(base.get("pincode") or ""),
                 "gstin": gstin,
+                "gst_applicable": gst_applicable,
                 "reg_type": reg_type,
                 "billwise": billwise,
             }
@@ -5017,12 +5121,13 @@ class GSTR2BTallyApp(ctk.CTk):
             add_field("Mailing Name", "mailing_name", 0)
             add_field("Address 1", "address1", 1)
             add_field("Address 2", "address2", 2)
-            add_field("State", "state", 3)
-            add_field("Country", "country", 4)
+            add_field("State", "state", 3, values=[""] + LEDGER_STATE_OPTIONS)
+            add_field("Country", "country", 4, values=LEDGER_COUNTRY_OPTIONS)
             add_field("Pincode", "pincode", 5)
             add_field("GSTIN", "gstin", 6)
-            add_field("Registration Type", "reg_type", 7, values=["Regular", "Composition", "Unregistered", "Consumer", "Unknown"])
-            add_field("Billwise", "billwise", 8, values=["Yes", "No"])
+            add_field("GST Applicable", "gst_applicable", 7, values=LEDGER_GST_APPLICABLE_OPTIONS)
+            add_field("Registration Type", "reg_type", 8, values=["Regular", "Composition", "Unregistered", "Consumer", "Unknown"])
+            add_field("Billwise", "billwise", 9, values=["Yes", "No"])
 
             gst_lookup_guard = {"busy": False, "last": ""}
 
@@ -5048,7 +5153,7 @@ class GSTR2BTallyApp(ctk.CTk):
                 )
                 if fetch_result.get("success"):
                     fetched = fetch_result.get("details", {})
-                    for key in ["mailing_name", "address1", "address2", "state", "country", "pincode", "gstin", "reg_type", "billwise"]:
+                    for key in ["mailing_name", "address1", "address2", "state", "country", "pincode", "gstin", "gst_applicable", "reg_type", "billwise"]:
                         if key in entries and fetched.get(key):
                             set_widget_value(entries[key], fetched.get(key))
                     self.log_panel.log("GST fetch succeeded from existing Tally ledger data.", "success")
@@ -5062,6 +5167,7 @@ class GSTR2BTallyApp(ctk.CTk):
                     set_widget_value(entries["state"], inferred_state)
                 if not _normalize_ledger_name(entries["country"].get() or ""):
                     set_widget_value(entries["country"], "India")
+                set_widget_value(entries["gst_applicable"], "Applicable")
                 set_widget_value(entries["reg_type"], "Regular")
                 self.log_panel.log(
                     f"GST fetch from Tally not available ({fetch_result.get('error', 'Unknown')}). Filled available defaults.",
@@ -5110,6 +5216,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 updated["country"] = updated.get("country") or "India"
                 if not updated.get("state") and updated.get("gstin"):
                     updated["state"] = _state_name_from_gstin(updated.get("gstin"))
+                if not updated.get("gst_applicable"):
+                    updated["gst_applicable"] = "Applicable" if updated.get("gstin") else "Not Applicable"
                 updated["reg_type"] = updated.get("reg_type") or ("Regular" if updated.get("gstin") else "Unknown")
                 updated["billwise"] = updated.get("billwise") or ("Yes" if bool(row_control.get("is_party")) else "No")
                 return updated
