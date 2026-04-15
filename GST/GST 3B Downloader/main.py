@@ -3,12 +3,19 @@ import time
 import os
 import random
 import glob
+import sys
 import base64
 import pandas as pd
 import customtkinter as ctk
 from PIL import Image
 from datetime import datetime
 from tkinter import filedialog, messagebox
+
+# EXE-compatible shared stealth driver
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+from stealth_driver import create_chrome_driver, show_browser_alert, build_chrome_options
 
 # Selenium Imports
 from selenium import webdriver
@@ -17,7 +24,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import Select
-from webdriver_manager.chrome import ChromeDriverManager
 
 # --- UI CONFIGURATION ---
 ctk.set_appearance_mode("System")
@@ -243,52 +249,24 @@ class GSTWorker:
         show_browser_alert(self.driver, message)
 
     def ensure_return_dashboard(self, wait):
-        """ Checks if we are on the Return Dashboard safely avoiding direct URL nav. """
+        """ Checks if we are on the Return Dashboard. If not, go directly to the URL. """
         try:
             # Check if Financial Year dropdown is present
             if self.driver.find_elements(By.NAME, "fin"):
                 return True # We are safe
             
-            self.log("      🔄 Lost Dashboard. Recovering...")
+            self.log("      🔄 Lost Dashboard. Recovering via URL...")
+            self.driver.execute_script("window.location.href = 'https://return.gst.gov.in/returns/auth/dashboard';")
+            time.sleep(3)
             
-            # 1. Handle Popups (in case we are on Home Page)
-            self.handle_popups()
+            # Check if it threw us to the login page (session dropped)
+            if "login" in self.driver.current_url.lower() or "access denied" in self.driver.page_source.lower():
+                return False
 
-            # 2. Try Back buttons to avoid URL nav penalty
-            back_btns = self.driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(), 'BACK', 'back'), 'back')]")
-            for b in back_btns:
-                if b.is_displayed():
-                    try:
-                        b.click()
-                        time.sleep(2)
-                    except: pass
-                    if self.driver.find_elements(By.NAME, "fin"): return True
-
-            # 3. Try Breadcrumb Native Clicks
-            bread_btns = self.driver.find_elements(By.XPATH, "//a[contains(translate(normalize-space(), 'DASHBOARD', 'dashboard'), 'dashboard')]")
-            for b in bread_btns:
-                if b.is_displayed():
-                    try:
-                        b.click()
-                        time.sleep(2)
-                    except: pass
-                    if self.driver.find_elements(By.NAME, "fin"): return True
-                    
-            # 4. Click "Return Dashboard" directly
-            try:
-                dash_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Return Dashboard')]")))
-                dash_btn.click()
-                time.sleep(3)
+            if self.driver.find_elements(By.NAME, "fin"): 
                 return True
-            except:
-                try:
-                    btn = self.driver.find_element(By.XPATH, "//button[contains(., 'Return Dashboard')]")
-                    self.driver.execute_script("arguments[0].click();", btn)
-                    time.sleep(3)
-                    return True
-                except:
-                    self.log("      ⚠️ Recovery Failed: Button missing.")
-                    return False
+            return False
+            
         except Exception as e:
             self.log(f"      ⚠️ Recovery Exception: {e}")
             return False

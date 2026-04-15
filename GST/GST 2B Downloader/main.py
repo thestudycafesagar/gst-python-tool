@@ -542,11 +542,14 @@ class GSTWorker:
                 return False, f"Login Error: {str(e)[:20]}"
 
     def _robust_find_clickable(self, by, value, timeout=10, refreshes=2, alert_msg="Element not found"):
-        """Wait for element. If not found, refresh and retry. If still not found, show alert."""
+        """Wait for element. If not found, refresh and retry. If still not found, show on-page alert."""
         for attempt in range(refreshes + 1):
             try:
-                el = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((by, value)))
+                # Use presence instead of element_to_be_clickable to avoid Angular overlay/click-intercept failures
+                el = WebDriverWait(self.driver, timeout).until(EC.presence_of_element_located((by, value)))
                 if el:
+                    # Give Angular a tiny moment to render it fully
+                    time.sleep(0.5)
                     return el
             except Exception:
                 pass
@@ -596,41 +599,21 @@ class GSTWorker:
         return None
 
     def _go_to_return_dashboard(self):
-        """Move to Return Dashboard safely avoiding direct URL navigation that trips bot detection."""
+        """Move to Return Dashboard directly via URL as requested by user."""
         try:
-            # 1. Try hitting the "Back" button if it exists
-            back_btns = self.driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(), 'BACK', 'back'), 'back')]")
-            for b in back_btns:
-                if b.is_displayed():
-                    try:
-                        b.click()
-                        time.sleep(2)
-                        return True
-                    except:
-                        pass
-                        
-            # 2. Try Return Dashboard breadcrumb explicitly
-            bread_btns = self.driver.find_elements(By.XPATH, "//a[contains(translate(normalize-space(), 'DASHBOARD', 'dashboard'), 'dashboard')]")
-            for b in bread_btns:
-                if b.is_displayed():
-                    try:
-                        b.click()
-                        time.sleep(2)
-                        return True
-                    except:
-                        pass
-                        
-            # Fallback (may trigger tracking)
-            self.driver.get("https://return.gst.gov.in/returns/auth/dashboard")
+            self.log("      🔄 Lost Dashboard. Recovering via URL...")
+            self.driver.execute_script("window.location.href = 'https://return.gst.gov.in/returns/auth/dashboard';")
+            time.sleep(3)
+            
+            # Check if it threw us to the login page (session dropped)
+            url_lower = (self.driver.current_url or "").lower()
+            src_lower = (self.driver.page_source or "").lower()
+            if "login" in url_lower or "access denied" in src_lower or "session is expired" in src_lower:
+                return False
+
             return True
         except Exception:
-            try:
-                self.driver.execute_script(
-                    "window.location.href='https://return.gst.gov.in/returns/auth/dashboard';"
-                )
-                return True
-            except Exception:
-                return False
+            return False
 
     def _session_snapshot(self, stage):
         """Small diagnostic logger for URL/session state transitions."""
