@@ -21,7 +21,7 @@ except ImportError:
 
 
 # ── Global theme ──────────────────────────────────────────────────────────────
-ctk.set_appearance_mode("dark")
+ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
 # Accepted Excel extensions for the file-open dialog
@@ -43,7 +43,7 @@ class _Card(ctk.CTkFrame):
 
         # Accent bar
         ctk.CTkFrame(self, height=3, corner_radius=3,
-                    fg_color=("#1a73e8", "#1a73e8")).grid(
+                    fg_color=("#2563EB", "#2563EB")).grid(
             row=0, column=0, sticky="ew", padx=0, pady=(0, 0))
 
         ctk.CTkLabel(self, text=f"  {title}",
@@ -130,11 +130,11 @@ class MSMEApp(ctk.CTk):
                     ).grid(row=1, column=0, sticky="w", pady=(2, 0))
 
         # Appearance switcher
-        self._mode_var = ctk.StringVar(value="Dark")
+        self._mode_var = ctk.StringVar(value="System")
         ctk.CTkSegmentedButton(
             hdr, values=["Light", "Dark", "System"],
             variable=self._mode_var,
-            command=lambda v: ctk.set_appearance_mode(v.lower()),
+            command=lambda v: ctk.set_appearance_mode(v),
             width=200, font=ctk.CTkFont(size=11),
         ).grid(row=0, column=1, rowspan=2, sticky="e")
 
@@ -201,7 +201,7 @@ class MSMEApp(ctk.CTk):
             bar, text="▶   Run Calculations",
             height=44, corner_radius=10,
             font=ctk.CTkFont("Segoe UI", 13, "bold"),
-            fg_color="#1a73e8", hover_color="#1558b0",
+            fg_color="#2563EB", hover_color="#1D4ED8",
             command=self._on_run,
         )
         self._run_btn.grid(row=0, column=0, sticky="ew", padx=(0, 7))
@@ -210,8 +210,8 @@ class MSMEApp(ctk.CTk):
             bar, text="✉   Send Overdue Emails",
             height=44, corner_radius=10,
             font=ctk.CTkFont("Segoe UI", 13, "bold"),
-            fg_color="#c5221f" if OUTLOOK_OK else "#555",
-            hover_color="#a50e0e" if OUTLOOK_OK else "#555",
+            fg_color="#DC2626" if OUTLOOK_OK else "#555",
+            hover_color="#B91C1C" if OUTLOOK_OK else "#555",
             state="disabled",
             command=self._on_email,
         )

@@ -2198,9 +2198,9 @@ class CombinedWorker:
             if not user_col or not pass_col:
                 self.log("❌ ERROR: Headers missing.")
                 def _reset_err():
-                    self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d")
-                    self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d")
-                    self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d")
+                    self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#2563EB")
+                    self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#2563EB")
+                    self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#2563EB")
                     try: self.app.btn_stop_26as.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_26as.pack_forget()
                     except: pass
                     try: self.app.btn_stop_ais.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_ais.pack_forget()
@@ -2279,14 +2279,20 @@ class CombinedWorker:
 
             # Reset all button states
             def _reset_done():
-                self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d")
-                self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d")
-                self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d")
+                self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#2563EB")
+                self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#2563EB")
+                self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#2563EB")
                 try: self.app.btn_stop_26as.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_26as.pack_forget()
                 except: pass
                 try: self.app.btn_stop_ais.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_ais.pack_forget()
                 except: pass
                 try: self.app.btn_stop_tis.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_tis.pack_forget()
+                except: pass
+                try: self.app.btn_open_folder_26as.pack(side="left", padx=(10, 0))
+                except: pass
+                try: self.app.btn_open_folder_ais.pack(side="left", padx=(10, 0))
+                except: pass
+                try: self.app.btn_open_folder_tis.pack(side="left", padx=(10, 0))
                 except: pass
                 messagebox.showinfo("Done", "Combined download finished")
             self.app.after(0, _reset_done)
@@ -2294,9 +2300,9 @@ class CombinedWorker:
         except Exception as e:
             self.log(f"❌ CRITICAL ERROR: {e}")
             def _reset_crit():
-                self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d")
-                self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d")
-                self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d")
+                self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#2563EB")
+                self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#2563EB")
+                self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#2563EB")
                 try: self.app.btn_stop_26as.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_26as.pack_forget()
                 except: pass
                 try: self.app.btn_stop_ais.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_ais.pack_forget()
@@ -2359,11 +2365,11 @@ class App(ctk.CTk):
         self.entry_file_26as.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
-        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("26as"), width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
-        self.btn_view_26as = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("26as"), width=95, fg_color="#546e7a", hover_color="#37474f", font=("Arial", 11, "bold"))
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("26as"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.btn_view_26as = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("26as"), width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
         self.btn_view_26as.pack(side="left", padx=(5, 0))
-        self.btn_delete_26as = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("26as"), width=105, fg_color="#8e24aa", hover_color="#6a1b9a", font=("Arial", 11, "bold"))
+        self.btn_delete_26as = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("26as"), width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
         self.btn_delete_26as.pack(side="left", padx=(5, 0))
         self.btn_view_26as.configure(state="disabled")
         self.btn_delete_26as.configure(state="disabled")
@@ -2392,9 +2398,12 @@ class App(ctk.CTk):
         btn_footer_26as.grid(row=3, column=0, sticky="ew", padx=20, pady=(5, 10))
         self.btn_start_26as = ctk.CTkButton(btn_footer_26as, text="START 26AS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("26as"))
         self.btn_start_26as.pack(side="left", expand=True, fill="x")
-        self.btn_stop_26as = ctk.CTkButton(btn_footer_26as, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#c62828", hover_color="#8e0000", command=lambda: self.stop_process("26as"), width=150)
+        self.btn_stop_26as = ctk.CTkButton(btn_footer_26as, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("26as"), width=150)
         self.btn_stop_26as.pack(side="left", padx=(10, 0))
         self.btn_stop_26as.pack_forget()
+        self.btn_open_folder_26as = ctk.CTkButton(btn_footer_26as, text="📂 OPEN FOLDER", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#2563EB", hover_color="#1D4ED8", command=lambda: self.open_download_folder("26as"), width=180)
+        self.btn_open_folder_26as.pack(side="left", padx=(10, 0))
+        self.btn_open_folder_26as.pack_forget()
 
     def _build_ais_ui(self):
         self.excel_file_path_ais = ""
@@ -2411,11 +2420,11 @@ class App(ctk.CTk):
         self.entry_file_ais.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
-        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("ais"), width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
-        self.btn_view_ais = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("ais"), width=95, fg_color="#546e7a", hover_color="#37474f", font=("Arial", 11, "bold"))
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("ais"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.btn_view_ais = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("ais"), width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
         self.btn_view_ais.pack(side="left", padx=(5, 0))
-        self.btn_delete_ais = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("ais"), width=105, fg_color="#8e24aa", hover_color="#6a1b9a", font=("Arial", 11, "bold"))
+        self.btn_delete_ais = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("ais"), width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
         self.btn_delete_ais.pack(side="left", padx=(5, 0))
         self.btn_view_ais.configure(state="disabled")
         self.btn_delete_ais.configure(state="disabled")
@@ -2444,9 +2453,12 @@ class App(ctk.CTk):
         btn_footer_ais.grid(row=3, column=0, sticky="ew", padx=20, pady=(5, 10))
         self.btn_start_ais = ctk.CTkButton(btn_footer_ais, text="START AIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("ais"))
         self.btn_start_ais.pack(side="left", expand=True, fill="x")
-        self.btn_stop_ais = ctk.CTkButton(btn_footer_ais, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#c62828", hover_color="#8e0000", command=lambda: self.stop_process("ais"), width=150)
+        self.btn_stop_ais = ctk.CTkButton(btn_footer_ais, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("ais"), width=150)
         self.btn_stop_ais.pack(side="left", padx=(10, 0))
         self.btn_stop_ais.pack_forget()
+        self.btn_open_folder_ais = ctk.CTkButton(btn_footer_ais, text="📂 OPEN FOLDER", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#2563EB", hover_color="#1D4ED8", command=lambda: self.open_download_folder("ais"), width=180)
+        self.btn_open_folder_ais.pack(side="left", padx=(10, 0))
+        self.btn_open_folder_ais.pack_forget()
 
     def _build_tis_ui(self):
         self.excel_file_path_tis = ""
@@ -2463,11 +2475,11 @@ class App(ctk.CTk):
         self.entry_file_tis.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
-        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("tis"), width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
-        self.btn_view_tis = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("tis"), width=95, fg_color="#546e7a", hover_color="#37474f", font=("Arial", 11, "bold"))
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("tis"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.btn_view_tis = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("tis"), width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
         self.btn_view_tis.pack(side="left", padx=(5, 0))
-        self.btn_delete_tis = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("tis"), width=105, fg_color="#8e24aa", hover_color="#6a1b9a", font=("Arial", 11, "bold"))
+        self.btn_delete_tis = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("tis"), width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
         self.btn_delete_tis.pack(side="left", padx=(5, 0))
         self.btn_view_tis.configure(state="disabled")
         self.btn_delete_tis.configure(state="disabled")
@@ -2496,9 +2508,12 @@ class App(ctk.CTk):
         btn_footer_tis.grid(row=3, column=0, sticky="ew", padx=20, pady=(5, 10))
         self.btn_start_tis = ctk.CTkButton(btn_footer_tis, text="START TIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("tis"))
         self.btn_start_tis.pack(side="left", expand=True, fill="x")
-        self.btn_stop_tis = ctk.CTkButton(btn_footer_tis, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#c62828", hover_color="#8e0000", command=lambda: self.stop_process("tis"), width=150)
+        self.btn_stop_tis = ctk.CTkButton(btn_footer_tis, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("tis"), width=150)
         self.btn_stop_tis.pack(side="left", padx=(10, 0))
         self.btn_stop_tis.pack_forget()
+        self.btn_open_folder_tis = ctk.CTkButton(btn_footer_tis, text="📂 OPEN FOLDER", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#2563EB", hover_color="#1D4ED8", command=lambda: self.open_download_folder("tis"), width=180)
+        self.btn_open_folder_tis.pack(side="left", padx=(10, 0))
+        self.btn_open_folder_tis.pack_forget()
 
     # --- GUI Handlers ---
     def trigger_year_selection(self, years_list, user_id, callback):
@@ -2710,6 +2725,12 @@ class App(ctk.CTk):
             except: pass
             try: self.btn_stop_tis.pack(side="left", padx=(10, 0))
             except: pass
+            try: self.btn_open_folder_26as.pack_forget()
+            except: pass
+            try: self.btn_open_folder_ais.pack_forget()
+            except: pass
+            try: self.btn_open_folder_tis.pack_forget()
+            except: pass
 
             self.worker = CombinedWorker(self, excel_path, year_mode)
             threading.Thread(target=self.worker.run, daemon=True).start()
@@ -2720,6 +2741,7 @@ class App(ctk.CTk):
             if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
             self.btn_start_26as.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             self.btn_stop_26as.pack(side="left", padx=(10, 0))
+            self.btn_open_folder_26as.pack_forget()
             self.progress_26as.set(0)
             self.worker = Tax26ASWorker(self, excel_path, "Current Year")
             threading.Thread(target=self.worker.run, daemon=True).start()
@@ -2728,6 +2750,7 @@ class App(ctk.CTk):
             if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
             self.btn_start_ais.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             self.btn_stop_ais.pack(side="left", padx=(10, 0))
+            self.btn_open_folder_ais.pack_forget()
             self.progress_ais.set(0)
             self.worker = AISWorker(self, excel_path, "Current Year")
             threading.Thread(target=self.worker.run, daemon=True).start()
@@ -2736,6 +2759,7 @@ class App(ctk.CTk):
             if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
             self.btn_start_tis.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             self.btn_stop_tis.pack(side="left", padx=(10, 0))
+            self.btn_open_folder_tis.pack_forget()
             self.progress_tis.set(0)
             self.worker = TISWorker(self, excel_path, "Current Year")
             threading.Thread(target=self.worker.run, daemon=True).start()
@@ -2765,9 +2789,10 @@ class App(ctk.CTk):
     def process_finished_safe_26as(self, msg):
         def _finish():
             self.log_to_gui_26as(f"\nSTATUS: {msg}")
-            self.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#1f538d")
+            self.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#2563EB")
             self.btn_stop_26as.configure(state="normal", text="⏹ STOP")
             self.btn_stop_26as.pack_forget()
+            self.btn_open_folder_26as.pack(side="left", padx=(10, 0))
             messagebox.showinfo("Done", msg)
         self.after(0, _finish)
 
@@ -2783,9 +2808,10 @@ class App(ctk.CTk):
     def process_finished_safe_ais(self, msg):
         def _finish():
             self.log_to_gui_ais(f"\nSTATUS: {msg}")
-            self.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#1f538d")
+            self.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#2563EB")
             self.btn_stop_ais.configure(state="normal", text="⏹ STOP")
             self.btn_stop_ais.pack_forget()
+            self.btn_open_folder_ais.pack(side="left", padx=(10, 0))
             messagebox.showinfo("Done", msg)
         self.after(0, _finish)
 
@@ -2801,11 +2827,28 @@ class App(ctk.CTk):
     def process_finished_safe_tis(self, msg):
         def _finish():
             self.log_to_gui_tis(f"\nSTATUS: {msg}")
-            self.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#1f538d")
+            self.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#2563EB")
             self.btn_stop_tis.configure(state="normal", text="⏹ STOP")
             self.btn_stop_tis.pack_forget()
+            self.btn_open_folder_tis.pack(side="left", padx=(10, 0))
             messagebox.showinfo("Done", msg)
         self.after(0, _finish)
+
+    def open_download_folder(self, mode):
+        folder_map = {
+            "26as": "26AS_Downloads",
+            "ais":  "AIS_Downloads",
+            "tis":  "TIS_Downloads",
+        }
+        try:
+            folder = folder_map.get(mode, "26AS_Downloads")
+            target = os.path.join(os.getcwd(), folder)
+            if not os.path.exists(target):
+                target = os.getcwd()
+            os.startfile(target)
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"Failed to open folder: {e}")
 
 
 if __name__ == "__main__":

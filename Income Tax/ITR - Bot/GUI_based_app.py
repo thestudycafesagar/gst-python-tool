@@ -19,7 +19,7 @@ from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
 
 # --- UI CONFIGURATION ---
-ctk.set_appearance_mode("Dark")
+ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
 class IncomeTaxWorker:
@@ -440,20 +440,20 @@ class App(ctk.CTk):
         self.file_actions_frame = ctk.CTkFrame(self.file_frame, fg_color="transparent")
         self.file_actions_frame.pack(side="right")
         self.btn_demo = ctk.CTkButton(self.file_actions_frame, text="▶ Demo", command=self.open_demo_link,
-                                      fg_color="#e53935", hover_color="#b71c1c", width=80,
-                                      font=("Arial", 12, "bold"))
+                                      fg_color="#DC2626", hover_color="#B91C1C", width=80,
+                                      font=("Segoe UI", 12, "bold"))
         self.btn_demo.pack(side="left", padx=(0, 5))
         self.btn_sample = ctk.CTkButton(self.file_actions_frame, text="➕ Add ID Password", command=self.add_id_password,
-                        fg_color="#43a047", hover_color="#2e7d32", width=150,
-                                        font=("Arial", 12, "bold"))
+                        fg_color="#059669", hover_color="#047857", width=150,
+                                        font=("Segoe UI", 12, "bold"))
         self.btn_sample.pack(side="left")
         self.btn_view_id = ctk.CTkButton(self.file_actions_frame, text="👁 View ID", command=self.view_saved_user,
-                         fg_color="#546e7a", hover_color="#37474f", width=95,
-                         font=("Arial", 11, "bold"))
+                         fg_color="#475569", hover_color="#334155", width=95,
+                         font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="left", padx=(5, 0))
         self.btn_delete_id = ctk.CTkButton(self.file_actions_frame, text="🗑 Delete ID", command=self.delete_saved_user,
-                           fg_color="#8e24aa", hover_color="#6a1b9a", width=105,
-                           font=("Arial", 11, "bold"))
+                           fg_color="#7C3AED", hover_color="#6D28D9", width=105,
+                           font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="left", padx=(5, 0))
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
@@ -487,7 +487,7 @@ class App(ctk.CTk):
 
         # Terminal-like Textbox
         self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), 
-                                    text_color="#00FF00", fg_color="#1E1E1E",
+                                    text_color="#10B981", fg_color="#0F172A",
                                     activate_scrollbars=True)
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box.insert("0.0", "System Ready...\nWaiting for input...\n")
@@ -504,14 +504,19 @@ class App(ctk.CTk):
         btn_footer.grid_columnconfigure(0, weight=1)
         self.btn_start = ctk.CTkButton(btn_footer, text="INITIATE BATCH DOWNLOAD",
                                        font=ctk.CTkFont(size=16, weight="bold"),
-                                       height=50, fg_color="#106A43", hover_color="#0C5032",
+                                       height=50, fg_color="#059669", hover_color="#047857",
                                        command=self.start_process)
         self.btn_start.grid(row=0, column=0, sticky="ew")
         self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"),
-                                      height=50, fg_color="#c62828", hover_color="#8e0000",
+                                      height=50, fg_color="#DC2626", hover_color="#B91C1C",
                                       command=self.stop_process, width=150)
         self.btn_stop.grid(row=0, column=1, padx=(10, 0))
         self.btn_stop.grid_remove()
+        self.btn_open_folder = ctk.CTkButton(btn_footer, text="📂 OPEN FOLDER", font=ctk.CTkFont(size=16, weight="bold"),
+                                      height=50, fg_color="#2563EB", hover_color="#1D4ED8",
+                                      command=self.open_output_folder, width=180)
+        self.btn_open_folder.grid(row=0, column=2, padx=(10, 0))
+        self.btn_open_folder.grid_remove()
 
     def download_sample(self):
         import shutil
@@ -659,6 +664,7 @@ class App(ctk.CTk):
 
         self.btn_start.configure(state="disabled", text="PROCESSING...", fg_color="gray")
         self.btn_stop.grid()
+        self.btn_open_folder.grid_remove()
         self.progress_bar.set(0)
         self.log_to_gui("-" * 30)
         self.log_to_gui("Starting Worker Thread...")
@@ -681,11 +687,21 @@ class App(ctk.CTk):
     def process_finished_safe(self, message):
         def _finish():
             self.log_to_gui(f"\nSTATUS: {message}")
-            self.btn_start.configure(state="normal", text="INITIATE BATCH DOWNLOAD", fg_color="#106A43")
+            self.btn_start.configure(state="normal", text="INITIATE BATCH DOWNLOAD", fg_color="#059669")
             self.btn_stop.configure(state="normal", text="⏹ STOP")
             self.btn_stop.grid_remove()
+            self.btn_open_folder.grid(row=0, column=2, padx=(10, 0))
             messagebox.showinfo("Process Complete", message)
         self.after(0, _finish)
+
+    def open_output_folder(self):
+        try:
+            target = os.path.join(os.getcwd(), "Downloads")
+            if not os.path.exists(target):
+                target = os.getcwd()
+            os.startfile(target)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open folder: {e}")
 
 if __name__ == "__main__":
     app = App()

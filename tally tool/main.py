@@ -4748,7 +4748,6 @@ class GSTR2BTallyApp(ctk.CTk):
         tally_ledgers = []
         usage_map = {}
         ledger_fetch_error = ""
-        mapping_sheet_remap_count = 0
         try:
             xml_content = _read_xml_text_safely(xml_path)
             xml_content, forced_date_count = _force_voucher_dates_to_today(xml_content)
@@ -4760,16 +4759,6 @@ class GSTR2BTallyApp(ctk.CTk):
             if fetch_result.get("success"):
                 tally_ledgers = fetch_result.get("ledgers", [])
                 existing_keys = {_ledger_key(x) for x in tally_ledgers}
-
-                auto_remap = _build_auto_party_mapping_from_sheet(
-                    usage_map,
-                    getattr(self.engine, "party_ledger_map", {}),
-                    existing_keys,
-                )
-                if auto_remap:
-                    xml_content, mapping_sheet_remap_count = _apply_ledger_mapping_to_xml(xml_content, auto_remap)
-                    usage_map = _extract_ledger_usage_from_xml(xml_content)
-
                 precheck_missing = _collect_missing_ledgers_from_usage(usage_map, existing_keys)
                 if precheck_missing:
                     posted_xml_content = xml_content
@@ -4778,6 +4767,15 @@ class GSTR2BTallyApp(ctk.CTk):
                     raise RuntimeError("PRECHECK_MISSING_LEDGERS")
             else:
                 ledger_fetch_error = str(fetch_result.get("error") or "")
+                result = {
+                    "success": False,
+                    "error": (
+                        "Could not fetch ledger list from Tally for pre-check. "
+                        "Posting was not attempted to avoid duplicate entries. "
+                        f"Details: {ledger_fetch_error or 'Unknown error'}"
+                    ),
+                }
+                raise RuntimeError("PRECHECK_FETCH_FAILED")
 
             result, posted_xml_content, retry_meta = _post_xml_with_fallbacks(
                 tally_url,
@@ -4818,17 +4816,11 @@ class GSTR2BTallyApp(ctk.CTk):
                     if not usage_map:
                         usage_map = _extract_ledger_usage_from_xml(posted_xml_content)
         except Exception as e:
-            if str(e) != "PRECHECK_MISSING_LEDGERS":
+            if str(e) not in {"PRECHECK_MISSING_LEDGERS", "PRECHECK_FETCH_FAILED"}:
                 result = {"success": False, "error": str(e)}
 
         def done():
             self._set_tally_push_running_ui(False)
-
-            if mapping_sheet_remap_count > 0:
-                self.log_panel.log(
-                    f"Applied {mapping_sheet_remap_count} mapping-sheet remap(s) before strict ledger check.",
-                    "map",
-                )
 
             if result.get("success"):
                 self.progress_bar.set(1.0)
@@ -5785,7 +5777,6 @@ class GSTR2BTallyApp(ctk.CTk):
         tally_ledgers = []
         usage_map = _extract_ledger_usage_from_xml(base_xml_content or "")
         ledger_fetch_error = ""
-        mapping_sheet_remap_count = 0
 
         try:
             if not working_xml:
@@ -5821,15 +5812,6 @@ class GSTR2BTallyApp(ctk.CTk):
                 existing_keys.update({_ledger_key(x) for x in created_ledgers})
 
                 usage_map = _extract_ledger_usage_from_xml(working_xml)
-                auto_remap = _build_auto_party_mapping_from_sheet(
-                    usage_map,
-                    getattr(self.engine, "party_ledger_map", {}),
-                    existing_keys,
-                )
-                if auto_remap:
-                    working_xml, mapping_sheet_remap_count = _apply_ledger_mapping_to_xml(working_xml, auto_remap)
-                    usage_map = _extract_ledger_usage_from_xml(working_xml)
-
                 precheck_missing = _collect_missing_ledgers_from_usage(usage_map, existing_keys)
                 if precheck_missing:
                     missing_ledgers = precheck_missing
@@ -5837,6 +5819,15 @@ class GSTR2BTallyApp(ctk.CTk):
                     raise RuntimeError("PRECHECK_MISSING_LEDGERS")
             else:
                 ledger_fetch_error = str(fetch_result.get("error") or "")
+                result = {
+                    "success": False,
+                    "error": (
+                        "Could not fetch ledger list from Tally for retry pre-check. "
+                        "Posting was not attempted to avoid duplicate entries. "
+                        f"Details: {ledger_fetch_error or 'Unknown error'}"
+                    ),
+                }
+                raise RuntimeError("PRECHECK_FETCH_FAILED")
 
             result, working_xml, retry_meta = _post_xml_with_fallbacks(
                 tally_url,
@@ -5877,7 +5868,7 @@ class GSTR2BTallyApp(ctk.CTk):
                     if not usage_map:
                         usage_map = _extract_ledger_usage_from_xml(working_xml)
         except Exception as exc:
-            if str(exc) != "PRECHECK_MISSING_LEDGERS":
+            if str(exc) not in {"PRECHECK_MISSING_LEDGERS", "PRECHECK_FETCH_FAILED"}:
                 result = {"success": False, "error": str(exc)}
 
         def done():
@@ -5885,11 +5876,6 @@ class GSTR2BTallyApp(ctk.CTk):
 
             if replaced_count > 0:
                 self.log_panel.log(f"Applied {replaced_count} XML ledger-name replacement(s).", "info")
-            if mapping_sheet_remap_count > 0:
-                self.log_panel.log(
-                    f"Applied {mapping_sheet_remap_count} mapping-sheet remap(s) before strict ledger check.",
-                    "map",
-                )
             for spec, create_result in create_failures:
                 self.log_panel.log(
                     f"Could not create ledger '{spec['name']}' under '{spec['parent']}': {create_result.get('error', 'Unknown error')}",

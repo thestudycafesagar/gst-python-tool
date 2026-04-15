@@ -1,6 +1,7 @@
 import threading
 import time
 import os
+import sys
 import random
 import glob
 import base64
@@ -17,10 +18,33 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import Select
-from webdriver_manager.chrome import ChromeDriverManager
+
+# EXE-compatible driver manager setup
+os.environ.setdefault('WDM_CACHE_PATH', os.path.join(os.path.expanduser('~'), '.wdm'))
+os.environ.setdefault('WDM_LOCAL', '1')
+try:
+    from webdriver_manager.chrome import ChromeDriverManager
+    _HAS_WDM = True
+except ImportError:
+    _HAS_WDM = False
+
+
+def _create_chrome_driver(options):
+    """EXE-safe Chrome driver factory.
+    1st: Selenium 4.6+ built-in selenium-manager (works inside frozen EXE).
+    2nd: webdriver_manager fallback (normal script usage).
+    """
+    try:
+        # Selenium 4.6+ auto-manages chromedriver — no extra download needed
+        return webdriver.Chrome(options=options)
+    except Exception:
+        pass
+    if _HAS_WDM:
+        return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    raise RuntimeError("Could not start Chrome. Install 'webdriver-manager' or upgrade Selenium >= 4.6.")
 
 # --- UI CONFIGURATION ---
-ctk.set_appearance_mode("Dark")
+ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
 try:
@@ -208,32 +232,76 @@ class GSTWorker:
     def process_single_user(self, username, password, user_root):
         """ Returns (Overall Status, Reason String) """
         try:
-            # --- BROWSER SETUP (ANTI-DETECT) ---
+            # --- BROWSER SETUP (ANTI-DETECT + EXE COMPATIBLE) ---
             options = webdriver.ChromeOptions()
-            options.add_argument("--disable-blink-features=AutomationControlled") 
-            options.add_experimental_option("excludeSwitches", ["enable-automation"]) 
-            options.add_experimental_option('useAutomationExtension', False)
-            options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+            options.add_argument("--start-maximized")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_argument("--disable-infobars")
+            options.add_argument("--disable-extensions")
+            options.add_argument("--disable-popup-blocking")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            # Suppress Chrome console/DevTools noise (CSP warnings etc.) from appearing in tool
+            options.add_argument("--log-level=3")
+            options.add_argument("--silent")
+            options.add_argument("--disable-logging")
+            options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument(
+                "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
 
             prefs = {
                 "download.prompt_for_download": False,
                 "directory_upgrade": True,
                 "safebrowsing.enabled": True,
                 "plugins.always_open_pdf_externally": True,
-                "profile.default_content_setting_values.automatic_downloads": 1
+                "profile.default_content_setting_values.automatic_downloads": 1,
+                "credentials_enable_service": False,
+                "profile.password_manager_enabled": False,
             }
             options.add_experimental_option("prefs", prefs)
-            
-            self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
+            self.driver = _create_chrome_driver(options)
             self.driver.maximize_window()
-            
-            # Stealth JS Injection
+
+            # ── COMPREHENSIVE STEALTH JS ─────────────────────────────────────
+            # Injected before any page script runs — masks all automation flags
             self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
                 "source": """
+                    // Hide webdriver flag
                     Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+
+                    // Spoof real Chrome runtime
+                    window.navigator.chrome = {
+                        runtime: {},
+                        loadTimes: function() {},
+                        csi: function() {},
+                        app: {}
+                    };
+
+                    // Realistic plugin list
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [
+                            { name: 'Chrome PDF Plugin',   filename: 'internal-pdf-viewer',              length: 1 },
+                            { name: 'Chrome PDF Viewer',   filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai',  length: 1 },
+                            { name: 'Native Client',       filename: 'internal-nacl-plugin',             length: 2 }
+                        ]
+                    });
+
+                    // Real language / platform
+                    Object.defineProperty(navigator, 'languages',          { get: () => ['en-IN', 'en', 'en-US'] });
+                    Object.defineProperty(navigator, 'platform',           { get: () => 'Win32' });
+                    Object.defineProperty(navigator, 'hardwareConcurrency',{ get: () => 8 });
+                    Object.defineProperty(navigator, 'deviceMemory',       { get: () => 8 });
+
+                    // Permissions: avoid headless notifications flag
+                    const _origQuery = window.navigator.permissions.query.bind(navigator.permissions);
+                    window.navigator.permissions.query = (p) =>
+                        p.name === 'notifications'
+                            ? Promise.resolve({ state: Notification.permission })
+                            : _origQuery(p);
                 """
             })
 
@@ -466,7 +534,7 @@ class GSTWorker:
                             return True, "Success (JS Click)"
                         except:
                             self.log("   ⚠️ Dashboard Nav Error.")
-                            self.app.after(0, lambda: messagebox.showwarning("Portal Error", "Class name not found (Return Dashboard). GST portal may be slow."))
+                            self._show_browser_alert("⚠️ GST Portal Issue: 'Return Dashboard' button not found. Portal may be slow or bot-blocked. Please wait...")
                             return False, "Dashboard Nav Failed"
 
             except Exception as e:
@@ -492,7 +560,7 @@ class GSTWorker:
                 time.sleep(4)
                 
         self.log(f"   ❌ Search failed! {alert_msg}")
-        self.app.after(0, lambda: messagebox.showwarning("GST Portal Issue", f"{alert_msg}. The browser may be detecting automation or the GST portal is slow."))
+        self._show_browser_alert(f"⚠️ GST Portal Issue: {alert_msg}. Portal may be slow or temporarily blocking this request. Retrying next round...")
         return None
 
     def _wait_for_recent_download(self, download_path, started_at, timeout=60):
@@ -597,6 +665,46 @@ class GSTWorker:
             except Exception:
                 break
         return accepted
+
+    def _show_browser_alert(self, message):
+        """Inject a visible red banner directly into the browser page.
+        Shows the error ON the website — never shows a Python messagebox popup.
+        Safe to call even if driver is unavailable.
+        """
+        if not self.driver:
+            self.log(f"   ⚠️ [alert] {message}")
+            return
+        try:
+            safe_msg = message.replace("'", "\\'").replace("`", "\\`")
+            js = f"""
+            (function() {{
+                var _id = '__gst_tool_alert__';
+                var old = document.getElementById(_id);
+                if (old) old.remove();
+                var d = document.createElement('div');
+                d.id = _id;
+                d.innerText = '{safe_msg}';
+                d.style.cssText = [
+                    'position:fixed', 'top:0', 'left:0', 'right:0',
+                    'z-index:2147483647',
+                    'background:#DC2626',
+                    'color:#fff',
+                    'font-size:15px',
+                    'font-weight:bold',
+                    'font-family:Arial,sans-serif',
+                    'padding:14px 24px',
+                    'text-align:center',
+                    'box-shadow:0 3px 12px rgba(0,0,0,0.5)',
+                    'letter-spacing:0.3px'
+                ].join(';');
+                document.body.prepend(d);
+                setTimeout(function() {{ if (d.parentNode) d.remove(); }}, 10000);
+            }})();
+            """
+            self.driver.execute_script(js)
+        except Exception:
+            # Silently log — never crash the thread over an alert
+            self.log(f"   ⚠️ [portal-alert] {message}")
 
     def _download_gstr2b_portal_buttons(self, wait, download_path, summary_btn_xpath, details_btn_xpath):
         """Download using GST portal's new Summary/Details buttons."""
@@ -854,13 +962,13 @@ class App(ctk.CTk):
             pass
 
         # HEADER
-        self.head = ctk.CTkFrame(self, fg_color="#1a237e", corner_radius=0, height=70)
+        self.head = ctk.CTkFrame(self, fg_color="#1D4ED8", corner_radius=0, height=70)
         self.head.grid(row=0, column=0, sticky="ew")
         self.head.grid_propagate(False) 
         ctk.CTkLabel(self.head, text="GST BULK DOWNLOADER", 
-                     font=("Roboto Medium", 24, "bold"), text_color="white").pack(side="left", padx=20, pady=10)
+                     font=("Segoe UI", 24, "bold"), text_color="white").pack(side="left", padx=20, pady=10)
         ctk.CTkLabel(self.head, text="Powered by StudyCafe", 
-                     font=("Roboto", 14), text_color="#bbdefb").pack(side="right", padx=20, pady=15)
+                     font=("Segoe UI", 14), text_color="#CBD5E1").pack(side="right", padx=20, pady=15)
 
         # SETTINGS
         self.settings_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -868,9 +976,9 @@ class App(ctk.CTk):
         self.settings_container.grid_columnconfigure((0, 1), weight=1)
 
         # Credentials Card
-        self.card_cred = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
+        self.card_cred = ctk.CTkFrame(self.settings_container, border_color="#334155", border_width=1)
         self.card_cred.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        ctk.CTkLabel(self.card_cred, text="📂 Credentials Source", font=("Arial", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
+        ctk.CTkLabel(self.card_cred, text="📂 Credentials Source", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
         cred_row = ctk.CTkFrame(self.card_cred, fg_color="transparent")
         cred_row.pack(fill="x", padx=15, pady=(5, 15))
 
@@ -880,31 +988,31 @@ class App(ctk.CTk):
         action_row = ctk.CTkFrame(cred_row, fg_color="transparent")
         action_row.pack(side="right")
         self.btn_download = ctk.CTkButton(action_row, text="➕ Add ID Password", command=self.add_id_password,
-                  fg_color="#43a047", hover_color="#2e7d32", height=35, width=150,
-                  font=("Arial", 12, "bold"))
+                  fg_color="#059669", hover_color="#047857", height=35, width=150,
+                  font=("Segoe UI", 12, "bold"))
         self.btn_download.pack(side="left", padx=(0, 8))
         self.btn_demo = ctk.CTkButton(action_row, text="▶ View Demo", command=self.open_demo_link,
-                  fg_color="#e53935", hover_color="#b71c1c", height=35, width=150,
-                  font=("Arial", 12, "bold"))
+                  fg_color="#DC2626", hover_color="#B91C1C", height=35, width=150,
+                  font=("Segoe UI", 12, "bold"))
         self.btn_demo.pack(side="left")
 
         manage_row = ctk.CTkFrame(self.card_cred, fg_color="transparent")
         manage_row.pack(fill="x", padx=15, pady=(0, 10))
         self.btn_view_id = ctk.CTkButton(manage_row, text="👁 View ID", command=self.view_saved_user,
-                         fg_color="#546e7a", hover_color="#37474f", height=28, width=100,
-                         font=("Arial", 11, "bold"))
+                         fg_color="#475569", hover_color="#334155", height=28, width=100,
+                         font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="left")
         self.btn_delete_id = ctk.CTkButton(manage_row, text="🗑 Delete ID", command=self.delete_saved_user,
-                           fg_color="#8e24aa", hover_color="#6a1b9a", height=28, width=110,
-                           font=("Arial", 11, "bold"))
+                           fg_color="#7C3AED", hover_color="#6D28D9", height=28, width=110,
+                           font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="left", padx=(8, 0))
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
 
         # Period Settings Card
-        self.card_period = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
+        self.card_period = ctk.CTkFrame(self.settings_container, border_color="#334155", border_width=1)
         self.card_period.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
-        ctk.CTkLabel(self.card_period, text="📅 Period Selection", font=("Arial", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
+        ctk.CTkLabel(self.card_period, text="📅 Period Selection", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
 
         # Dynamic Year - Generate in ascending order (oldest first)
         cur_year = datetime.now().year
@@ -957,16 +1065,16 @@ class App(ctk.CTk):
         self.log_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
         self.log_frame.grid_columnconfigure(0, weight=1)
         self.log_frame.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(self.log_frame, text="📜 Execution Logs", font=("Arial", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=5)
-        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), text_color="#00e676", height=150)
+        ctk.CTkLabel(self.log_frame, text="📜 Execution Logs", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=5)
+        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), text_color="#10B981", height=150)
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         self.log_box.configure(state="disabled")
 
         # CAPTCHA (Hidden)
-        self.cap_frame = ctk.CTkFrame(self, border_color="#d32f2f", border_width=2, fg_color="#2b2b2b")
+        self.cap_frame = ctk.CTkFrame(self, border_color="#DC2626", border_width=2, fg_color="#1E293B")
         self.cap_inner = ctk.CTkFrame(self.cap_frame, fg_color="transparent")
         self.cap_inner.pack(fill="both", padx=20, pady=10)
-        ctk.CTkLabel(self.cap_inner, text="⚠️ CAPTCHA ACTION REQUIRED", text_color="#ef5350", font=("Arial", 14, "bold")).pack()
+        ctk.CTkLabel(self.cap_inner, text="⚠️ CAPTCHA ACTION REQUIRED", text_color="#EF4444", font=("Segoe UI", 14, "bold")).pack()
         self.cap_lbl_img = ctk.CTkLabel(self.cap_inner, text="")
         self.cap_lbl_img.pack(pady=10)
         self.cap_ent = ctk.CTkEntry(self.cap_inner, placeholder_text="Type Captcha Here...", 
@@ -976,28 +1084,33 @@ class App(ctk.CTk):
         # --- CAPTCHA BUTTONS SIDE-BY-SIDE ---
         self.cap_btn_row = ctk.CTkFrame(self.cap_inner, fg_color="transparent")
         self.cap_btn_row.pack(pady=(10, 0))
-        self.cap_btn = ctk.CTkButton(self.cap_btn_row, text="SUBMIT CAPTCHA", fg_color="#d32f2f", hover_color="#b71c1c",
-                         height=40, width=120, font=("Arial", 12, "bold"), command=self.submit_captcha)
+        self.cap_btn = ctk.CTkButton(self.cap_btn_row, text="SUBMIT CAPTCHA", fg_color="#DC2626", hover_color="#B91C1C",
+                         height=40, width=120, font=("Segoe UI", 12, "bold"), command=self.submit_captcha)
         self.cap_btn.pack(side="left", padx=(0, 10))
-        self.cap_stop_btn = ctk.CTkButton(self.cap_btn_row, text="⏹ STOP PROCESS", fg_color="#424242", hover_color="#212121",
-                          height=40, width=120, font=("Arial", 11, "bold"), command=self.stop_process)
+        self.cap_stop_btn = ctk.CTkButton(self.cap_btn_row, text="⏹ STOP PROCESS", fg_color="#475569", hover_color="#334155",
+                          height=40, width=120, font=("Segoe UI", 11, "bold"), command=self.stop_process)
         self.cap_stop_btn.pack(side="left")
 
         # FOOTER
         self.footer = ctk.CTkFrame(self, fg_color="transparent")
         self.footer.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 20))
-        self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#00e676")
+        self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#10B981")
         self.prog_bar.pack(fill="x", pady=(0, 10))
         self.prog_bar.set(0)
         self.btn_row_footer = ctk.CTkFrame(self.footer, fg_color="transparent")
         self.btn_row_footer.pack(fill="x")
-        self.btn_start = ctk.CTkButton(self.btn_row_footer, text="START BATCH PROCESS", height=50, font=("Arial", 16, "bold"),
-                                       fg_color="#2e7d32", hover_color="#1b5e20", command=self.start_process)
+        self.btn_start = ctk.CTkButton(self.btn_row_footer, text="START BATCH PROCESS", height=50, font=("Segoe UI", 16, "bold"),
+                                       fg_color="#047857", hover_color="#047857", command=self.start_process)
         self.btn_start.pack(side="left", expand=True, fill="x")
-        self.btn_stop = ctk.CTkButton(self.btn_row_footer, text="⏹ STOP", height=50, font=("Arial", 16, "bold"),
-                                      fg_color="#c62828", hover_color="#8e0000", command=self.stop_process, width=150)
+        self.btn_stop = ctk.CTkButton(self.btn_row_footer, text="⏹ STOP", height=50, font=("Segoe UI", 16, "bold"),
+                                      fg_color="#DC2626", hover_color="#B91C1C", command=self.stop_process, width=150)
         self.btn_stop.pack(side="left", padx=(10, 0))
         self.btn_stop.pack_forget()
+
+        self.btn_open_folder = ctk.CTkButton(self.btn_row_footer, text="📂 OPEN FOLDER", height=50, font=("Segoe UI", 16, "bold"),
+                                      fg_color="#2563EB", hover_color="#1D4ED8", command=self.open_output_folder, width=180)
+        self.btn_open_folder.pack(side="left", padx=(10, 0))
+        self.btn_open_folder.pack_forget()
 
     def toggle_inputs(self, mode_choice=None):
         if mode_choice and hasattr(self, "period_mode_var"):
@@ -1150,6 +1263,8 @@ class App(ctk.CTk):
             self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
             if is_stopped:
                 self.after(1200, lambda: self.btn_start.configure(text="START BATCH PROCESS"))
+            else:
+                self.btn_open_folder.pack(side="left", padx=(10, 0))
         self.after(0, _finish_ui)
 
     def request_captcha_safe(self, img_path):
@@ -1175,7 +1290,7 @@ class App(ctk.CTk):
             self._captcha_ctk_img = ctk.CTkImage(light_image=display_img, dark_image=display_img, size=size)
             self.cap_lbl_img.image = self._captcha_ctk_img
             self.cap_lbl_img.configure(image=self._captcha_ctk_img)
-            self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#d32f2f")
+            self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#DC2626")
             self.cap_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
             self.cap_ent.delete(0, "end")
             self.attributes('-topmost', True)
@@ -1216,6 +1331,8 @@ class App(ctk.CTk):
         self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.pack(side="left", padx=(10, 0))
+        if hasattr(self, 'btn_open_folder'):
+            self.btn_open_folder.pack_forget()
         self.worker = GSTWorker(self, self.excel_file, settings, credentials=credentials)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
@@ -1249,6 +1366,19 @@ class App(ctk.CTk):
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
         self.btn_start.configure(state="normal", text="START BATCH PROCESS")
+        if hasattr(self, 'btn_open_folder'):
+            self.btn_open_folder.pack_forget()
+
+    def open_output_folder(self):
+        try:
+            target = ""
+            if hasattr(self, 'excel_file') and self.excel_file and os.path.exists(self.excel_file):
+                target = os.path.dirname(self.excel_file)
+            if not target or not os.path.exists(target):
+                target = os.getcwd()
+            os.startfile(target)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open folder: {e}")
 
 if __name__ == "__main__":
     app = App()

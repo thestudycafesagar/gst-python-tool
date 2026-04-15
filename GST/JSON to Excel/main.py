@@ -11,7 +11,7 @@ from openpyxl.styles import Font
 
 # --- CONFIGURATION ---
 # Commented out: theme is controlled globally by GST_Suite.py
-# ctk.set_appearance_mode("Dark")
+# ctk.set_appearance_mode("System")
 # ctk.set_default_color_theme("blue")
 
 # --- GST MAPPING UTILITIES ---
@@ -341,7 +341,7 @@ class App(ctk.CTk):
         self.lbl_desc = ctk.CTkLabel(self.sidebar, text="GSTR-1 JSON\nto Excel", font=ctk.CTkFont(size=14))
         self.lbl_desc.grid(row=1, column=0, padx=20, pady=10)
 
-        self.btn_clear = ctk.CTkButton(self.sidebar, text="Clear Queue", command=self.clear_queue, fg_color="#d32f2f", hover_color="#b71c1c")
+        self.btn_clear = ctk.CTkButton(self.sidebar, text="Clear Queue", command=self.clear_queue, fg_color="#DC2626", hover_color="#B91C1C")
         self.btn_clear.grid(row=2, column=0, padx=20, pady=20)
 
         # Theme controls removed — theme is controlled globally by GST_Suite.py
@@ -394,8 +394,8 @@ class App(ctk.CTk):
         self.prog_bar.set(0)
 
         self.btn_start = ctk.CTkButton(self.main_frame, text="START CONVERSION", height=50, 
-                                       font=ctk.CTkFont(size=16, weight="bold"), fg_color="#2e7d32", 
-                                       hover_color="#1b5e20", state="disabled", command=self.start_process)
+                                       font=ctk.CTkFont(size=16, weight="bold"), fg_color="#047857", 
+                                       hover_color="#047857", state="disabled", command=self.start_process)
         self.btn_start.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 20))
 
     def change_appearance_mode_event(self, new_appearance_mode: str):

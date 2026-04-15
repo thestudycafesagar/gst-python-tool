@@ -20,7 +20,7 @@ from selenium.webdriver.support.ui import Select
 from webdriver_manager.chrome import ChromeDriverManager
 
 # --- UI CONFIGURATION ---
-ctk.set_appearance_mode("Dark")
+ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
 try:
@@ -217,7 +217,7 @@ class GSTWorker:
         except: pass
 
     def _robust_find_clickable(self, by, value, timeout=10, refreshes=2, alert_msg="Element not found"):
-        """Wait for element. If not found, refresh and retry. If still not found, show alert."""
+        """Wait for element. If not found, refresh and retry. If still not found, show on-page alert."""
         for attempt in range(refreshes + 1):
             try:
                 el = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((by, value)))
@@ -225,7 +225,7 @@ class GSTWorker:
                     return el
             except Exception:
                 pass
-                
+
             if attempt < refreshes:
                 self.log(f"   ⚠️ '{value}' not found. Refreshing page (Attempt {attempt+1}/{refreshes})...")
                 try:
@@ -233,10 +233,14 @@ class GSTWorker:
                 except:
                     pass
                 time.sleep(4)
-                
+
         self.log(f"   ❌ Search failed! {alert_msg}")
-        self.app.after(0, lambda: messagebox.showwarning("Portal Issue", f"{alert_msg}. The browser may be detecting automation or the portal is slow."))
+        show_browser_alert(self.driver, f"⚠️ GST Portal Issue: {alert_msg}. Portal may be slow or temporarily blocking requests. Retrying next round...")
         return None
+
+    def _show_browser_alert(self, message):
+        """Convenience wrapper so existing call-sites don't break."""
+        show_browser_alert(self.driver, message)
 
     def ensure_return_dashboard(self, wait):
         """ Checks if we are on the Return Dashboard safely avoiding direct URL nav. """
@@ -291,33 +295,10 @@ class GSTWorker:
 
     def process_single_user(self, username, password, user_root):
         try:
-            # --- BROWSER SETUP ---
-            options = webdriver.ChromeOptions()
-            options.add_argument("--disable-blink-features=AutomationControlled") 
-            options.add_experimental_option("excludeSwitches", ["enable-automation"]) 
-            options.add_experimental_option('useAutomationExtension', False)
-            options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+            # --- BROWSER SETUP (ANTI-DETECT + EXE COMPATIBLE) ---
+            # Options / stealth / driver all handled by stealth_driver module.
+            self.driver = create_chrome_driver(build_chrome_options())
 
-            prefs = {
-                "download.prompt_for_download": False,
-                "directory_upgrade": True,
-                "safebrowsing.enabled": True,
-                "plugins.always_open_pdf_externally": True,
-                "profile.default_content_setting_values.automatic_downloads": 1
-            }
-            options.add_experimental_option("prefs", prefs)
-            
-            self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            self.driver.maximize_window()
-            
-            self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
 
             wait = WebDriverWait(self.driver, 20)
             
@@ -592,13 +573,13 @@ class App(ctk.CTk):
         self.manual_credentials = []
 
         # HEADER
-        self.head = ctk.CTkFrame(self, fg_color="#1a237e", corner_radius=0, height=70)
+        self.head = ctk.CTkFrame(self, fg_color="#1D4ED8", corner_radius=0, height=70)
         self.head.grid(row=0, column=0, sticky="ew")
         self.head.grid_propagate(False) 
         ctk.CTkLabel(self.head, text="GST BULK DOWNLOADER", 
-                      font=("Roboto Medium", 24, "bold"), text_color="white").pack(side="left", padx=20, pady=10)
+                      font=("Segoe UI", 24, "bold"), text_color="white").pack(side="left", padx=20, pady=10)
         ctk.CTkLabel(self.head, text="GSTR-3B AUTOMATION", 
-                      font=("Roboto", 14), text_color="#bbdefb").pack(side="right", padx=20, pady=15)
+                      font=("Segoe UI", 14), text_color="#CBD5E1").pack(side="right", padx=20, pady=15)
 
         # SETTINGS
         self.settings_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -606,9 +587,9 @@ class App(ctk.CTk):
         self.settings_container.grid_columnconfigure((0, 1), weight=1)
 
         # Credentials Card
-        self.card_cred = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
+        self.card_cred = ctk.CTkFrame(self.settings_container, border_color="#334155", border_width=1)
         self.card_cred.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        ctk.CTkLabel(self.card_cred, text="📂 Credentials Source", font=("Arial", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
+        ctk.CTkLabel(self.card_cred, text="📂 Credentials Source", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
         cred_row = ctk.CTkFrame(self.card_cred, fg_color="transparent")
         cred_row.pack(fill="x", padx=15, pady=(5, 15))
 
@@ -618,31 +599,31 @@ class App(ctk.CTk):
         action_row = ctk.CTkFrame(cred_row, fg_color="transparent")
         action_row.pack(side="right")
         self.btn_download = ctk.CTkButton(action_row, text="➕ Add ID Password", command=self.add_id_password,
-                          fg_color="#43a047", hover_color="#2e7d32", height=35, width=150,
-                          font=("Arial", 12, "bold"))
+                          fg_color="#059669", hover_color="#047857", height=35, width=150,
+                          font=("Segoe UI", 12, "bold"))
         self.btn_download.pack(side="left", padx=(0, 8))
         self.btn_demo = ctk.CTkButton(action_row, text="▶ View Demo", command=self.open_demo_link,
-                          fg_color="#e53935", hover_color="#b71c1c", height=35, width=150,
-                          font=("Arial", 12, "bold"))
+                          fg_color="#DC2626", hover_color="#B91C1C", height=35, width=150,
+                          font=("Segoe UI", 12, "bold"))
         self.btn_demo.pack(side="left")
 
         manage_row = ctk.CTkFrame(self.card_cred, fg_color="transparent")
         manage_row.pack(fill="x", padx=15, pady=(0, 10))
         self.btn_view_id = ctk.CTkButton(manage_row, text="👁 View ID", command=self.view_saved_user,
-                         fg_color="#546e7a", hover_color="#37474f", height=28, width=100,
-                         font=("Arial", 11, "bold"))
+                         fg_color="#475569", hover_color="#334155", height=28, width=100,
+                         font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="left")
         self.btn_delete_id = ctk.CTkButton(manage_row, text="🗑 Delete ID", command=self.delete_saved_user,
-                           fg_color="#8e24aa", hover_color="#6a1b9a", height=28, width=110,
-                           font=("Arial", 11, "bold"))
+                           fg_color="#7C3AED", hover_color="#6D28D9", height=28, width=110,
+                           font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="left", padx=(8, 0))
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
 
         # Period Settings Card
-        self.card_period = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
+        self.card_period = ctk.CTkFrame(self.settings_container, border_color="#334155", border_width=1)
         self.card_period.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
-        ctk.CTkLabel(self.card_period, text="📅 Period Selection", font=("Arial", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
+        ctk.CTkLabel(self.card_period, text="📅 Period Selection", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
 
         # Dynamic Year - Generate in ascending order (oldest first)
         cur_year = datetime.now().year
@@ -695,16 +676,16 @@ class App(ctk.CTk):
         self.log_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
         self.log_frame.grid_columnconfigure(0, weight=1)
         self.log_frame.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(self.log_frame, text="📜 Execution Logs", font=("Arial", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=5)
-        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), text_color="#00e676", height=150)
+        ctk.CTkLabel(self.log_frame, text="📜 Execution Logs", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=5)
+        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), text_color="#10B981", height=150)
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         self.log_box.configure(state="disabled")
 
         # CAPTCHA (Hidden)
-        self.cap_frame = ctk.CTkFrame(self, border_color="#d32f2f", border_width=2, fg_color="#2b2b2b")
+        self.cap_frame = ctk.CTkFrame(self, border_color="#DC2626", border_width=2, fg_color="#1E293B")
         self.cap_inner = ctk.CTkFrame(self.cap_frame, fg_color="transparent")
         self.cap_inner.pack(fill="both", padx=20, pady=10)
-        ctk.CTkLabel(self.cap_inner, text="⚠️ CAPTCHA ACTION REQUIRED", text_color="#ef5350", font=("Arial", 14, "bold")).pack()
+        ctk.CTkLabel(self.cap_inner, text="⚠️ CAPTCHA ACTION REQUIRED", text_color="#EF4444", font=("Segoe UI", 14, "bold")).pack()
         self.cap_lbl_img = ctk.CTkLabel(self.cap_inner, text="")
         self.cap_lbl_img.pack(pady=10)
         self.cap_ent = ctk.CTkEntry(self.cap_inner, placeholder_text="Type Captcha Here...", 
@@ -714,28 +695,33 @@ class App(ctk.CTk):
         # --- CAPTCHA BUTTONS SIDE-BY-SIDE ---
         self.cap_btn_row = ctk.CTkFrame(self.cap_inner, fg_color="transparent")
         self.cap_btn_row.pack(pady=(10, 0))
-        self.cap_btn = ctk.CTkButton(self.cap_btn_row, text="SUBMIT CAPTCHA", fg_color="#d32f2f", hover_color="#b71c1c",
-                         height=40, width=120, font=("Arial", 12, "bold"), command=self.submit_captcha)
+        self.cap_btn = ctk.CTkButton(self.cap_btn_row, text="SUBMIT CAPTCHA", fg_color="#DC2626", hover_color="#B91C1C",
+                         height=40, width=120, font=("Segoe UI", 12, "bold"), command=self.submit_captcha)
         self.cap_btn.pack(side="left", padx=(0, 10))
-        self.cap_stop_btn = ctk.CTkButton(self.cap_btn_row, text="⏹ STOP PROCESS", fg_color="#424242", hover_color="#212121",
-                          height=40, width=120, font=("Arial", 11, "bold"), command=self.stop_process)
+        self.cap_stop_btn = ctk.CTkButton(self.cap_btn_row, text="⏹ STOP PROCESS", fg_color="#475569", hover_color="#334155",
+                          height=40, width=120, font=("Segoe UI", 11, "bold"), command=self.stop_process)
         self.cap_stop_btn.pack(side="left")
 
         # FOOTER
         self.footer = ctk.CTkFrame(self, fg_color="transparent")
         self.footer.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 20))
-        self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#00e676")
+        self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#10B981")
         self.prog_bar.pack(fill="x", pady=(0, 10))
         self.prog_bar.set(0)
         self.btn_row_footer = ctk.CTkFrame(self.footer, fg_color="transparent")
         self.btn_row_footer.pack(fill="x")
-        self.btn_start = ctk.CTkButton(self.btn_row_footer, text="START BATCH PROCESS", height=50, font=("Arial", 16, "bold"),
-                                       fg_color="#2e7d32", hover_color="#1b5e20", command=self.start_process)
+        self.btn_start = ctk.CTkButton(self.btn_row_footer, text="START BATCH PROCESS", height=50, font=("Segoe UI", 16, "bold"),
+                                       fg_color="#047857", hover_color="#047857", command=self.start_process)
         self.btn_start.pack(side="left", expand=True, fill="x")
-        self.btn_stop = ctk.CTkButton(self.btn_row_footer, text="⏹ STOP", height=50, font=("Arial", 16, "bold"),
-                                      fg_color="#c62828", hover_color="#8e0000", command=self.stop_process, width=150)
+        self.btn_stop = ctk.CTkButton(self.btn_row_footer, text="⏹ STOP", height=50, font=("Segoe UI", 16, "bold"),
+                                      fg_color="#DC2626", hover_color="#B91C1C", command=self.stop_process, width=150)
         self.btn_stop.pack(side="left", padx=(10, 0))
         self.btn_stop.pack_forget()
+
+        self.btn_open_folder = ctk.CTkButton(self.btn_row_footer, text="📂 OPEN FOLDER", height=50, font=("Segoe UI", 16, "bold"),
+                                      fg_color="#2563EB", hover_color="#1D4ED8", command=self.open_output_folder, width=180)
+        self.btn_open_folder.pack(side="left", padx=(10, 0))
+        self.btn_open_folder.pack_forget()
 
     def toggle_inputs(self, mode_choice=None):
         if mode_choice and hasattr(self, "period_mode_var"):
@@ -881,7 +867,18 @@ class App(ctk.CTk):
             self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
             if is_stopped:
                 self.after(1200, lambda: self.btn_start.configure(text="START BATCH PROCESS"))
+            else:
+                self.btn_open_folder.pack(side="left", padx=(10, 0))
         self.after(0, _finish_ui)
+
+    def open_output_folder(self):
+        try:
+            target = os.path.join(os.getcwd(), "GST_3B_Downloads")
+            if not os.path.exists(target):
+                target = os.getcwd()
+            os.startfile(target)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open folder: {e}")
 
     def request_captcha_safe(self, img_path):
         def show():
@@ -906,7 +903,7 @@ class App(ctk.CTk):
             self._captcha_ctk_img = ctk.CTkImage(light_image=display_img, dark_image=display_img, size=size)
             self.cap_lbl_img.image = self._captcha_ctk_img
             self.cap_lbl_img.configure(image=self._captcha_ctk_img)
-            self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#d32f2f")
+            self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#DC2626")
             self.cap_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
             self.cap_ent.delete(0, "end")
             self.attributes('-topmost', True)
@@ -946,6 +943,7 @@ class App(ctk.CTk):
         self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.pack(side="left", padx=(10, 0))
+        self.btn_open_folder.pack_forget()
         self.worker = GSTWorker(self, self.excel_file, settings, credentials=credentials)
         threading.Thread(target=self.worker.run, daemon=True).start()
 

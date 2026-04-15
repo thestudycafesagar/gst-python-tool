@@ -549,11 +549,11 @@ class DemandCheckerApp(ctk.CTk):
         self.entry_file_demand.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#e53935", hover_color="#b71c1c", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 5))
-        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=self.add_id_password, width=150, fg_color="#43a047", hover_color="#2e7d32", font=("Arial", 12, "bold")).pack(side="left")
-        self.btn_view_id = ctk.CTkButton(btn_actions, text="👁 View ID", command=self.view_saved_user, width=95, fg_color="#546e7a", hover_color="#37474f", font=("Arial", 11, "bold"))
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=self.add_id_password, width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.btn_view_id = ctk.CTkButton(btn_actions, text="👁 View ID", command=self.view_saved_user, width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="left", padx=(5, 0))
-        self.btn_delete_id = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=self.delete_saved_user, width=105, fg_color="#8e24aa", hover_color="#6a1b9a", font=("Arial", 11, "bold"))
+        self.btn_delete_id = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=self.delete_saved_user, width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="left", padx=(5, 0))
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
@@ -582,10 +582,15 @@ class DemandCheckerApp(ctk.CTk):
                                               command=self.start_process_demand)
         self.btn_start_demand.grid(row=0, column=0, sticky="ew")
         self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"),
-                                      height=50, fg_color="#c62828", hover_color="#8e0000",
+                                      height=50, fg_color="#DC2626", hover_color="#B91C1C",
                                       command=self.stop_process, width=150)
         self.btn_stop.grid(row=0, column=1, padx=(10, 0))
         self.btn_stop.grid_remove()
+        self.btn_open_folder_demand = ctk.CTkButton(btn_footer, text="📂 OPEN FOLDER", font=ctk.CTkFont(size=16, weight="bold"),
+                                      height=50, fg_color="#2563EB", hover_color="#1D4ED8",
+                                      command=self.open_output_folder_demand, width=180)
+        self.btn_open_folder_demand.grid(row=0, column=2, padx=(10, 0))
+        self.btn_open_folder_demand.grid_remove()
 
     # --- GUI Handlers ---
     def download_sample(self):
@@ -730,6 +735,7 @@ class DemandCheckerApp(ctk.CTk):
 
         self.btn_start_demand.configure(state="disabled", text="PROCESSING...", fg_color="gray")
         self.btn_stop.grid()
+        self.btn_open_folder_demand.grid_remove()
         self.progress_demand.set(0)
         self.demand_worker = DemandCheckerWorker(self, excel_path)
         threading.Thread(target=self.demand_worker.run, daemon=True).start()
@@ -755,11 +761,19 @@ class DemandCheckerApp(ctk.CTk):
     def process_finished_safe_demand(self, msg):
         def _finish():
             self.log_to_gui_demand(f"\nSTATUS: {msg}")
-            self.btn_start_demand.configure(state="normal", text="START DEMAND CHECKER", fg_color="#1f538d")
+            self.btn_start_demand.configure(state="normal", text="START DEMAND CHECKER", fg_color="#2563EB")
             self.btn_stop.configure(state="normal", text="⏹ STOP")
             self.btn_stop.grid_remove()
+            self.btn_open_folder_demand.grid(row=0, column=2, padx=(10, 0))
             messagebox.showinfo("Done", msg)
         self.after(0, _finish)
+
+    def open_output_folder_demand(self):
+        try:
+            target = os.getcwd()
+            os.startfile(target)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open folder: {e}")
 
 
 if __name__ == "__main__":

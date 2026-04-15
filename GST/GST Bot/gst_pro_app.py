@@ -18,7 +18,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # --- CONFIGURATION ---
-ctk.set_appearance_mode("Dark")
+ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue") 
 
 # --- WORKER THREAD ---
@@ -402,34 +402,34 @@ class GSTApp(ctk.CTk):
         self.header_frame.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
         
         self.lbl_title = ctk.CTkLabel(self.header_frame, text="GST VERIFICATION TOOL", 
-                                      font=("Roboto", 24, "bold"))
+                                      font=("Segoe UI", 24, "bold"))
         self.lbl_title.pack(side="left")
         
         self.lbl_subtitle = ctk.CTkLabel(self.header_frame, text="v3.1 | Pro Edition", 
-                                         font=("Roboto", 12), text_color="gray")
+                                         font=("Segoe UI", 12), text_color="gray")
         self.lbl_subtitle.pack(side="left", padx=10, pady=(10, 0))
 
         # --- 1. FILE UPLOAD ---
         self.frame_file = ctk.CTkFrame(self)
         self.frame_file.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
         
-        self.lbl_step1 = ctk.CTkLabel(self.frame_file, text="STEP 1: Upload Data", font=("Roboto", 14, "bold"))
+        self.lbl_step1 = ctk.CTkLabel(self.frame_file, text="STEP 1: Upload Data", font=("Segoe UI", 14, "bold"))
         self.lbl_step1.pack(anchor="w", padx=15, pady=(10, 5))
         
         self.file_entry = ctk.CTkEntry(self.frame_file, placeholder_text="Add ID/Password manually...", width=400)
         self.file_entry.pack(side="left", padx=15, pady=(0, 15), expand=True, fill="x")
         
-        self.btn_demo = ctk.CTkButton(self.frame_file, text="▶ View Demo", command=self.open_demo_link, fg_color="#e53935", hover_color="#b71c1c", height=28, font=("Arial", 12, "bold"))
+        self.btn_demo = ctk.CTkButton(self.frame_file, text="▶ View Demo", command=self.open_demo_link, fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"))
         self.btn_demo.pack(side="right", padx=(0, 5), pady=(0, 15))
-        self.btn_download = ctk.CTkButton(self.frame_file, text="➕ Add ID Password", command=self.add_id_password, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
+        self.btn_download = ctk.CTkButton(self.frame_file, text="➕ Add ID Password", command=self.add_id_password, fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"))
         self.btn_download.pack(side="right", padx=15, pady=(0, 15))
         self.btn_view_id = ctk.CTkButton(self.frame_file, text="👁 View ID", command=self.view_saved_user,
-                         fg_color="#546e7a", hover_color="#37474f", height=28,
-                         font=("Arial", 11, "bold"))
+                         fg_color="#475569", hover_color="#334155", height=28,
+                         font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="right", padx=(0, 5), pady=(0, 15))
         self.btn_delete_id = ctk.CTkButton(self.frame_file, text="🗑 Delete ID", command=self.delete_saved_user,
-                           fg_color="#8e24aa", hover_color="#6a1b9a", height=28,
-                           font=("Arial", 11, "bold"))
+                           fg_color="#7C3AED", hover_color="#6D28D9", height=28,
+                           font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="right", padx=(0, 5), pady=(0, 15))
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
@@ -438,54 +438,54 @@ class GSTApp(ctk.CTk):
         self.frame_log = ctk.CTkFrame(self)
         self.frame_log.grid(row=2, column=0, padx=20, pady=10, sticky="nsew")
         
-        self.lbl_step2 = ctk.CTkLabel(self.frame_log, text="Process Log", font=("Roboto", 14, "bold"))
+        self.lbl_step2 = ctk.CTkLabel(self.frame_log, text="Process Log", font=("Segoe UI", 14, "bold"))
         self.lbl_step2.pack(anchor="w", padx=15, pady=(10, 5))
         
         # RICH TEXT BOX (Using Standard TK for Colors)
-        self.log_text = tk.Text(self.frame_log, height=15, bg="#1e1e1e", fg="#e0e0e0", 
+        self.log_text = tk.Text(self.frame_log, height=15, bg="#0F172A", fg="#CBD5E1", 
                                 font=("Consolas", 11), borderwidth=0, highlightthickness=0)
         self.log_text.pack(fill="both", expand=True, padx=15, pady=5)
         
         # Define Tags for Colors
-        self.log_text.tag_config("normal", foreground="#e0e0e0")
-        self.log_text.tag_config("info", foreground="#00bfff") # Blue
-        self.log_text.tag_config("success", foreground="#00ff00") # Green
-        self.log_text.tag_config("warning", foreground="#ffa500") # Orange
-        self.log_text.tag_config("error", foreground="#ff4d4d") # Red
-        self.log_text.tag_config("fatal", foreground="#ff0000", font=("Consolas", 12, "bold")) # Big Red
+        self.log_text.tag_config("normal", foreground="#CBD5E1")
+        self.log_text.tag_config("info", foreground="#3B82F6") # Blue
+        self.log_text.tag_config("success", foreground="#10B981") # Green
+        self.log_text.tag_config("warning", foreground="#F59E0B") # Orange
+        self.log_text.tag_config("error", foreground="#EF4444") # Red
+        self.log_text.tag_config("fatal", foreground="#DC2626", font=("Consolas", 12, "bold")) # Big Red
         
         self.progress_bar = ctk.CTkProgressBar(self.frame_log)
         self.progress_bar.pack(fill="x", padx=15, pady=15)
         self.progress_bar.set(0)
 
         # --- 3. CAPTCHA SECTION ---
-        self.frame_captcha = ctk.CTkFrame(self, fg_color="#2b2b2b", border_width=2, border_color="#444")
+        self.frame_captcha = ctk.CTkFrame(self, fg_color="#1E293B", border_width=2, border_color="#444")
         self.frame_captcha.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
         
-        self.lbl_captcha_title = ctk.CTkLabel(self.frame_captcha, text="CAPTCHA ACTION REQUIRED", font=("Roboto", 14, "bold"), text_color="gray")
+        self.lbl_captcha_title = ctk.CTkLabel(self.frame_captcha, text="CAPTCHA ACTION REQUIRED", font=("Segoe UI", 14, "bold"), text_color="gray")
         self.lbl_captcha_title.pack(pady=(10, 5))
         
-        self.lbl_image = ctk.CTkLabel(self.frame_captcha, text="[Waiting for Process...]", width=200, height=80, fg_color="#1a1a1a", corner_radius=10)
+        self.lbl_image = ctk.CTkLabel(self.frame_captcha, text="[Waiting for Process...]", width=200, height=80, fg_color="#1E293B", corner_radius=10)
         self.lbl_image.pack(pady=5)
         
-        self.entry_captcha = ctk.CTkEntry(self.frame_captcha, placeholder_text="Enter Code", justify='center', width=200, font=("Roboto", 16))
+        self.entry_captcha = ctk.CTkEntry(self.frame_captcha, placeholder_text="Enter Code", justify='center', width=200, font=("Segoe UI", 16))
         self.entry_captcha.pack(pady=5)
         self.entry_captcha.bind('<Return>', lambda event: self.submit_captcha())
         self.entry_captcha.configure(state="disabled")
         
         self.btn_submit = ctk.CTkButton(self.frame_captcha, text="SUBMIT CAPTCHA", command=self.submit_captcha, state="disabled", fg_color="gray")
         self.btn_submit.pack(pady=(5, 5))
-        self.cap_stop_btn = ctk.CTkButton(self.frame_captcha, text="⏹ STOP PROCESS", fg_color="#424242", hover_color="#212121",
-                                          height=35, width=200, font=("Arial", 11, "bold"), command=self.stop_process)
+        self.cap_stop_btn = ctk.CTkButton(self.frame_captcha, text="⏹ STOP PROCESS", fg_color="#475569", hover_color="#334155",
+                                          height=35, width=200, font=("Segoe UI", 11, "bold"), command=self.stop_process)
         self.cap_stop_btn.pack(pady=(5, 15))
 
         # --- 4. ACTION BUTTON ---
         btn_footer = ctk.CTkFrame(self, fg_color="transparent")
         btn_footer.grid(row=4, column=0, padx=20, pady=(10, 20), sticky="ew")
         btn_footer.grid_columnconfigure(0, weight=1)
-        self.btn_start = ctk.CTkButton(btn_footer, text="START AUTOMATION", font=("Roboto", 16, "bold"), height=50, command=self.start_process, fg_color="#1f6aa5", hover_color="#144870")
+        self.btn_start = ctk.CTkButton(btn_footer, text="START AUTOMATION", font=("Segoe UI", 16, "bold"), height=50, command=self.start_process, fg_color="#2563EB", hover_color="#1D4ED8")
         self.btn_start.grid(row=0, column=0, sticky="ew")
-        self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=("Roboto", 16, "bold"), height=50, command=self.stop_process, fg_color="#c62828", hover_color="#8e0000", width=150)
+        self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=("Segoe UI", 16, "bold"), height=50, command=self.stop_process, fg_color="#DC2626", hover_color="#B91C1C", width=150)
         self.btn_stop.grid(row=0, column=1, padx=(10, 0))
         self.btn_stop.grid_remove()
     def open_demo_link(self):
@@ -640,8 +640,8 @@ class GSTApp(ctk.CTk):
 
     def show_invalid_gst_alert(self):
         def update():
-            self.frame_captcha.configure(border_color="#ff0000") 
-            self.lbl_captcha_title.configure(text="🚫 INVALID GSTIN DETECTED - SKIPPING", text_color="#ff0000")
+            self.frame_captcha.configure(border_color="#DC2626") 
+            self.lbl_captcha_title.configure(text="🚫 INVALID GSTIN DETECTED - SKIPPING", text_color="#DC2626")
             self.lbl_image.configure(image=None, text="INVALID")
             self.entry_captcha.configure(state="disabled")
             self.btn_submit.configure(state="disabled")
@@ -658,8 +658,8 @@ class GSTApp(ctk.CTk):
             if not self.worker or not self.worker.keep_running:
                 return
             self.frame_captcha.grid()
-            self.frame_captcha.configure(border_color="#00ff00") 
-            self.lbl_captcha_title.configure(text=f"ENTER CAPTCHA FOR: {gstin}", text_color="#00ff00")
+            self.frame_captcha.configure(border_color="#10B981") 
+            self.lbl_captcha_title.configure(text=f"ENTER CAPTCHA FOR: {gstin}", text_color="#10B981")
             
             image = Image.open(BytesIO(image_data))
             image = image.resize((200, 80), Image.Resampling.LANCZOS)
@@ -671,7 +671,7 @@ class GSTApp(ctk.CTk):
             self.entry_captcha.configure(state="normal", placeholder_text="Type here...")
             self.entry_captcha.delete(0, "end")
 
-            self.btn_submit.configure(state="normal", fg_color="#2cc985", text="SUBMIT NOW", hover_color="#209662")
+            self.btn_submit.configure(state="normal", fg_color="#10B981", text="SUBMIT NOW", hover_color="#047857")
 
             self.attributes('-topmost', True)
             self.deiconify()

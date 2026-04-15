@@ -8,7 +8,7 @@ import os
 import sys
 
 # --- Configuration ---
-ctk.set_appearance_mode("Dark")
+ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
 class GSTR3BConverterPro(ctk.CTk):
@@ -35,14 +35,14 @@ class GSTR3BConverterPro(ctk.CTk):
         self.title_label = ctk.CTkLabel(
             self.header_frame, 
             text="GSTR-3B Batch Processor", 
-            font=("Roboto Medium", 24)
+            font=("Segoe UI", 24)
         )
         self.title_label.pack()
         
         self.subtitle = ctk.CTkLabel(
             self.header_frame,
             text="Saves to: /Converted Excel/ folder",
-            text_color="#2CC985"
+            text_color="#10B981"
         )
         self.subtitle.pack()
 
@@ -56,7 +56,7 @@ class GSTR3BConverterPro(ctk.CTk):
             command=self.select_files,
             width=200,
             height=40,
-            font=("Roboto Medium", 14)
+            font=("Segoe UI", 14)
         )
         self.select_btn.pack(pady=15)
 
@@ -69,8 +69,8 @@ class GSTR3BConverterPro(ctk.CTk):
 
         self.btn_demo = ctk.CTkButton(
             self.file_frame, text="▶ View Demo", command=self.open_demo_link,
-            fg_color="#e53935", hover_color="#b71c1c", height=28,
-            font=("Arial", 12, "bold"), width=140
+            fg_color="#DC2626", hover_color="#B91C1C", height=28,
+            font=("Segoe UI", 12, "bold"), width=140
         )
         self.btn_demo.pack(pady=(0, 15))
 
@@ -82,7 +82,7 @@ class GSTR3BConverterPro(ctk.CTk):
             self.options_frame, 
             text="Bunch Converter (Merge all into one Excel)", 
             variable=self.merge_mode,
-            font=("Roboto", 12),
+            font=("Segoe UI", 12),
             checkbox_height=24,
             checkbox_width=24,
             border_width=2
@@ -92,7 +92,7 @@ class GSTR3BConverterPro(ctk.CTk):
         self.hint_label = ctk.CTkLabel(
             self.options_frame,
             text="(Ideal for combining 12 months or 4 quarters into one sheet)",
-            font=("Arial", 10),
+            font=("Segoe UI", 10),
             text_color="gray"
         )
         self.hint_label.pack()
@@ -105,9 +105,9 @@ class GSTR3BConverterPro(ctk.CTk):
             state="disabled",
             height=50,
             width=200,
-            font=("Roboto Medium", 16),
-            fg_color="#2CC985", 
-            hover_color="#229A65"
+            font=("Segoe UI", 16),
+            fg_color="#10B981", 
+            hover_color="#059669"
         )
         self.convert_btn.pack(pady=20)
 

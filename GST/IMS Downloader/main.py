@@ -21,7 +21,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException
 
 # --- UI CONFIGURATION ---
-ctk.set_appearance_mode("Dark")
+ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
 try:
@@ -489,25 +489,25 @@ class App(ctk.CTk):
         self.manual_credentials = []
 
         # HEADER
-        self.head = ctk.CTkFrame(self, fg_color="#1a237e", corner_radius=0, height=70)
+        self.head = ctk.CTkFrame(self, fg_color="#1D4ED8", corner_radius=0, height=70)
         self.head.grid(row=0, column=0, sticky="ew")
         self.head.grid_propagate(False)
         ctk.CTkLabel(
             self.head, text="IMS DASHBOARD DOWNLOADER",
-            font=("Roboto Medium", 22, "bold"), text_color="white"
+            font=("Segoe UI", 22, "bold"), text_color="white"
         ).pack(side="left", padx=20, pady=10)
         ctk.CTkLabel(
             self.head, text="INWARD SUPPLIES AUTOMATION",
-            font=("Roboto", 14), text_color="#bbdefb"
+            font=("Segoe UI", 14), text_color="#CBD5E1"
         ).pack(side="right", padx=20, pady=15)
 
         # CREDENTIALS CARD
         self.settings_container = ctk.CTkFrame(self, fg_color="transparent")
         self.settings_container.grid(row=1, column=0, sticky="ew", padx=20, pady=(20, 10))
 
-        card = ctk.CTkFrame(self.settings_container, border_color="#3949ab", border_width=1)
+        card = ctk.CTkFrame(self.settings_container, border_color="#334155", border_width=1)
         card.pack(fill="x")
-        ctk.CTkLabel(card, text="Credentials Source", font=("Arial", 14, "bold")).pack(
+        ctk.CTkLabel(card, text="Credentials Source", font=("Segoe UI", 14, "bold")).pack(
             anchor="w", padx=15, pady=(15, 5)
         )
         self.ent_file = ctk.CTkEntry(
@@ -516,19 +516,19 @@ class App(ctk.CTk):
         self.ent_file.pack(fill="x", padx=15, pady=(5, 5))
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
         btn_row.pack(fill="x", padx=15, pady=(5, 15))
-        self.btn_download = ctk.CTkButton(btn_row, text="➕ Add ID Password", command=self.add_id_password, fg_color="#43a047", hover_color="#2e7d32", height=28, font=("Arial", 12, "bold"))
+        self.btn_download = ctk.CTkButton(btn_row, text="➕ Add ID Password", command=self.add_id_password, fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"))
         self.btn_download.pack(side="left", expand=True, fill="x", padx=(0, 5))
-        self.btn_demo = ctk.CTkButton(btn_row, text="▶ View Demo", command=self.open_demo_link, fg_color="#e53935", hover_color="#b71c1c", height=28, font=("Arial", 12, "bold"))
+        self.btn_demo = ctk.CTkButton(btn_row, text="▶ View Demo", command=self.open_demo_link, fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"))
         self.btn_demo.pack(side="left", expand=True, fill="x", padx=(5, 0))
         manage_row = ctk.CTkFrame(card, fg_color="transparent")
         manage_row.pack(fill="x", padx=15, pady=(0, 10))
         self.btn_view_id = ctk.CTkButton(manage_row, text="👁 View ID", command=self.view_saved_user,
-                         fg_color="#546e7a", hover_color="#37474f", height=28, width=100,
-                         font=("Arial", 11, "bold"))
+                         fg_color="#475569", hover_color="#334155", height=28, width=100,
+                         font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="left")
         self.btn_delete_id = ctk.CTkButton(manage_row, text="🗑 Delete ID", command=self.delete_saved_user,
-                           fg_color="#8e24aa", hover_color="#6a1b9a", height=28, width=110,
-                           font=("Arial", 11, "bold"))
+                           fg_color="#7C3AED", hover_color="#6D28D9", height=28, width=110,
+                           font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="left", padx=(8, 0))
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
@@ -538,20 +538,20 @@ class App(ctk.CTk):
         self.log_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
         self.log_frame.grid_columnconfigure(0, weight=1)
         self.log_frame.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(self.log_frame, text="Execution Logs", font=("Arial", 12, "bold")).grid(
+        ctk.CTkLabel(self.log_frame, text="Execution Logs", font=("Segoe UI", 12, "bold")).grid(
             row=0, column=0, sticky="w", padx=10, pady=5
         )
-        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), text_color="#00e676", height=200)
+        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), text_color="#10B981", height=200)
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         self.log_box.configure(state="disabled")
 
         # CAPTCHA PANEL
-        self.cap_frame = ctk.CTkFrame(self, border_color="#d32f2f", border_width=2, fg_color="#2b2b2b")
+        self.cap_frame = ctk.CTkFrame(self, border_color="#DC2626", border_width=2, fg_color="#1E293B")
         cap_inner = ctk.CTkFrame(self.cap_frame, fg_color="transparent")
         cap_inner.pack(fill="both", padx=20, pady=10)
         ctk.CTkLabel(
             cap_inner, text="CAPTCHA ACTION REQUIRED",
-            text_color="#ef5350", font=("Arial", 14, "bold")
+            text_color="#EF4444", font=("Segoe UI", 14, "bold")
         ).pack()
         self.cap_lbl_img = ctk.CTkLabel(cap_inner, text="")
         self.cap_lbl_img.pack(pady=10)
@@ -563,15 +563,15 @@ class App(ctk.CTk):
         self.cap_ent.bind("<Return>", self.submit_captcha)
         self.cap_btn = ctk.CTkButton(
             cap_inner, text="SUBMIT CAPTCHA",
-            fg_color="#d32f2f", hover_color="#b71c1c",
-            height=40, width=250, font=("Arial", 12, "bold"),
+            fg_color="#DC2626", hover_color="#B91C1C",
+            height=40, width=250, font=("Segoe UI", 12, "bold"),
             command=self.submit_captcha
         )
         self.cap_btn.pack(pady=(10, 0))
         self.cap_stop_btn = ctk.CTkButton(
             cap_inner, text="⏹ STOP PROCESS",
-            fg_color="#424242", hover_color="#212121",
-            height=35, width=250, font=("Arial", 11, "bold"),
+            fg_color="#475569", hover_color="#334155",
+            height=35, width=250, font=("Segoe UI", 11, "bold"),
             command=self.stop_process
         )
         self.cap_stop_btn.pack(pady=(8, 5))
@@ -579,18 +579,23 @@ class App(ctk.CTk):
         # FOOTER
         self.footer = ctk.CTkFrame(self, fg_color="transparent")
         self.footer.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 20))
-        self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#00e676")
+        self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#10B981")
         self.prog_bar.pack(fill="x", pady=(0, 10))
         self.prog_bar.set(0)
         self.btn_row_footer = ctk.CTkFrame(self.footer, fg_color="transparent")
         self.btn_row_footer.pack(fill="x")
-        self.btn_start = ctk.CTkButton(self.btn_row_footer, text="START IMS DOWNLOAD", height=50, font=("Arial", 16, "bold"),
-                                       fg_color="#2e7d32", hover_color="#1b5e20", command=self.start_process)
+        self.btn_start = ctk.CTkButton(self.btn_row_footer, text="START IMS DOWNLOAD", height=50, font=("Segoe UI", 16, "bold"),
+                                       fg_color="#047857", hover_color="#047857", command=self.start_process)
         self.btn_start.pack(side="left", expand=True, fill="x")
-        self.btn_stop = ctk.CTkButton(self.btn_row_footer, text="⏹ STOP", height=50, font=("Arial", 16, "bold"),
-                                      fg_color="#c62828", hover_color="#8e0000", command=self.stop_process, width=150)
+        self.btn_stop = ctk.CTkButton(self.btn_row_footer, text="⏹ STOP", height=50, font=("Segoe UI", 16, "bold"),
+                                      fg_color="#DC2626", hover_color="#B91C1C", command=self.stop_process, width=150)
         self.btn_stop.pack(side="left", padx=(10, 0))
         self.btn_stop.pack_forget()
+
+        self.btn_open_folder = ctk.CTkButton(self.btn_row_footer, text="📂 OPEN FOLDER", height=50, font=("Segoe UI", 16, "bold"),
+                                      fg_color="#2563EB", hover_color="#1D4ED8", command=self.open_output_folder, width=180)
+        self.btn_open_folder.pack(side="left", padx=(10, 0))
+        self.btn_open_folder.pack_forget()
 
     def _get_saved_user_id(self):
         if not self.manual_credentials:
@@ -710,7 +715,18 @@ class App(ctk.CTk):
             self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
             if is_stopped:
                 self.after(1200, lambda: self.btn_start.configure(text="START IMS DOWNLOAD"))
+            else:
+                self.btn_open_folder.pack(side="left", padx=(10, 0))
         self.after(0, _finish_ui)
+
+    def open_output_folder(self):
+        try:
+            target = os.path.join(os.getcwd(), "IMS_Downloads")
+            if not os.path.exists(target):
+                target = os.getcwd()
+            os.startfile(target)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open folder: {e}")
 
     def request_captcha_safe(self, img_path):
         def show():
@@ -735,7 +751,7 @@ class App(ctk.CTk):
             self._captcha_ctk_img = ctk.CTkImage(light_image=display_img, dark_image=display_img, size=size)
             self.cap_lbl_img.image = self._captcha_ctk_img
             self.cap_lbl_img.configure(image=self._captcha_ctk_img)
-            self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#d32f2f")
+            self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#DC2626")
             self.cap_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
             self.cap_ent.delete(0, "end")
             self.attributes('-topmost', True)
@@ -769,6 +785,7 @@ class App(ctk.CTk):
         self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.pack(side="left", padx=(10, 0))
+        self.btn_open_folder.pack_forget()
         self.worker = IMSWorker(self, self.excel_file, credentials=credentials)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
