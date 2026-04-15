@@ -510,18 +510,19 @@ class GSTWorker:
 
         xpath_3b_btn = "//p[contains(text(),'GSTR-3B')]/ancestor::div[contains(@class,'col-sm-4')]//button[contains(text(),'Download')]"
         
-        found_btn = self._robust_find_clickable(By.XPATH, xpath_3b_btn, timeout=5, refreshes=1, alert_msg="GSTR-3B Target Tile missing")
-        if not found_btn:
-            self.log("   ⚠️ GSTR-3B Tile Not Found.")
-            return False, "Not Found"
-            
+        try:
+            found_btn = self._robust_find_clickable(By.XPATH, xpath_3b_btn, timeout=5, refreshes=1, alert_msg="GSTR-3B Target Tile missing")
+            if not found_btn:
+                self.log("   ⚠️ GSTR-3B Tile Not Found.")
+                return False, "Not Found"
+
             if not found_btn.is_displayed():
                 self.log("   ⚠️ GSTR-3B Tile hidden (Not Filed/Available).")
                 self.driver.back()
                 return False, "Not Filed"
-                
+
             self.log("   ✅ Found Filed GSTR-3B.")
-            
+
         except:
             self.log("   ⚠️ GSTR-3B Tile Not Found.")
             return False, "Not Found"
