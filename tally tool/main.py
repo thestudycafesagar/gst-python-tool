@@ -20,6 +20,7 @@ import random
 import glob
 import re
 import html
+import webbrowser
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from pathlib import Path
@@ -2361,7 +2362,13 @@ def _collect_missing_ledgers_from_usage(usage_map, existing_ledger_keys):
     return sorted(missing, key=lambda x: _ledger_key(x))
 
 
-def _post_xml_with_fallbacks(tally_url, xml_content, timeout=30, allow_company_fallback=True):
+def _post_xml_with_fallbacks(
+    tally_url,
+    xml_content,
+    timeout=30,
+    allow_company_fallback=True,
+    allow_date_retry=True,
+):
     meta = {
         "forced_date_count": 0,
         "date_retry_used": False,
@@ -2371,7 +2378,7 @@ def _post_xml_with_fallbacks(tally_url, xml_content, timeout=30, allow_company_f
     result = _post_xml_to_tally(tally_url, working_xml, timeout=timeout)
 
     err_text = str(result.get("error", ""))
-    if (not result.get("success")) and ("voucher date is missing" in err_text.lower()):
+    if allow_date_retry and (not result.get("success")) and ("voucher date is missing" in err_text.lower()):
         retry_xml, retry_count = _force_voucher_dates_to_today_regex(working_xml)
         retry_result = _post_xml_to_tally(tally_url, retry_xml, timeout=timeout)
         working_xml = retry_xml
@@ -2427,57 +2434,109 @@ def _read_xml_text_safely(xml_path):
     return text.replace("\x00", "")
 
 
-def _force_voucher_dates_to_today_regex(xml_content):
-    today = datetime.date.today().strftime("%Y%m%d")
+def _normalize_manual_date_to_tally(date_text):
+    text = str(date_text or "").strip()
+    if not text:
+        raise ValueError("Custom date is empty.")
+
+    compact = re.sub(r"\s+", "", text)
+    if re.fullmatch(r"\d{8}", compact):
+        for fmt in ("%Y%m%d", "%d%m%Y"):
+            try:
+                return datetime.datetime.strptime(compact, fmt).strftime("%Y%m%d")
+            except ValueError:
+                continue
+
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%Y/%m/%d", "%d.%m.%Y"):
+        try:
+            return datetime.datetime.strptime(text, fmt).strftime("%Y%m%d")
+        except ValueError:
+            continue
+
+    raise ValueError("Invalid custom date format. Use DD/MM/YYYY, DD-MM-YYYY, or YYYY-MM-DD.")
+
+
+def _force_voucher_dates_to_value_regex(xml_content, tally_date):
+    target = str(tally_date or "").strip()
+    if not (target.isdigit() and len(target) == 8):
+        return xml_content, 0
+
     pattern = re.compile(r"(<VOUCHER\b[^>]*>)(.*?)(</VOUCHER>)", re.IGNORECASE | re.DOTALL)
 
     def replace_voucher(match):
         head, body, tail = match.group(1), match.group(2), match.group(3)
-        body = re.sub(r"<DATE\s*/\s*>", f"<DATE>{today}</DATE>", body, flags=re.IGNORECASE)
-        body = re.sub(r"<EFFECTIVEDATE\s*/\s*>", f"<EFFECTIVEDATE>{today}</EFFECTIVEDATE>", body, flags=re.IGNORECASE)
+        body = re.sub(r"<DATE\s*/\s*>", f"<DATE>{target}</DATE>", body, flags=re.IGNORECASE)
+        body = re.sub(r"<EFFECTIVEDATE\s*/\s*>", f"<EFFECTIVEDATE>{target}</EFFECTIVEDATE>", body, flags=re.IGNORECASE)
         if re.search(r"<DATE\b", body, flags=re.IGNORECASE):
-            body = re.sub(r"<DATE\b[^>]*>.*?</DATE>", f"<DATE>{today}</DATE>", body,
+            body = re.sub(r"<DATE\b[^>]*>.*?</DATE>", f"<DATE>{target}</DATE>", body,
                           flags=re.IGNORECASE | re.DOTALL)
         else:
-            body = f"<DATE>{today}</DATE>" + body
+            body = f"<DATE>{target}</DATE>" + body
         if re.search(r"<EFFECTIVEDATE\b", body, flags=re.IGNORECASE):
             body = re.sub(r"<EFFECTIVEDATE\b[^>]*>.*?</EFFECTIVEDATE>",
-                          f"<EFFECTIVEDATE>{today}</EFFECTIVEDATE>", body,
+                          f"<EFFECTIVEDATE>{target}</EFFECTIVEDATE>", body,
                           flags=re.IGNORECASE | re.DOTALL)
         else:
-            body = f"<EFFECTIVEDATE>{today}</EFFECTIVEDATE>" + body
+            body = f"<EFFECTIVEDATE>{target}</EFFECTIVEDATE>" + body
         return head + body + tail
 
     updated_xml, touched = pattern.subn(replace_voucher, xml_content)
     return updated_xml, touched
 
 
-def _force_voucher_dates_to_today(xml_content):
-    """Force voucher DATE/EFFECTIVEDATE to current date for push-time reliability."""
+def _force_voucher_dates_to_value(xml_content, tally_date):
+    target = str(tally_date or "").strip()
+    if not (target.isdigit() and len(target) == 8):
+        return xml_content, 0
+
     try:
         root = ET.fromstring(xml_content)
     except ET.ParseError:
-        return _force_voucher_dates_to_today_regex(xml_content)
+        return _force_voucher_dates_to_value_regex(xml_content, target)
 
-    today = datetime.date.today().strftime("%Y%m%d")
     updated_count = 0
     voucher_nodes = list(root.iter("VOUCHER"))
     if not voucher_nodes:
-        return _force_voucher_dates_to_today_regex(xml_content)
+        return _force_voucher_dates_to_value_regex(xml_content, target)
 
     for voucher in voucher_nodes:
         date_node = voucher.find("DATE")
         if date_node is None:
             date_node = ET.SubElement(voucher, "DATE")
-        if (date_node.text or "").strip() != today:
-            date_node.text = today
+        if (date_node.text or "").strip() != target:
+            date_node.text = target
             updated_count += 1
         effective_node = voucher.find("EFFECTIVEDATE")
         if effective_node is None:
             effective_node = ET.SubElement(voucher, "EFFECTIVEDATE")
-        effective_node.text = today
+        effective_node.text = target
 
     return ET.tostring(root, encoding="unicode"), updated_count
+
+
+def _force_voucher_dates_to_today_regex(xml_content):
+    today = datetime.date.today().strftime("%Y%m%d")
+    return _force_voucher_dates_to_value_regex(xml_content, today)
+
+
+def _force_voucher_dates_to_today(xml_content):
+    """Force voucher DATE/EFFECTIVEDATE to current date for push-time reliability."""
+    today = datetime.date.today().strftime("%Y%m%d")
+    return _force_voucher_dates_to_value(xml_content, today)
+
+
+def _apply_push_date_mode(xml_content, date_mode="current", custom_tally_date=""):
+    mode = str(date_mode or "current").strip().lower()
+    if mode == "excel":
+        return xml_content, 0
+    if mode == "custom":
+        target_date = str(custom_tally_date or "").strip()
+        if not target_date:
+            raise ValueError("Custom date mode selected but custom date is missing.")
+        if not (target_date.isdigit() and len(target_date) == 8):
+            target_date = _normalize_manual_date_to_tally(target_date)
+        return _force_voucher_dates_to_value(xml_content, target_date)
+    return _force_voucher_dates_to_today(xml_content)
 
 
 class GST2BDownloadWorker:
@@ -2966,6 +3025,14 @@ class GSTR2BTallyApp(ctk.CTk):
         self.create_ledger_companies = []
         self.output_dir = ""
         self.current_mode = "gstr2b"
+        self.workflow_demo_url = ""  # Add YouTube demo link later.
+        self.tally_push_date_mode = ctk.StringVar(value="current")
+        self.tally_push_custom_date_var = ctk.StringVar(value="")
+        self.tally_push_date_checks = {
+            "current": ctk.BooleanVar(value=True),
+            "excel": ctk.BooleanVar(value=False),
+            "custom": ctk.BooleanVar(value=False),
+        }
 
         self.title("GSTR-2B + Tally Sheet → Tally Converter  |  Studycafe PVT LTD")
         self.geometry("1180x820")
@@ -3001,13 +3068,27 @@ class GSTR2BTallyApp(ctk.CTk):
         mode_card = ctk.CTkFrame(self.left_col, fg_color=COLORS["bg_card"], corner_radius=12,
                                   border_width=1, border_color=COLORS["border"])
         mode_card.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(mode_card, text="Source Type", font=("Segoe UI", 13, "bold"),
-                     text_color=COLORS["text_primary"]).pack(anchor="w", padx=16, pady=(14, 8))
+        mode_head = ctk.CTkFrame(mode_card, fg_color="transparent")
+        mode_head.pack(fill="x", padx=16, pady=(14, 8))
+        ctk.CTkLabel(mode_head, text="Workflow Steps", font=("Segoe UI", 13, "bold"),
+                     text_color=COLORS["text_primary"]).pack(side="left")
+        ctk.CTkButton(
+            mode_head,
+            text="▶ View Demo",
+            width=132,
+            height=28,
+            font=("Segoe UI", 10, "bold"),
+            fg_color="#DC2626",
+            hover_color="#B91C1C",
+            text_color="#FFFFFF",
+            corner_radius=6,
+            command=self._view_workflow_demo,
+        ).pack(side="right")
         mode_grid = ctk.CTkFrame(mode_card, fg_color="transparent")
         mode_grid.pack(fill="x", padx=16, pady=(0, 14))
         mode_grid.grid_columnconfigure((0, 1), weight=1)
         self.mode_buttons = {}
-        mode_labels = ["GSTR-2B Excel → XML", "Tally Excel → XML", "Download 2B", "Push To Tally", "Create Ledger"]
+        mode_labels = ["Step 1: GSTR-2B → XML", "Step 2: Push To Tally", "Create Ledger"]
         for idx, label in enumerate(mode_labels):
             btn = ctk.CTkButton(
                 mode_grid,
@@ -3022,13 +3103,13 @@ class GSTR2BTallyApp(ctk.CTk):
             )
             btn.grid(row=idx // 2, column=idx % 2, sticky="ew", padx=3, pady=3)
             self.mode_buttons[label] = btn
-        self._refresh_mode_selector_text_colors("GSTR-2B Excel → XML")
+        self._refresh_mode_selector_text_colors("Step 1: GSTR-2B → XML")
 
         # ─── LEFT: GSTR-2B Upload Card ───
         self.gstr2b_card = ctk.CTkFrame(self.left_col, fg_color=COLORS["bg_card"], corner_radius=12,
                                          border_width=1, border_color=COLORS["border"])
         self.gstr2b_card.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(self.gstr2b_card, text="Upload GSTR-2B File", font=("Segoe UI", 13, "bold"),
+        ctk.CTkLabel(self.gstr2b_card, text="Step 1A: Upload GSTR-2B File", font=("Segoe UI", 13, "bold"),
                      text_color=COLORS["text_primary"]).pack(anchor="w", padx=16, pady=(14, 8))
         self.upload_zone = ctk.CTkFrame(self.gstr2b_card, fg_color=COLORS["bg_dark"], corner_radius=10,
                                          height=80, border_width=2, border_color=COLORS["border"])
@@ -3045,20 +3126,28 @@ class GSTR2BTallyApp(ctk.CTk):
         # ─── Mapping Sheet (inside gstr2b_card) ───
         map_frame = ctk.CTkFrame(self.gstr2b_card, fg_color=COLORS["bg_input"], corner_radius=8)
         map_frame.pack(fill="x", padx=16, pady=(4, 14))
-        ctk.CTkLabel(map_frame, text="Party → Ledger Mapping (Required for GSTR-2B)", font=("Segoe UI", 11),
+        ctk.CTkLabel(map_frame, text="Step 1B: Upload Party → Ledger Mapping Sheet", font=("Segoe UI", 11, "bold"),
                      text_color=COLORS["text_secondary"]).pack(anchor="w", padx=10, pady=(8, 4))
         self.mapping_label = ctk.CTkLabel(map_frame, text="No mapping loaded — all → Purchase Account",
                                            font=("Segoe UI", 10), text_color=COLORS["text_muted"])
         self.mapping_label.pack(anchor="w", padx=10)
         map_btn_frame = ctk.CTkFrame(map_frame, fg_color="transparent")
         map_btn_frame.pack(fill="x", padx=10, pady=(4, 8))
-        ctk.CTkButton(map_btn_frame, text="Load Mapping", font=("Segoe UI", 11), height=30,
+
+        map_btn_top = ctk.CTkFrame(map_btn_frame, fg_color="transparent")
+        map_btn_top.pack(fill="x")
+        ctk.CTkButton(map_btn_top, text="Load Mapping", font=("Segoe UI", 11), height=30,
                       fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], text_color="#FFFFFF",
-                      corner_radius=6, command=self._browse_mapping).pack(side="left", padx=(0, 4))
-        ctk.CTkButton(map_btn_frame, text="Clear", font=("Segoe UI", 11), height=30, width=60,
+                  corner_radius=6, command=self._browse_mapping).pack(side="left", padx=(0, 4))
+        ctk.CTkButton(map_btn_top, text="Clear", font=("Segoe UI", 11), height=30, width=60,
                       fg_color=COLORS["bg_card"], hover_color=COLORS["bg_card_hover"],
                       text_color=COLORS["text_secondary"], corner_radius=6,
                       command=self._clear_mapping).pack(side="left")
+
+        ctk.CTkButton(map_btn_frame, text="Download Template", font=("Segoe UI", 11), height=30,
+                  fg_color=COLORS["bg_card"], hover_color=COLORS["bg_card_hover"],
+                  text_color=COLORS["text_secondary"], corner_radius=6,
+              command=self._download_mapping_template).pack(fill="x", pady=(6, 0))
 
         # ─── LEFT: Tally Sheet Upload Card (hidden by default) ───
         self.tally_card = ctk.CTkFrame(self.left_col, fg_color=COLORS["bg_card"], corner_radius=12,
@@ -3236,7 +3325,7 @@ class GSTR2BTallyApp(ctk.CTk):
         )
         ctk.CTkLabel(
             self.tally_push_card,
-            text="Push XML To Tally",
+            text="Step 2: Push XML To Tally",
             font=("Segoe UI", 13, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor="w", padx=16, pady=(14, 8))
@@ -3321,6 +3410,64 @@ class GSTR2BTallyApp(ctk.CTk):
         self.tally_push_timeout_entry.insert(0, "30")
         self.tally_push_timeout_entry.pack(side="left", padx=(6, 0))
 
+        date_mode_frame = ctk.CTkFrame(self.tally_push_card, fg_color=COLORS["bg_input"], corner_radius=8)
+        date_mode_frame.pack(fill="x", padx=16, pady=(0, 6))
+        ctk.CTkLabel(
+            date_mode_frame,
+            text="Voucher Date Mode",
+            font=("Segoe UI", 10, "bold"),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor="w", padx=10, pady=(8, 4))
+
+        date_checks_row = ctk.CTkFrame(date_mode_frame, fg_color="transparent")
+        date_checks_row.pack(fill="x", padx=10, pady=(0, 4))
+
+        self.tally_push_date_current_cb = ctk.CTkCheckBox(
+            date_checks_row,
+            text="Current Date",
+            variable=self.tally_push_date_checks["current"],
+            command=lambda: self._set_tally_push_date_mode("current"),
+            font=("Segoe UI", 10),
+            text_color=COLORS["text_secondary"],
+        )
+        self.tally_push_date_current_cb.pack(side="left", padx=(0, 8))
+
+        self.tally_push_date_excel_cb = ctk.CTkCheckBox(
+            date_checks_row,
+            text="Excel Date",
+            variable=self.tally_push_date_checks["excel"],
+            command=lambda: self._set_tally_push_date_mode("excel"),
+            font=("Segoe UI", 10),
+            text_color=COLORS["text_secondary"],
+        )
+        self.tally_push_date_excel_cb.pack(side="left", padx=(0, 8))
+
+        self.tally_push_date_custom_cb = ctk.CTkCheckBox(
+            date_checks_row,
+            text="Custom Date",
+            variable=self.tally_push_date_checks["custom"],
+            command=lambda: self._set_tally_push_date_mode("custom"),
+            font=("Segoe UI", 10),
+            text_color=COLORS["text_secondary"],
+        )
+        self.tally_push_date_custom_cb.pack(side="left")
+
+        custom_date_row = ctk.CTkFrame(date_mode_frame, fg_color="transparent")
+        custom_date_row.pack(fill="x", padx=10, pady=(0, 8))
+        self.tally_push_custom_date_entry = ctk.CTkEntry(
+            custom_date_row,
+            textvariable=self.tally_push_custom_date_var,
+            height=30,
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text="Custom Date (DD/MM/YYYY)",
+            font=("Segoe UI", 10),
+            corner_radius=6,
+        )
+        self.tally_push_custom_date_entry.pack(fill="x")
+        self._set_tally_push_date_mode("current")
+
         company_row = ctk.CTkFrame(self.tally_push_card, fg_color="transparent")
         company_row.pack(fill="x", padx=16, pady=(0, 6))
         company_row.grid_columnconfigure(1, weight=1)
@@ -3386,7 +3533,7 @@ class GSTR2BTallyApp(ctk.CTk):
 
         self.tally_push_post_btn = ctk.CTkButton(
             push_btn_row,
-            text="Push XML",
+            text="Step 2: Push XML",
             height=38,
             font=("Segoe UI", 12, "bold"),
             fg_color=COLORS["accent"],
@@ -3764,9 +3911,9 @@ class GSTR2BTallyApp(ctk.CTk):
         self.action_card = ctk.CTkFrame(self.left_col, fg_color=COLORS["bg_card"], corner_radius=12,
                         border_width=1, border_color=COLORS["border"])
         self.action_card.pack(fill="x", pady=8)
-        ctk.CTkLabel(self.action_card, text="Generate Output", font=("Segoe UI", 13, "bold"),
+        ctk.CTkLabel(self.action_card, text="Step 1C: Generate Output", font=("Segoe UI", 13, "bold"),
                      text_color=COLORS["text_primary"]).pack(anchor="w", padx=16, pady=(14, 10))
-        self.generate_btn = ctk.CTkButton(self.action_card, text="Generate Tally Sheet + XML",
+        self.generate_btn = ctk.CTkButton(self.action_card, text="Step 1C: Generate Tally Sheet + XML",
                                            font=("Segoe UI", 13, "bold"), height=44,
                                            fg_color=COLORS["success"], hover_color="#047857",
                                            text_color="#FFFFFF", corner_radius=10,
@@ -3776,12 +3923,10 @@ class GSTR2BTallyApp(ctk.CTk):
                                              font=("Segoe UI", 12), height=38, fg_color=COLORS["bg_input"],
                                              hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_primary"],
                                              corner_radius=8, command=lambda: self._generate_output(xml=False))
-        self.excel_only_btn.pack(fill="x", padx=16, pady=(0, 6))
         self.xml_only_btn = ctk.CTkButton(self.action_card, text="Generate XML Only",
                                            font=("Segoe UI", 12), height=38, fg_color=COLORS["bg_input"],
                                            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_primary"],
                                            corner_radius=8, command=lambda: self._generate_output(excel=False))
-        self.xml_only_btn.pack(fill="x", padx=16, pady=(0, 14))
 
         # Progress
         self.progress_frame = ctk.CTkFrame(self.left_col, fg_color=COLORS["bg_card"], corner_radius=12,
@@ -3863,12 +4008,26 @@ class GSTR2BTallyApp(ctk.CTk):
 
         self.log_panel.log("Application started. Select source type and upload files.", "info")
         self.log_panel.log("GSTR-2B mode: Auto-detects columns + optional party→ledger mapping.", "info")
-        self.log_panel.log("Tally Sheet mode: Direct conversion of tally sheet to XML.", "info")
-        self.log_panel.log("Download 2B mode: Full GST portal execution runs inside this tab.", "info")
         self.log_panel.log("Push To Tally mode: Post XML to TallyPrime at localhost:9000.", "info")
         self.log_panel.log("Create Ledger mode: Create a ledger in Tally using the same connection flow.", "info")
 
     # ─── MODE SWITCHING ───
+
+    def _view_workflow_demo(self):
+        demo_url = (self.workflow_demo_url or "").strip()
+        if demo_url:
+            try:
+                webbrowser.open_new_tab(demo_url)
+                self.log_panel.log("Opened workflow demo in browser.", "info")
+            except Exception as exc:
+                messagebox.showerror("View Demo", f"Could not open demo link.\n\n{exc}")
+            return
+
+        messagebox.showinfo(
+            "View Demo",
+            "Demo link is not set yet.\n\n"
+            "Set self.workflow_demo_url in code to your YouTube link later.",
+        )
 
     def _refresh_mode_selector_text_colors(self, selected):
         for label, btn in self.mode_buttons.items():
@@ -3887,7 +4046,7 @@ class GSTR2BTallyApp(ctk.CTk):
 
     def _on_mode_change(self, selected):
         self._refresh_mode_selector_text_colors(selected)
-        if selected == "GSTR-2B Excel → XML":
+        if selected == "Step 1: GSTR-2B → XML":
             self.current_mode = "gstr2b"
             self.download2b_card.pack_forget()
             self.tally_push_card.pack_forget()
@@ -3905,49 +4064,8 @@ class GSTR2BTallyApp(ctk.CTk):
             if not self.preview_table.winfo_manager():
                 self.preview_table.pack(fill="both", expand=True, pady=(0, 8), in_=self.right_col, before=self.log_panel)
             self.gstr2b_card.pack(fill="x", pady=(0, 8), in_=self.left_col, before=self.settings_card)
-            self.generate_btn.configure(text="Generate Tally Sheet + XML")
-            self.excel_only_btn.pack(fill="x", padx=16, pady=(0, 6))
-            self.log_panel.log("Switched to GSTR-2B Excel mode.", "info")
-        elif selected == "Tally Excel → XML":
-            self.current_mode = "tally"
-            self.download2b_card.pack_forget()
-            self.tally_push_card.pack_forget()
-            self.create_ledger_card.pack_forget()
-            self.download2b_captcha_frame.pack_forget()
-            self.gstr2b_card.pack_forget()
-            if not self.settings_card.winfo_manager():
-                self.settings_card.pack(fill="x", pady=8)
-            if not self.action_card.winfo_manager():
-                self.action_card.pack(fill="x", pady=8)
-            if not self.progress_frame.winfo_manager():
-                self.progress_frame.pack(fill="x", pady=8)
-            if not self.stats_frame.winfo_manager():
-                self.stats_frame.pack(fill="x", pady=(0, 8))
-            if not self.preview_table.winfo_manager():
-                self.preview_table.pack(fill="both", expand=True, pady=(0, 8), in_=self.right_col, before=self.log_panel)
-            self.tally_card.pack(fill="x", pady=(0, 8), in_=self.left_col, before=self.settings_card)
-            self.generate_btn.configure(text="Generate Tally XML")
-            self.excel_only_btn.pack_forget()
-            self.log_panel.log("Switched to Tally Excel → XML mode.", "info")
-        elif selected == "Download 2B":
-            self.current_mode = "download2b"
-            self.gstr2b_card.pack_forget()
-            self.tally_card.pack_forget()
-            self.tally_push_card.pack_forget()
-            self.create_ledger_card.pack_forget()
-            self.settings_card.pack_forget()
-            self.action_card.pack_forget()
-            if not self.progress_frame.winfo_manager():
-                self.progress_frame.pack(fill="x", pady=8)
-            self.stats_frame.pack_forget()
-            self.preview_table.pack_forget()
-            self.download2b_card.pack(fill="x", pady=(0, 8), in_=self.left_col)
-            self.download2b_captcha_frame.pack_forget()
-            self.progress_bar.set(0)
-            self.progress_label.configure(text="Ready for 2B download", text_color=COLORS["text_muted"])
-            self.status_label.configure(text="Ready", text_color=COLORS["success"])
-            self.log_panel.log("Switched to Download 2B mode.", "info")
-            self.log_panel.log("2B execution is integrated here. Select credentials Excel and click Start Download.", "info")
+            self.generate_btn.configure(text="Step 1C: Generate Tally Sheet + XML")
+            self.log_panel.log("Switched to Step 1: GSTR-2B → XML.", "info")
         elif selected == "Create Ledger":
             self.current_mode = "create_ledger"
             self.gstr2b_card.pack_forget()
@@ -3967,7 +4085,7 @@ class GSTR2BTallyApp(ctk.CTk):
             self.status_label.configure(text="Ready", text_color=COLORS["success"])
             self.log_panel.log("Switched to Create Ledger mode.", "info")
             self.after(120, lambda: self._fetch_create_ledger_companies_thread(silent=True))
-        elif selected == "Push To Tally":
+        elif selected == "Step 2: Push To Tally":
             self.current_mode = "push_tally"
             self.gstr2b_card.pack_forget()
             self.tally_card.pack_forget()
@@ -3984,7 +4102,7 @@ class GSTR2BTallyApp(ctk.CTk):
             self.progress_bar.set(0)
             self.progress_label.configure(text="Ready to test/push XML to Tally", text_color=COLORS["text_muted"])
             self.status_label.configure(text="Ready", text_color=COLORS["success"])
-            self.log_panel.log("Switched to Push To Tally mode.", "info")
+            self.log_panel.log("Switched to Step 2: Push To Tally.", "info")
             self.log_panel.log("Tip: Keep Tally open with HTTP server enabled (default port 9000).", "info")
             self.after(150, lambda: self._fetch_tally_companies_thread(silent=True))
         else:
@@ -4558,6 +4676,40 @@ class GSTR2BTallyApp(ctk.CTk):
             raise ValueError("Timeout must be greater than 0.")
         return timeout_val
 
+    def _set_tally_push_date_mode(self, selected_mode):
+        mode = str(selected_mode or "current").strip().lower()
+        if mode not in {"current", "excel", "custom"}:
+            mode = "current"
+
+        self.tally_push_date_mode.set(mode)
+        for key, var in self.tally_push_date_checks.items():
+            var.set(key == mode)
+
+        if hasattr(self, "tally_push_custom_date_entry"):
+            custom_state = "normal" if (mode == "custom" and not self.tally_push_is_running) else "disabled"
+            self.tally_push_custom_date_entry.configure(state=custom_state)
+
+    def _format_tally_date_for_display(self, tally_date):
+        text = str(tally_date or "").strip()
+        if text.isdigit() and len(text) == 8:
+            return f"{text[6:8]}/{text[4:6]}/{text[:4]}"
+        return text
+
+    def _get_tally_push_date_selection(self):
+        mode = str(self.tally_push_date_mode.get() or "current").strip().lower()
+        if mode not in {"current", "excel", "custom"}:
+            mode = "current"
+            self._set_tally_push_date_mode(mode)
+
+        custom_tally_date = ""
+        if mode == "custom":
+            raw_custom = (self.tally_push_custom_date_var.get() or "").strip()
+            if not raw_custom:
+                raise ValueError("Enter Custom Date (DD/MM/YYYY) or choose Current Date / Excel Date.")
+            custom_tally_date = _normalize_manual_date_to_tally(raw_custom)
+
+        return mode, custom_tally_date
+
     def _set_tally_push_running_ui(self, running, label_text=None, label_color=None):
         self.tally_push_is_running = running
         if running:
@@ -4567,13 +4719,28 @@ class GSTR2BTallyApp(ctk.CTk):
                 self.tally_push_company_refresh_btn.configure(state="disabled")
             if hasattr(self, "tally_push_company_cb"):
                 self.tally_push_company_cb.configure(state="disabled")
+            if hasattr(self, "tally_push_date_current_cb"):
+                self.tally_push_date_current_cb.configure(state="disabled")
+            if hasattr(self, "tally_push_date_excel_cb"):
+                self.tally_push_date_excel_cb.configure(state="disabled")
+            if hasattr(self, "tally_push_date_custom_cb"):
+                self.tally_push_date_custom_cb.configure(state="disabled")
+            if hasattr(self, "tally_push_custom_date_entry"):
+                self.tally_push_custom_date_entry.configure(state="disabled")
         else:
             self.tally_push_test_btn.configure(state="normal")
-            self.tally_push_post_btn.configure(state="normal", text="Push XML")
+            self.tally_push_post_btn.configure(state="normal", text="Step 2: Push XML")
             if hasattr(self, "tally_push_company_refresh_btn"):
                 self.tally_push_company_refresh_btn.configure(state="normal")
             if hasattr(self, "tally_push_company_cb"):
                 self.tally_push_company_cb.configure(state="normal")
+            if hasattr(self, "tally_push_date_current_cb"):
+                self.tally_push_date_current_cb.configure(state="normal")
+            if hasattr(self, "tally_push_date_excel_cb"):
+                self.tally_push_date_excel_cb.configure(state="normal")
+            if hasattr(self, "tally_push_date_custom_cb"):
+                self.tally_push_date_custom_cb.configure(state="normal")
+            self._set_tally_push_date_mode(self.tally_push_date_mode.get())
         if label_text is not None:
             self.progress_label.configure(text=label_text, text_color=label_color or COLORS["text_muted"])
 
@@ -4719,6 +4886,7 @@ class GSTR2BTallyApp(ctk.CTk):
         try:
             tally_url = self._get_tally_push_url()
             timeout = self._get_tally_push_timeout()
+            date_mode, custom_tally_date = self._get_tally_push_date_selection()
         except ValueError as e:
             messagebox.showerror("Invalid Settings", str(e))
             return
@@ -4734,13 +4902,28 @@ class GSTR2BTallyApp(ctk.CTk):
             self.log_panel.log(f"Target company selected: {selected_company}", "info")
         else:
             self.log_panel.log("Target company: currently loaded company in Tally", "info")
+        if date_mode == "excel":
+            self.log_panel.log("Voucher date mode: Excel Date (kept from XML).", "info")
+        elif date_mode == "custom":
+            custom_label = self._format_tally_date_for_display(custom_tally_date)
+            self.log_panel.log(f"Voucher date mode: Custom Date ({custom_label}).", "info")
+        else:
+            self.log_panel.log("Voucher date mode: Current Date (today).", "info")
         threading.Thread(
             target=self._post_tally_xml_worker,
-            args=(xml_path, tally_url, timeout, selected_company),
+            args=(xml_path, tally_url, timeout, selected_company, date_mode, custom_tally_date),
             daemon=True,
         ).start()
 
-    def _post_tally_xml_worker(self, xml_path, tally_url, timeout, selected_company=""):
+    def _post_tally_xml_worker(
+        self,
+        xml_path,
+        tally_url,
+        timeout,
+        selected_company="",
+        date_mode="current",
+        custom_tally_date="",
+    ):
         result = {"success": False, "error": "Unknown error"}
         forced_date_count = 0
         posted_xml_content = ""
@@ -4750,7 +4933,11 @@ class GSTR2BTallyApp(ctk.CTk):
         ledger_fetch_error = ""
         try:
             xml_content = _read_xml_text_safely(xml_path)
-            xml_content, forced_date_count = _force_voucher_dates_to_today(xml_content)
+            xml_content, forced_date_count = _apply_push_date_mode(
+                xml_content,
+                date_mode=date_mode,
+                custom_tally_date=custom_tally_date,
+            )
             if selected_company:
                 xml_content, _ = _set_svcurrentcompany(xml_content, selected_company)
             usage_map = _extract_ledger_usage_from_xml(xml_content)
@@ -4782,6 +4969,7 @@ class GSTR2BTallyApp(ctk.CTk):
                 xml_content,
                 timeout=timeout,
                 allow_company_fallback=not bool(selected_company),
+                allow_date_retry=(date_mode == "current"),
             )
             forced_date_count = max(forced_date_count, retry_meta.get("forced_date_count", 0))
             if retry_meta.get("date_retry_used"):
@@ -4828,6 +5016,8 @@ class GSTR2BTallyApp(ctk.CTk):
                     result,
                     forced_date_count=forced_date_count,
                     target_company=selected_company,
+                    date_mode=date_mode,
+                    custom_tally_date=custom_tally_date,
                 )
                 return
 
@@ -4848,6 +5038,8 @@ class GSTR2BTallyApp(ctk.CTk):
                     usage_map=usage_map,
                     forced_date_count=forced_date_count,
                     selected_company=selected_company,
+                    date_mode=date_mode,
+                    custom_tally_date=custom_tally_date,
                 )
                 return
 
@@ -4859,7 +5051,15 @@ class GSTR2BTallyApp(ctk.CTk):
 
         self.after(0, done)
 
-    def _show_tally_push_success(self, result, forced_date_count=0, created_ledgers=None, target_company=""):
+    def _show_tally_push_success(
+        self,
+        result,
+        forced_date_count=0,
+        created_ledgers=None,
+        target_company="",
+        date_mode="current",
+        custom_tally_date="",
+    ):
         created = result.get("created", "0")
         altered = result.get("altered", "0")
         deleted = result.get("deleted", "0")
@@ -4874,8 +5074,22 @@ class GSTR2BTallyApp(ctk.CTk):
         )
         if target_company:
             self.log_panel.log(f"Posted to company: {target_company}", "info")
+        if date_mode == "excel":
+            self.log_panel.log("Voucher date mode used: Excel Date (kept from XML).", "info")
+        elif date_mode == "custom":
+            custom_label = self._format_tally_date_for_display(custom_tally_date)
+            self.log_panel.log(f"Voucher date mode used: Custom Date ({custom_label}).", "info")
+        else:
+            self.log_panel.log("Voucher date mode used: Current Date (today).", "info")
         if forced_date_count > 0:
-            self.log_panel.log(f"Voucher date auto-set to today for {forced_date_count} voucher(s) during push.", "info")
+            if date_mode == "custom":
+                custom_label = self._format_tally_date_for_display(custom_tally_date)
+                self.log_panel.log(
+                    f"Voucher date set to custom date {custom_label} for {forced_date_count} voucher(s).",
+                    "info",
+                )
+            else:
+                self.log_panel.log(f"Voucher date auto-set to today for {forced_date_count} voucher(s) during push.", "info")
         if result.get("date_retry_used"):
             self.log_panel.log("Date error auto-fixed using strict voucher-date retry.", "warning")
         if result.get("fallback_used"):
@@ -4885,10 +5099,18 @@ class GSTR2BTallyApp(ctk.CTk):
         if str(errors) not in {"0", "0.0"}:
             self.log_panel.log(f"Tally reported {errors} error(s). Please verify in Tally.", "warning")
 
+        if date_mode == "excel":
+            date_mode_text = "Excel Date"
+        elif date_mode == "custom":
+            date_mode_text = f"Custom Date ({self._format_tally_date_for_display(custom_tally_date)})"
+        else:
+            date_mode_text = "Current Date"
+
         info_lines = [
             "Entries posted to Tally successfully.",
             "",
             f"Target Company: {target_company or 'Loaded company in Tally'}",
+            f"Voucher Date Mode: {date_mode_text}",
             "",
             f"Created: {created}",
             f"Altered: {altered}",
@@ -4912,6 +5134,8 @@ class GSTR2BTallyApp(ctk.CTk):
         usage_map,
         forced_date_count,
         selected_company="",
+        date_mode="current",
+        custom_tally_date="",
     ):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Resolve Missing Ledgers")
@@ -5678,6 +5902,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 create_specs=dedup_create,
                 forced_date_count=forced_date_count,
                 selected_company=selected_company,
+                date_mode=date_mode,
+                custom_tally_date=custom_tally_date,
             )
 
         ctk.CTkButton(
@@ -5730,6 +5956,8 @@ class GSTR2BTallyApp(ctk.CTk):
         create_specs,
         forced_date_count,
         selected_company="",
+        date_mode="current",
+        custom_tally_date="",
     ):
         if self.tally_push_is_running:
             return
@@ -5753,6 +5981,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 create_specs,
                 forced_date_count,
                 selected_company,
+                date_mode,
+                custom_tally_date,
             ),
             daemon=True,
         ).start()
@@ -5767,6 +5997,8 @@ class GSTR2BTallyApp(ctk.CTk):
         create_specs,
         forced_date_count,
         selected_company="",
+        date_mode="current",
+        custom_tally_date="",
     ):
         result = {"success": False, "error": "Unknown error"}
         working_xml = base_xml_content
@@ -5781,7 +6013,11 @@ class GSTR2BTallyApp(ctk.CTk):
         try:
             if not working_xml:
                 working_xml = _read_xml_text_safely(xml_path)
-                working_xml, touched_count = _force_voucher_dates_to_today(working_xml)
+                working_xml, touched_count = _apply_push_date_mode(
+                    working_xml,
+                    date_mode=date_mode,
+                    custom_tally_date=custom_tally_date,
+                )
                 forced_date_count = max(forced_date_count, touched_count)
 
             if selected_company:
@@ -5834,6 +6070,7 @@ class GSTR2BTallyApp(ctk.CTk):
                 working_xml,
                 timeout=timeout,
                 allow_company_fallback=not bool(selected_company),
+                allow_date_retry=(date_mode == "current"),
             )
             forced_date_count = max(forced_date_count, retry_meta.get("forced_date_count", 0))
             if retry_meta.get("date_retry_used"):
@@ -5889,6 +6126,8 @@ class GSTR2BTallyApp(ctk.CTk):
                     forced_date_count=forced_date_count,
                     created_ledgers=sorted(set(created_ledgers), key=lambda x: x.upper()),
                     target_company=selected_company,
+                    date_mode=date_mode,
+                    custom_tally_date=custom_tally_date,
                 )
                 return
 
@@ -5909,6 +6148,8 @@ class GSTR2BTallyApp(ctk.CTk):
                     usage_map=usage_map,
                     forced_date_count=forced_date_count,
                     selected_company=selected_company,
+                    date_mode=date_mode,
+                    custom_tally_date=custom_tally_date,
                 )
                 return
 
@@ -5967,6 +6208,63 @@ class GSTR2BTallyApp(ctk.CTk):
         self.mapping_label.configure(text="No mapping loaded — all → Purchase Account",
                                       text_color=COLORS["text_muted"])
         self.log_panel.log("Mapping cleared — using default purchase ledger.", "info")
+
+    def _download_mapping_template(self):
+        initial_dir = self.output_dir or os.getcwd()
+        if not os.path.isdir(initial_dir):
+            initial_dir = os.getcwd()
+
+        save_path = filedialog.asksaveasfilename(
+            title="Save Mapping Template",
+            defaultextension=".xlsx",
+            initialfile="mapping_template.xlsx",
+            initialdir=initial_dir,
+            filetypes=[("Excel Files", "*.xlsx")],
+        )
+        if not save_path:
+            return
+
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Mapping Template"
+
+            headers = ["Party Ledger", "Mapping", "TDS Ledger", "TDS Rate"]
+            ws.append(headers)
+
+            # Keep template rows generic; do not include any client data.
+            sample_rows = [
+                ["SAMPLE PARTY A", "Office Maintenance", "", ""],
+                ["SAMPLE PARTY B", "Professional Fees", "TDS Payable On Professional 194J", 10],
+                ["SAMPLE PARTY C", "Contract Expense", "TDS Payable On Contract 194C", 2],
+            ]
+            for row in sample_rows:
+                ws.append(row)
+
+            widths = [38, 32, 38, 12]
+            for idx, (header, width) in enumerate(zip(headers, widths), start=1):
+                cell = ws.cell(row=1, column=idx)
+                cell.value = header
+                cell.font = Font(name="Calibri", size=11, bold=True)
+                ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
+
+            for r in range(2, 2 + len(sample_rows)):
+                rate_cell = ws.cell(row=r, column=4)
+                if rate_cell.value not in ("", None):
+                    rate_cell.number_format = "0.##"
+
+            wb.save(save_path)
+            wb.close()
+
+            self.log_panel.log(f"Mapping template saved: {Path(save_path).name}", "success")
+            messagebox.showinfo(
+                "Template Downloaded",
+                "Mapping template saved successfully.\n\n"
+                "The sample rows are placeholders (no client details).",
+            )
+        except Exception as exc:
+            self.log_panel.log(f"Could not save mapping template: {exc}", "error")
+            messagebox.showerror("Template Error", f"Could not save template.\n\n{exc}")
 
     def _browse_tally_sheet(self):
         filepath = filedialog.askopenfilename(title="Select Tally Sheet",

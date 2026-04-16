@@ -10,6 +10,7 @@ import os
 import re
 import html
 import threading
+import webbrowser
 import urllib.request
 import xml.etree.ElementTree as ET
 from urllib.error import HTTPError, URLError
@@ -156,6 +157,28 @@ def tally_date(dt) -> str:
                 continue
 
     return today
+
+
+def _normalize_manual_date_to_tally(date_text: str) -> str:
+    text = str(date_text or "").strip()
+    if not text:
+        raise ValueError("Custom date is empty.")
+
+    compact = re.sub(r"\s+", "", text)
+    if re.fullmatch(r"\d{8}", compact):
+        for fmt in ("%Y%m%d", "%d%m%Y"):
+            try:
+                return datetime.strptime(compact, fmt).strftime("%Y%m%d")
+            except ValueError:
+                continue
+
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%Y/%m/%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(text, fmt).strftime("%Y%m%d")
+        except ValueError:
+            continue
+
+    raise ValueError("Invalid custom date format. Use DD/MM/YYYY, DD-MM-YYYY, or YYYY-MM-DD.")
 
 
 def _row_get(row: dict, key: str, default=None):
@@ -365,6 +388,22 @@ def _parent_group_key(value) -> str:
     return _normalize_ledger_name(value).replace("&", "and").upper()
 
 
+def _state_name_from_gstin(gstin: str) -> str:
+    gstin_text = _normalize_ledger_name(gstin).upper()
+    state_map = {
+        "01": "Jammu And Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
+        "05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh",
+        "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur",
+        "15": "Mizoram", "16": "Tripura", "17": "Meghalaya", "18": "Assam", "19": "West Bengal",
+        "20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh",
+        "24": "Gujarat", "25": "Daman And Diu", "26": "Dadra And Nagar Haveli And Daman And Diu",
+        "27": "Maharashtra", "29": "Karnataka", "30": "Goa", "31": "Lakshadweep", "32": "Kerala",
+        "33": "Tamil Nadu", "34": "Puducherry", "35": "Andaman And Nicobar Islands", "36": "Telangana",
+        "37": "Andhra Pradesh", "38": "Ladakh", "97": "Other Territory", "99": "Centre Jurisdiction",
+    }
+    return state_map.get(gstin_text[:2], "")
+
+
 def _fetch_tally_ledgers(tally_url: str, timeout: float = 15.0, company_name: str = "") -> dict:
     selected_company = _normalize_company_name(company_name)
     static_vars = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
@@ -509,6 +548,8 @@ def _create_tally_ledger(
 
     gstin_clean = _normalize_ledger_name(gstin).upper()
     state_clean = _normalize_ledger_name(state)
+    if not state_clean and gstin_clean:
+        state_clean = _state_name_from_gstin(gstin_clean)
     country_clean = _normalize_ledger_name(country) or "India"
     pincode_clean = _normalize_ledger_name(pincode)
     mailing_clean = _normalize_ledger_name(mailing_name) or name
@@ -724,7 +765,14 @@ def _normalize_note_type(value: str) -> str:
     return "Credit Note"
 
 
-def generate_note_xml(rows: list, company: str, use_today_date: bool = False, voucher_type: str = "Credit Note") -> tuple:
+def generate_note_xml(
+    rows: list,
+    company: str,
+    use_today_date: bool = False,
+    date_mode: str = "",
+    custom_tally_date: str = "",
+    voucher_type: str = "Credit Note",
+) -> tuple:
     """
     Note accounting logic:
     - Credit Note: party credited, particular/tax debited
@@ -749,13 +797,22 @@ def generate_note_xml(rows: list, company: str, use_today_date: bool = False, vo
     a("  <REQUESTDATA>")
 
     voucher_count = 0
+    resolved_mode = str(date_mode or ("current" if use_today_date else "excel")).strip().lower()
+    if resolved_mode not in {"current", "excel", "custom"}:
+        resolved_mode = "current" if use_today_date else "excel"
+    resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
 
     for idx, r in enumerate(rows):
         taxable = _row_float(r, "TaxableValue", 0.0)
         if taxable <= 0:
             continue
 
-        source_date = datetime.today() if use_today_date else _row_get(r, "Date", "")
+        if resolved_mode == "current":
+            source_date = datetime.today()
+        elif resolved_mode == "custom":
+            source_date = resolved_custom_date
+        else:
+            source_date = _row_get(r, "Date", "")
         dt = tally_date(source_date)
         vno_raw = _row_voucher_number(r, str(idx + 1))
 
@@ -857,8 +914,21 @@ def generate_note_xml(rows: list, company: str, use_today_date: bool = False, vo
     return "\n".join(lines), voucher_count
 
 
-def generate_credit_note_xml(rows: list, company: str, use_today_date: bool = False) -> tuple:
-    return generate_note_xml(rows, company=company, use_today_date=use_today_date, voucher_type="Credit Note")
+def generate_credit_note_xml(
+    rows: list,
+    company: str,
+    use_today_date: bool = False,
+    date_mode: str = "",
+    custom_tally_date: str = "",
+) -> tuple:
+    return generate_note_xml(
+        rows,
+        company=company,
+        use_today_date=use_today_date,
+        date_mode=date_mode,
+        custom_tally_date=custom_tally_date,
+        voucher_type="Credit Note",
+    )
 
 
 def read_excel(filepath: str, sheet: str = None) -> tuple:
@@ -895,9 +965,16 @@ class TallyNoteEntryApp(ctk.CTk):
         self.company_var = ctk.StringVar(value=self.company_placeholder)
         self.tally_host_var = ctk.StringVar(value="localhost")
         self.tally_port_var = ctk.StringVar(value="9000")
-        self.use_today_date_var = ctk.BooleanVar(value=False)
+        self.voucher_date_mode_var = ctk.StringVar(value="excel")
+        self.voucher_custom_date_var = ctk.StringVar(value="")
+        self.voucher_date_checks = {
+            "current": ctk.BooleanVar(value=False),
+            "excel": ctk.BooleanVar(value=True),
+            "custom": ctk.BooleanVar(value=False),
+        }
         self.note_type_options = ["Credit Note", "Debit Note"]
         self.note_type_var = ctk.StringVar(value="Credit Note")
+        self.workflow_demo_url = ""
 
         self.status_var = ctk.StringVar(value="Ready")
         self.connection_status_var = ctk.StringVar(value="Connection: Not checked")
@@ -941,7 +1018,12 @@ class TallyNoteEntryApp(ctk.CTk):
         self.save_xml_btn = None
         self.push_tally_btn = None
         self.template_btn = None
+        self.demo_btn = None
         self.party_ledger_status_label = None
+        self.voucher_date_current_cb = None
+        self.voucher_date_excel_cb = None
+        self.voucher_date_custom_cb = None
+        self.voucher_custom_date_entry = None
 
         self.create_party_name_entry = None
         self.create_party_parent_cb = None
@@ -997,18 +1079,6 @@ class TallyNoteEntryApp(ctk.CTk):
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=(6, 12))
 
-        self.today_date_checkbox = ctk.CTkCheckBox(
-            row_1,
-            text="Use Today Date For Vouchers",
-            variable=self.use_today_date_var,
-            font=("Segoe UI", 10, "bold"),
-            text_color=COLORS["text_secondary"],
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            border_color=COLORS["border"],
-        )
-        self.today_date_checkbox.pack(side="left", padx=(8, 12))
-
         self.connection_test_btn = ctk.CTkButton(
             row_1,
             text="Test Connection",
@@ -1022,6 +1092,80 @@ class TallyNoteEntryApp(ctk.CTk):
             command=self._check_tally_connection_thread,
         )
         self.connection_test_btn.pack(side="right")
+
+        self.demo_btn = ctk.CTkButton(
+            row_1,
+            text="▶ View Demo",
+            width=132,
+            height=32,
+            font=("Segoe UI", 10, "bold"),
+            fg_color="#DC2626",
+            hover_color="#B91C1C",
+            text_color="#FFFFFF",
+            corner_radius=8,
+            command=self._view_workflow_demo,
+        )
+        self.demo_btn.pack(side="right", padx=(0, 8))
+
+        row_date = ctk.CTkFrame(settings_card, fg_color="transparent")
+        row_date.pack(fill="x", padx=14, pady=(0, 4))
+        ctk.CTkLabel(row_date, text="Voucher Date", font=("Segoe UI", 10), text_color=COLORS["text_secondary"]).pack(side="left")
+
+        checks_wrap = ctk.CTkFrame(row_date, fg_color="transparent")
+        checks_wrap.pack(side="left", padx=(8, 12))
+
+        self.voucher_date_current_cb = ctk.CTkCheckBox(
+            checks_wrap,
+            text="Current Date",
+            variable=self.voucher_date_checks["current"],
+            font=("Segoe UI", 10),
+            text_color=COLORS["text_secondary"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            border_color=COLORS["border"],
+            command=lambda: self._set_voucher_date_mode("current"),
+        )
+        self.voucher_date_current_cb.pack(side="left", padx=(0, 8))
+
+        self.voucher_date_excel_cb = ctk.CTkCheckBox(
+            checks_wrap,
+            text="Excel Date",
+            variable=self.voucher_date_checks["excel"],
+            font=("Segoe UI", 10),
+            text_color=COLORS["text_secondary"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            border_color=COLORS["border"],
+            command=lambda: self._set_voucher_date_mode("excel"),
+        )
+        self.voucher_date_excel_cb.pack(side="left", padx=(0, 8))
+
+        self.voucher_date_custom_cb = ctk.CTkCheckBox(
+            checks_wrap,
+            text="Custom Date",
+            variable=self.voucher_date_checks["custom"],
+            font=("Segoe UI", 10),
+            text_color=COLORS["text_secondary"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            border_color=COLORS["border"],
+            command=lambda: self._set_voucher_date_mode("custom"),
+        )
+        self.voucher_date_custom_cb.pack(side="left")
+
+        self.voucher_custom_date_entry = ctk.CTkEntry(
+            row_date,
+            textvariable=self.voucher_custom_date_var,
+            width=180,
+            height=32,
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text="DD/MM/YYYY",
+            font=("Segoe UI", 10),
+        )
+        self.voucher_custom_date_entry.pack(side="right")
+        self._set_voucher_date_mode("excel")
 
         row_2 = ctk.CTkFrame(settings_card, fg_color="transparent")
         row_2.pack(fill="x", padx=14, pady=(0, 4))
@@ -1164,17 +1308,6 @@ class TallyNoteEntryApp(ctk.CTk):
         )
         self.push_tally_btn.pack(side="left")
 
-        self.template_btn = ctk.CTkButton(
-            action_bar,
-            text="Download Template",
-            fg_color="#94A3B8",
-            hover_color="#64748B",
-            text_color="#FFFFFF",
-            width=170,
-            command=self._download_template,
-        )
-        self.template_btn.pack(side="right", padx=10, pady=10)
-
         status_bar = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=0, height=32)
         status_bar.grid(row=3, column=0, sticky="ew")
         status_bar.grid_propagate(False)
@@ -1188,8 +1321,22 @@ class TallyNoteEntryApp(ctk.CTk):
         self.after(200, lambda: self._fetch_tally_companies_thread(silent=True))
 
     def _build_excel_tab(self, parent):
+        template_row = ctk.CTkFrame(parent, fg_color="transparent")
+        template_row.pack(fill="x", padx=10, pady=(10, 4))
+
+        self.template_btn = ctk.CTkButton(
+            template_row,
+            text="Download Template",
+            fg_color="#94A3B8",
+            hover_color="#64748B",
+            text_color="#FFFFFF",
+            width=170,
+            command=self._download_template,
+        )
+        self.template_btn.pack(side="right")
+
         load_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        load_frame.pack(fill="x", padx=10, pady=(10, 5))
+        load_frame.pack(fill="x", padx=10, pady=(0, 5))
 
         ctk.CTkEntry(
             load_frame,
@@ -2032,6 +2179,50 @@ class TallyNoteEntryApp(ctk.CTk):
     def _get_tally_url(self):
         return _build_tally_url(self.tally_host_var.get(), self.tally_port_var.get())
 
+    def _set_voucher_date_mode(self, selected_mode: str):
+        mode = str(selected_mode or "excel").strip().lower()
+        if mode not in {"current", "excel", "custom"}:
+            mode = "excel"
+
+        self.voucher_date_mode_var.set(mode)
+        for key, var in self.voucher_date_checks.items():
+            var.set(key == mode)
+
+        if self.voucher_custom_date_entry is not None:
+            self.voucher_custom_date_entry.configure(
+                state="normal" if (mode == "custom" and not self._push_running) else "disabled"
+            )
+
+    def _get_voucher_date_selection(self):
+        mode = str(self.voucher_date_mode_var.get() or "excel").strip().lower()
+        if mode not in {"current", "excel", "custom"}:
+            mode = "excel"
+            self._set_voucher_date_mode(mode)
+
+        custom_tally_date = ""
+        if mode == "custom":
+            custom_raw = (self.voucher_custom_date_var.get() or "").strip()
+            if not custom_raw:
+                raise ValueError("Enter custom date or select Current Date / Excel Date.")
+            custom_tally_date = _normalize_manual_date_to_tally(custom_raw)
+
+        return mode, custom_tally_date
+
+    def _view_workflow_demo(self):
+        demo_url = (self.workflow_demo_url or "").strip()
+        if demo_url:
+            try:
+                webbrowser.open(demo_url)
+                return
+            except Exception as exc:
+                messagebox.showwarning("View Demo", f"Could not open demo link.\n\n{exc}")
+                return
+
+        messagebox.showinfo(
+            "View Demo",
+            "Demo link is not set yet.\n\nSet self.workflow_demo_url in code to your YouTube link later.",
+        )
+
     def _append_debug_log(self, xml_payload: str, response_text: str, parsed: dict, note: str = ""):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         lines = [
@@ -2212,6 +2403,7 @@ class TallyNoteEntryApp(ctk.CTk):
             self.save_xml_btn,
             self.push_tally_btn,
             self.template_btn,
+            self.demo_btn,
             self.manual_fetch_ledger_btn,
             self.manual_party_search_clear_btn,
             self.create_party_fetch_btn,
@@ -2227,6 +2419,13 @@ class TallyNoteEntryApp(ctk.CTk):
             self.manual_party_ledger_combo.configure(state="disabled" if is_loading else "readonly")
         if self.note_type_combo is not None:
             self.note_type_combo.configure(state="disabled" if is_loading else "readonly")
+        if self.voucher_date_current_cb is not None:
+            self.voucher_date_current_cb.configure(state=state)
+        if self.voucher_date_excel_cb is not None:
+            self.voucher_date_excel_cb.configure(state=state)
+        if self.voucher_date_custom_cb is not None:
+            self.voucher_date_custom_cb.configure(state=state)
+        self._set_voucher_date_mode(self.voucher_date_mode_var.get())
 
         for btn in self.manual_action_buttons:
             btn.configure(state=state)
@@ -2546,10 +2745,12 @@ class TallyNoteEntryApp(ctk.CTk):
             return
 
         try:
+            date_mode, custom_tally_date = self._get_voucher_date_selection()
             xml_payload, voucher_count = generate_note_xml(
                 rows,
                 company=company,
-                use_today_date=bool(self.use_today_date_var.get()),
+                date_mode=date_mode,
+                custom_tally_date=custom_tally_date,
                 voucher_type=note_type,
             )
             if voucher_count <= 0:
