@@ -267,6 +267,7 @@ F_MONO     = ("Consolas", 12)
 F_MONO_LG  = ("Consolas", 13)
 F_TAB      = ("Segoe UI", 11, "bold")
 F_COL_HDR  = ("Segoe UI", 11, "bold")
+DEMO_VIDEO_URL = "https://www.youtube.com/watch?v=MkLX85XU5rU"
 
 class CustomDatePicker(ctk.CTkToplevel):
     def __init__(self, parent, target_var):
@@ -379,6 +380,7 @@ class BulkMailApp(ctk.CTk):
         ctk.CTkButton(self.bottom_bar, text="  Send All Emails  →", font=F_BTN_LG, height=45, fg_color="#2563EB", hover_color="#1D4ED8", command=self._start_send).pack(side="right", padx=(10, 20), pady=10)
         ctk.CTkButton(self.bottom_bar, text="Preview Email", height=45, fg_color="transparent", border_width=1, text_color=("black", "white"), command=self._show_preview).pack(side="right", padx=(5, 0), pady=10)
         ctk.CTkButton(self.bottom_bar, text="Check Data", height=45, fg_color="transparent", border_width=1, text_color=("black", "white"), command=self._check_data).pack(side="right", padx=(5, 0), pady=10)
+        ctk.CTkButton(self.bottom_bar, text="▶ View Demo", height=45, fg_color="#DC2626", hover_color="#B91C1C", text_color="white", command=self.open_demo_link).pack(side="right", padx=(5, 0), pady=10)
 
         self._nb = ctk.CTkTabview(self)
         self._nb.pack(fill="both", expand=True, padx=20, pady=(10, 10))
@@ -709,6 +711,10 @@ class BulkMailApp(ctk.CTk):
         self._log_box.configure(state="normal")
         self._log_box.delete("1.0", "end")
         self._log_box.configure(state="disabled")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab(DEMO_VIDEO_URL)
 
     def _show_preview(self):
         cfg  = self._get_config()
