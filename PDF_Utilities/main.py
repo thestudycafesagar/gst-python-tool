@@ -195,6 +195,7 @@ F_H3      = ("Segoe UI", 10, "bold")
 F_SMALL   = ("Segoe UI", 9)
 F_CAPTION = ("Segoe UI", 8)
 F_MONO    = ("Consolas", 9)
+PDF_DEMO_URL = "https://www.youtube.com/watch?v=XXXXXXXXXX"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -611,9 +612,21 @@ class StatusBar(tk.Frame):
 
 # ── shared helpers ───────────────────────────────────────────────
 
+def _open_pdf_demo_link():
+    import webbrowser
+    webbrowser.open_new_tab(PDF_DEMO_URL)
+
 def _page_title(parent, title: str, subtitle: str):
-    tk.Label(parent, text=title, font=F_H1,
-             bg=TM["bg"], fg=TM["text"]).pack(anchor="w", padx=20, pady=(18, 2))
+    top = tk.Frame(parent, bg=TM["bg"])
+    top.pack(fill="x", padx=20, pady=(18, 2))
+
+    tk.Label(top, text=title, font=F_H1,
+             bg=TM["bg"], fg=TM["text"]).pack(side="left", anchor="w")
+
+    ModernButton(top, "▶ View Demo", _open_pdf_demo_link,
+                 bg=TM["danger"], hover_bg=TM["dangerh"],
+                 font=F_SMALL, padx=12, pady=5, radius=6).pack(side="right")
+
     tk.Label(parent, text=subtitle, font=F_SMALL,
              bg=TM["bg"], fg=TM["subtext"]).pack(anchor="w", padx=20, pady=(0, 12))
 
@@ -1415,6 +1428,7 @@ class RedactTab(tk.Frame):
         self._sec(p, "📁  FILE OPERATIONS")
         self._btn(p, "📂  Open PDF",         self.open_pdf,  _RC["accent3"], pad=pad)
         self._btn(p, "💾  Save Redacted PDF", self.save_pdf,  _RC["accent1"], pad=pad)
+        self._btn(p, "▶  View Demo",         _open_pdf_demo_link, _RC["accent1"], pad=pad)
 
         self._sec(p, "🔖  NAVIGATION")
         nav = tk.Frame(p, bg=_RC["panel"])

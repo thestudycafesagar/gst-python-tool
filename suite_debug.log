@@ -5490,3 +5490,31 @@
 [2026-04-16 11:18:44] activate_tab start cat=gmail tab=💰  Payment Reminder module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py exists=True tk=False
 [2026-04-16 11:18:45] main_import cache_hit tab=💰  Payment Reminder module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py
 [2026-04-16 11:18:45] instantiate success tab=💰  Payment Reminder instance=PaymentReminderMailApp
+[2026-04-16 13:02:41] dependency warmup start
+[2026-04-16 13:02:42] warmup ok pandas
+[2026-04-16 13:02:42] warmup ok numpy
+[2026-04-16 13:02:43] warmup ok openpyxl
+[2026-04-16 13:02:43] warmup ok fitz
+[2026-04-16 13:02:43] warmup ok pdfplumber
+[2026-04-16 13:02:43] warmup ok pdfminer
+[2026-04-16 13:02:43] warmup ok selenium
+[2026-04-16 13:02:43] warmup ok webdriver_manager
+[2026-04-16 13:02:43] warmup ok requests
+[2026-04-16 13:02:43] warmup ok PIL
+[2026-04-16 13:02:43] dependency warmup done
+[2026-04-16 13:02:44] activate_tab start cat=pdf tab=⊕  Merge module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-04-16 13:02:44] main_import begin tab=⊕  Merge uid=_suite_mod_0_PDF_Utilities
+[2026-04-16 13:02:44] main_import success tab=⊕  Merge class=MergeApp
+[2026-04-16 13:02:44] instantiate success tab=⊕  Merge instance=MergeApp
+[2026-04-16 13:02:48] activate_tab start cat=pdf tab=✂  Split module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-04-16 13:02:48] main_import cache_hit tab=✂  Split module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
+[2026-04-16 13:02:48] instantiate success tab=✂  Split instance=SplitApp
+[2026-04-16 13:02:50] activate_tab start cat=pdf tab=⊙  Extract module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-04-16 13:02:50] main_import cache_hit tab=⊙  Extract module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
+[2026-04-16 13:02:50] instantiate success tab=⊙  Extract instance=ExtractApp
+[2026-04-16 13:02:52] activate_tab start cat=pdf tab=⊜  Compress module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-04-16 13:02:52] main_import cache_hit tab=⊜  Compress module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
+[2026-04-16 13:02:52] instantiate success tab=⊜  Compress instance=CompressApp
+[2026-04-16 13:02:53] activate_tab start cat=pdf tab=⬛  Redact module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-04-16 13:02:53] main_import cache_hit tab=⬛  Redact module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
+[2026-04-16 13:02:53] instantiate success tab=⬛  Redact instance=RedactApp
