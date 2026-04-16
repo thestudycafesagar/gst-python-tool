@@ -788,12 +788,20 @@ class GSTWorker:
     def download_gstr2b(self, wait, download_path):
         """ Returns (Bool, Message) """
         self.log("   🔍 Searching for GSTR-2B tile view button...")
+        
+        period_mode = self.settings.get('period_mode', 'Monthly')
 
-        view_btn_xpaths = [
-            "//div[contains(@class,'col-sm-4') and .//p[contains(normalize-space(),'GSTR2B') or contains(normalize-space(),'GSTR2BQ')]]//button[normalize-space()='View']",
-            "//div[contains(@class,'col-sm-4') and .//p[contains(normalize-space(),'GSTR2B') or contains(normalize-space(),'GSTR2BQ')]]//button[contains(normalize-space(),'View')]",
-            "//p[contains(normalize-space(),'GSTR2B') or contains(normalize-space(),'GSTR2BQ')]/ancestor::div[contains(@class,'col-sm-4')]//button[contains(normalize-space(),'View')]",
-        ]
+        if period_mode == "Quarterly":
+            view_btn_xpaths = [
+                "//div[contains(@class,'col-sm-4') and .//p[contains(normalize-space(),'Quarterly View') or contains(normalize-space(),'GSTR2BQ')]]//button[contains(normalize-space(),'View')]",
+                "//p[contains(normalize-space(),'Quarterly View') or contains(normalize-space(),'GSTR2BQ')]/ancestor::div[contains(@class,'col-sm-4')]//button[contains(normalize-space(),'View')]"
+            ]
+        else:
+            view_btn_xpaths = [
+                "//div[contains(@class,'col-sm-4') and .//p[contains(normalize-space(),'GSTR2B') or contains(normalize-space(),'GSTR2BQ')]]//button[normalize-space()='View']",
+                "//div[contains(@class,'col-sm-4') and .//p[contains(normalize-space(),'GSTR2B') or contains(normalize-space(),'GSTR2BQ')]]//button[contains(normalize-space(),'View')]",
+                "//p[contains(normalize-space(),'GSTR2B') or contains(normalize-space(),'GSTR2BQ')]/ancestor::div[contains(@class,'col-sm-4')]//button[contains(normalize-space(),'View')]",
+            ]
 
         view_btn = None
         for attempt in range(2): # allow 1 refresh if not found
@@ -1112,6 +1120,7 @@ class App(ctk.CTk):
         else: vals = ["April", "May", "June"]
         if not hasattr(self, "cb_month"):
             return
+        
         prev_month_state = self.cb_month.cget("state")
         if prev_month_state != "normal":
             self.cb_month.configure(state="normal")

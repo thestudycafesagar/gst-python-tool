@@ -5458,63 +5458,47 @@
 [2026-04-15 15:07:49] main_import begin tab=📥  GSTR-2B uid=_suite_mod_1_GST_2B_Downloader
 [2026-04-15 15:07:49] main_import success tab=📥  GSTR-2B class=App
 [2026-04-15 15:07:49] instantiate success tab=📥  GSTR-2B instance=App
-[2026-04-16 11:17:05] dependency warmup start
-[2026-04-16 11:17:12] warmup ok pandas
-[2026-04-16 11:17:12] warmup ok numpy
-[2026-04-16 11:17:13] warmup ok openpyxl
-[2026-04-16 11:17:16] warmup ok fitz
-[2026-04-16 11:17:16] warmup ok pdfplumber
-[2026-04-16 11:17:16] warmup ok pdfminer
-[2026-04-16 11:17:16] warmup ok selenium
-[2026-04-16 11:17:16] warmup ok webdriver_manager
-[2026-04-16 11:17:17] warmup ok requests
-[2026-04-16 11:17:17] warmup ok PIL
-[2026-04-16 11:17:17] dependency warmup done
-[2026-04-16 11:18:08] activate_tab start cat=email tab=📋  GST Return Request module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Outlook Email Tools\main.py exists=True tk=False
-[2026-04-16 11:18:09] main_import begin tab=📋  GST Return Request uid=_suite_mod_0_Outlook_Email_Tools
-[2026-04-16 11:18:09] main_import success tab=📋  GST Return Request class=GSTReturnMailApp
-[2026-04-16 11:18:09] instantiate success tab=📋  GST Return Request instance=GSTReturnMailApp
-[2026-04-16 11:18:14] activate_tab start cat=email tab=🧾  Invoice Sender module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Outlook Email Tools\main.py exists=True tk=False
-[2026-04-16 11:18:14] main_import cache_hit tab=🧾  Invoice Sender module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Outlook Email Tools\main.py
-[2026-04-16 11:18:14] instantiate success tab=🧾  Invoice Sender instance=InvoiceSenderMailApp
-[2026-04-16 11:18:15] activate_tab start cat=email tab=💰  Payment Reminder module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Outlook Email Tools\main.py exists=True tk=False
-[2026-04-16 11:18:16] main_import cache_hit tab=💰  Payment Reminder module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Outlook Email Tools\main.py
-[2026-04-16 11:18:16] instantiate success tab=💰  Payment Reminder instance=PaymentReminderMailApp
-[2026-04-16 11:18:31] activate_tab start cat=gmail tab=📋  GST Return Request module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py exists=True tk=False
-[2026-04-16 11:18:31] main_import begin tab=📋  GST Return Request uid=_suite_mod_1_Gmail-Tools
-[2026-04-16 11:18:31] main_import success tab=📋  GST Return Request class=GSTReturnMailApp
-[2026-04-16 11:18:31] instantiate success tab=📋  GST Return Request instance=GSTReturnMailApp
-[2026-04-16 11:18:43] activate_tab start cat=gmail tab=🧾  Invoice Sender module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py exists=True tk=False
-[2026-04-16 11:18:43] main_import cache_hit tab=🧾  Invoice Sender module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py
-[2026-04-16 11:18:43] instantiate success tab=🧾  Invoice Sender instance=InvoiceSenderMailApp
-[2026-04-16 11:18:44] activate_tab start cat=gmail tab=💰  Payment Reminder module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py exists=True tk=False
-[2026-04-16 11:18:45] main_import cache_hit tab=💰  Payment Reminder module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py
-[2026-04-16 11:18:45] instantiate success tab=💰  Payment Reminder instance=PaymentReminderMailApp
-[2026-04-16 13:02:41] dependency warmup start
-[2026-04-16 13:02:42] warmup ok pandas
-[2026-04-16 13:02:42] warmup ok numpy
-[2026-04-16 13:02:43] warmup ok openpyxl
-[2026-04-16 13:02:43] warmup ok fitz
-[2026-04-16 13:02:43] warmup ok pdfplumber
-[2026-04-16 13:02:43] warmup ok pdfminer
-[2026-04-16 13:02:43] warmup ok selenium
-[2026-04-16 13:02:43] warmup ok webdriver_manager
-[2026-04-16 13:02:43] warmup ok requests
-[2026-04-16 13:02:43] warmup ok PIL
-[2026-04-16 13:02:43] dependency warmup done
-[2026-04-16 13:02:44] activate_tab start cat=pdf tab=⊕  Merge module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
-[2026-04-16 13:02:44] main_import begin tab=⊕  Merge uid=_suite_mod_0_PDF_Utilities
-[2026-04-16 13:02:44] main_import success tab=⊕  Merge class=MergeApp
-[2026-04-16 13:02:44] instantiate success tab=⊕  Merge instance=MergeApp
-[2026-04-16 13:02:48] activate_tab start cat=pdf tab=✂  Split module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
-[2026-04-16 13:02:48] main_import cache_hit tab=✂  Split module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
-[2026-04-16 13:02:48] instantiate success tab=✂  Split instance=SplitApp
-[2026-04-16 13:02:50] activate_tab start cat=pdf tab=⊙  Extract module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
-[2026-04-16 13:02:50] main_import cache_hit tab=⊙  Extract module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
-[2026-04-16 13:02:50] instantiate success tab=⊙  Extract instance=ExtractApp
-[2026-04-16 13:02:52] activate_tab start cat=pdf tab=⊜  Compress module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
-[2026-04-16 13:02:52] main_import cache_hit tab=⊜  Compress module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
-[2026-04-16 13:02:52] instantiate success tab=⊜  Compress instance=CompressApp
-[2026-04-16 13:02:53] activate_tab start cat=pdf tab=⬛  Redact module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
-[2026-04-16 13:02:53] main_import cache_hit tab=⬛  Redact module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
-[2026-04-16 13:02:53] instantiate success tab=⬛  Redact instance=RedactApp
+[2026-04-15 15:34:39] dependency warmup start
+[2026-04-15 15:34:40] warmup ok pandas
+[2026-04-15 15:34:40] warmup ok numpy
+[2026-04-15 15:34:40] warmup ok openpyxl
+[2026-04-15 15:34:41] warmup ok fitz
+[2026-04-15 15:34:41] warmup ok pdfplumber
+[2026-04-15 15:34:41] warmup ok pdfminer
+[2026-04-15 15:34:41] warmup ok selenium
+[2026-04-15 15:34:41] warmup ok webdriver_manager
+[2026-04-15 15:34:41] warmup ok requests
+[2026-04-15 15:34:41] warmup ok PIL
+[2026-04-15 15:34:41] dependency warmup done
+[2026-04-16 11:45:45] dependency warmup start
+[2026-04-16 11:45:46] warmup ok pandas
+[2026-04-16 11:45:46] warmup ok numpy
+[2026-04-16 11:45:47] warmup ok openpyxl
+[2026-04-16 11:45:48] warmup ok fitz
+[2026-04-16 11:45:50] warmup ok pdfplumber
+[2026-04-16 11:45:50] warmup ok pdfminer
+[2026-04-16 11:45:50] warmup ok selenium
+[2026-04-16 11:45:50] warmup ok webdriver_manager
+[2026-04-16 11:45:50] warmup ok requests
+[2026-04-16 11:45:50] warmup ok PIL
+[2026-04-16 11:45:50] dependency warmup done
+[2026-04-16 11:46:03] activate_tab start cat=tally tab=🧾  GSTR-2B → Tally module=c:\Users\user\Desktop\rohit tool\gst-python-tool\tally tool\main.py exists=True tk=False
+[2026-04-16 11:46:03] main_import begin tab=🧾  GSTR-2B → Tally uid=_suite_mod_0_tally_tool
+[2026-04-16 11:46:03] main_import success tab=🧾  GSTR-2B → Tally class=GSTR2BTallyApp
+[2026-04-16 11:46:05] instantiate success tab=🧾  GSTR-2B → Tally instance=GSTR2BTallyApp
+[2026-04-16 13:03:19] dependency warmup start
+[2026-04-16 13:03:22] warmup ok pandas
+[2026-04-16 13:03:22] warmup ok numpy
+[2026-04-16 13:03:22] activate_tab start cat=gst tab=📥  GSTR-2B module=c:\Users\user\Desktop\rohit tool\gst-python-tool\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-04-16 13:03:23] main_import begin tab=📥  GSTR-2B uid=_suite_mod_0_GST_2B_Downloader
+[2026-04-16 13:03:23] warmup ok openpyxl
+[2026-04-16 13:03:23] warmup ok fitz
+[2026-04-16 13:03:25] main_import success tab=📥  GSTR-2B class=App
+[2026-04-16 13:03:26] instantiate success tab=📥  GSTR-2B instance=App
+[2026-04-16 13:03:27] warmup ok pdfplumber
+[2026-04-16 13:03:27] warmup ok pdfminer
+[2026-04-16 13:03:27] warmup ok selenium
+[2026-04-16 13:03:27] warmup ok webdriver_manager
+[2026-04-16 13:03:27] warmup ok requests
+[2026-04-16 13:03:27] warmup ok PIL
+[2026-04-16 13:03:27] dependency warmup done

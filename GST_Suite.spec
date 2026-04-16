@@ -101,6 +101,7 @@ hiddenimports = [
     'tkinter.messagebox',
     'tkinter.simpledialog',
     'tkinter.font',
+    'stealth_driver',
 ]
 
 for pkg in ('customtkinter', 'darkdetect', 'selenium', 'webdriver_manager',

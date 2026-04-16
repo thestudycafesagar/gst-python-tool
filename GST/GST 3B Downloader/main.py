@@ -719,6 +719,7 @@ class App(ctk.CTk):
         else: vals = ["April", "May", "June"]
         if not hasattr(self, "cb_month"):
             return
+        
         prev_month_state = self.cb_month.cget("state")
         if prev_month_state != "normal":
             self.cb_month.configure(state="normal")
