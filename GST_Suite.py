@@ -206,7 +206,7 @@ import subprocess
 from datetime import datetime
 
 # ── Version & Update Manifest ─────────────────────────────────────────────────
-VERSION            = "1.0.9"
+VERSION            = "1.0.11"
 # !! REPLACE 'YOURNAME' and 'YOURREPO' with your actual GitHub username and
 #    the public releases repo you created (e.g. gst-suite-releases).
 UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/thestudycafesagar/gst-suite-releases/main/latest.json"
@@ -1224,15 +1224,17 @@ class GSTSuite(_RealCTk):
         # ── Row 1: GST · IT · PDF ─────────────────────────────────────────────
 
         def _sub(tools):
+            visible_tools = [t for t in tools if not t.get("hide_tab", False)]
             if getattr(self, '_allowed', None) is None:
-                return f"{len(tools)} module{'s' if len(tools) != 1 else ''}"   
-            n = sum(1 for t in tools if self._is_tool_allowed(t.get("key")))    
-            return f"{n} of {len(tools)} modules"
+                return f"{len(visible_tools)} module{'s' if len(visible_tools) != 1 else ''}"   
+            n = sum(1 for t in visible_tools if self._is_tool_allowed(t.get("key")))    
+            return f"{n} of {len(visible_tools)} modules"
 
         def _disabled(tools):
+            visible_tools = [t for t in tools if not t.get("hide_tab", False)]
             if getattr(self, '_allowed', None) is None:
                 return False
-            return not any(self._is_tool_allowed(t.get("key")) for t in tools)  
+            return not any(self._is_tool_allowed(t.get("key")) for t in visible_tools)  
         # ── Dynamic 3x3 Grid Layout ───────────────────────────────────────────
         categories = [
             (GST_TOOLS, "🏛", "GST Tools", "Downloads, converters & verifiers\nfor GST portal automation.", _C["gst_acc"], _C["gst_bg"], _C["gst_hover"], lambda: self._show_category("gst")),
@@ -1448,7 +1450,7 @@ class GSTSuite(_RealCTk):
 
         # Tool tabs (lazy; locked tabs get placeholder immediately)
         for t in tools:
-            if t.get("is_card_only"):
+            if t.get("is_card_only") or t.get("hide_tab", False):
                 continue
             tv.add(t["tab"])
             if not self._is_tool_allowed(t.get("key")):
@@ -1534,7 +1536,7 @@ class GSTSuite(_RealCTk):
                      text_color=acc).pack(side="left")
         badge = ctk.CTkFrame(tr, fg_color=acc, corner_radius=20)
         badge.pack(side="left", padx=(12, 0))
-        visible_tools = [t for t in tools if not t.get("hide_card", False)]
+        visible_tools = [t for t in tools if not t.get("hide_card", False) and not t.get("hide_tab", False)]
         ctk.CTkLabel(badge, text=f"  {len(visible_tools)} Tools  ",
                      font=("Segoe UI", 10, "bold"),
                      text_color="#ffffff").pack(padx=4, pady=4)
@@ -2140,11 +2142,28 @@ class LoginWindow(_RealCTk):
                      font=("Segoe UI", 11, "bold"),
                      text_color=("#475569", "#94a3b8"),
                      anchor="w").pack(fill="x")
-        self._pass_entry = ctk.CTkEntry(wrap, placeholder_text="Enter your password",
+        
+        pass_frame = ctk.CTkFrame(wrap, fg_color="transparent")
+        pass_frame.pack(fill="x", pady=(4, 6))
+        
+        self._pass_entry = ctk.CTkEntry(pass_frame, placeholder_text="Enter your password",
                                         show="●", height=40, corner_radius=8,
                                         font=("Segoe UI", 13))
-        self._pass_entry.pack(fill="x", pady=(4, 6))
+        self._pass_entry.pack(side="left", expand=True, fill="x")
         self._pass_entry.bind("<Return>", lambda e: self._do_login())
+
+        def _toggle_pass():
+            if self._pass_entry.cget("show") == "":
+                self._pass_entry.configure(show="●")
+                eye_btn.configure(text="👁")
+            else:
+                self._pass_entry.configure(show="")
+                eye_btn.configure(text="🔒")
+
+        eye_btn = ctk.CTkButton(pass_frame, text="👁", width=35, height=40, 
+                                fg_color="transparent", text_color=("#475569", "#94a3b8"),
+                                hover_color=("#e2e8f0", "#334155"), command=_toggle_pass)
+        eye_btn.pack(side="right", padx=(5, 0))
 
         # Status / error label
         self._status_lbl = ctk.CTkLabel(wrap, text="",

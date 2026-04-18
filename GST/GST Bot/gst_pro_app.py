@@ -416,18 +416,18 @@ class GSTApp(ctk.CTk):
         self.lbl_step1 = ctk.CTkLabel(self.frame_file, text="STEP 1: Upload Data", font=("Segoe UI", 14, "bold"))
         self.lbl_step1.pack(anchor="w", padx=15, pady=(10, 5))
         
-        self.file_entry = ctk.CTkEntry(self.frame_file, placeholder_text="Add ID/Password manually...", width=400)
+        self.file_entry = ctk.CTkEntry(self.frame_file, placeholder_text="Add GSTIN manually (e.g., 27ABCDE1234F1Z5)...", width=400)
         self.file_entry.pack(side="left", padx=15, pady=(0, 15), expand=True, fill="x")
         
         self.btn_demo = ctk.CTkButton(self.frame_file, text="▶ View Demo", command=self.open_demo_link, fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"))
         self.btn_demo.pack(side="right", padx=(0, 5), pady=(0, 15))
-        self.btn_download = ctk.CTkButton(self.frame_file, text="➕ Add ID Password", command=self.add_id_password, fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"))
+        self.btn_download = ctk.CTkButton(self.frame_file, text="➕ Add GSTIN", command=self.add_id_password, fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"))
         self.btn_download.pack(side="right", padx=15, pady=(0, 15))
-        self.btn_view_id = ctk.CTkButton(self.frame_file, text="👁 View ID", command=self.view_saved_user,
+        self.btn_view_id = ctk.CTkButton(self.frame_file, text="👁 View GSTIN", command=self.view_saved_user,
                          fg_color="#475569", hover_color="#334155", height=28,
                          font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="right", padx=(0, 5), pady=(0, 15))
-        self.btn_delete_id = ctk.CTkButton(self.frame_file, text="🗑 Delete ID", command=self.delete_saved_user,
+        self.btn_delete_id = ctk.CTkButton(self.frame_file, text="🗑 Delete GSTIN", command=self.delete_saved_user,
                            fg_color="#7C3AED", hover_color="#6D28D9", height=28,
                            font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="right", padx=(0, 5), pady=(0, 15))
@@ -513,31 +513,31 @@ class GSTApp(ctk.CTk):
         if has_manual:
             user_id = self._get_saved_user_id()
             self.file_entry.delete(0, "end")
-            self.file_entry.insert(0, f"Selected ID: {user_id}")
+            self.file_entry.insert(0, f"Selected GSTIN: {user_id}")
 
     def view_saved_user(self):
         user_id = self._get_saved_user_id()
         if not user_id:
-            messagebox.showinfo("Info", "No saved ID found.")
+            messagebox.showinfo("Info", "No saved GSTIN found.")
             return
-        messagebox.showinfo("Saved User ID", f"Current ID: {user_id}")
+        messagebox.showinfo("Saved GSTIN", f"Current GSTIN: {user_id}")
 
     def delete_saved_user(self):
         user_id = self._get_saved_user_id()
         if not user_id:
-            messagebox.showinfo("Info", "No saved ID found.")
+            messagebox.showinfo("Info", "No saved GSTIN found.")
             return
-        if not messagebox.askyesno("Delete ID", f"Delete saved ID {user_id}?"):
+        if not messagebox.askyesno("Delete GSTIN", f"Delete saved GSTIN {user_id}?"):
             return
         self.manual_credentials = []
         self.file_entry.delete(0, "end")
         self._refresh_manual_controls()
-        messagebox.showinfo("Deleted", "Saved ID deleted successfully.")
+        messagebox.showinfo("Deleted", "Saved GSTIN deleted successfully.")
 
     def add_id_password(self):
         dialog = ctk.CTkToplevel(self)
-        dialog.title("Add ID Password")
-        dialog.geometry("420x240")
+        dialog.title("Add GSTIN")
+        dialog.geometry("420x180")
         dialog.resizable(False, False)
         dialog.transient(self)
         dialog.grab_set()
@@ -545,35 +545,38 @@ class GSTApp(ctk.CTk):
         card = ctk.CTkFrame(dialog, fg_color="transparent")
         card.pack(fill="both", expand=True, padx=16, pady=16)
 
-        ctk.CTkLabel(card, text="GST ID/Username").pack(anchor="w")
-        ent_user = ctk.CTkEntry(card, placeholder_text="Enter GST ID/Username")
-        ent_user.pack(fill="x", pady=(4, 10))
-
-        ctk.CTkLabel(card, text="GST Password").pack(anchor="w")
-        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter GST Password", show="*")
-        ent_pass.pack(fill="x", pady=(4, 14))
+        ctk.CTkLabel(card, text="GSTIN").pack(anchor="w")
+        ent_user = ctk.CTkEntry(card, placeholder_text="Enter GSTIN (e.g., 27ABCDE1234F1Z5)")
+        ent_user.pack(fill="x", pady=(4, 14))
 
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
         btn_row.pack(fill="x")
 
         def _save():
-            username = (ent_user.get() or "").strip()
-            password = (ent_pass.get() or "").strip()
-            if not username or not password:
-                messagebox.showerror("Missing Data", "Please enter both GST ID and Password", parent=dialog)
+            username = (ent_user.get() or "").strip().upper()
+            if not username:
+                messagebox.showerror("Missing Data", "Please enter GSTIN", parent=dialog)
+                return
+
+            if len(username) != 15 or not username.isalnum():
+                messagebox.showerror(
+                    "Invalid GSTIN",
+                    "Please enter a valid 15-character GSTIN.\nExample: 27ABCDE1234F1Z5",
+                    parent=dialog,
+                )
                 return
 
             existing_user = self._get_saved_user_id()
             if existing_user and not messagebox.askyesno(
-                "Overwrite ID",
-                "Your previous ID will be overwritten with this.",
+                "Overwrite GSTIN",
+                "Your previous GSTIN will be overwritten with this.",
                 parent=dialog
             ):
                 return
 
-            self.manual_credentials = [{"Username": username, "Password": password}]
+            self.manual_credentials = [{"Username": username}]
             self._refresh_manual_controls()
-            messagebox.showinfo("Added", f"Credential saved for {username}", parent=dialog)
+            messagebox.showinfo("Added", f"GSTIN saved: {username}", parent=dialog)
             dialog.destroy()
 
         ctk.CTkButton(btn_row, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
@@ -597,7 +600,7 @@ class GSTApp(ctk.CTk):
         ]
 
         if not file_path and not manual_gstins:
-            messagebox.showwarning("Warning", "Please add ID/Password first!")
+            messagebox.showwarning("Warning", "Please add GSTIN first!")
             return
         
         self.frame_captcha.grid()

@@ -816,8 +816,23 @@ class App(ctk.CTk):
         ent_user.pack(fill="x", pady=(4, 10))
 
         ctk.CTkLabel(card, text="GST Password").pack(anchor="w")
-        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter GST Password", show="*")
-        ent_pass.pack(fill="x", pady=(4, 14))
+        pass_frm = ctk.CTkFrame(card, fg_color="transparent")
+        pass_frm.pack(fill="x", pady=(4, 14))
+        ent_pass = ctk.CTkEntry(pass_frm, placeholder_text="Enter GST Password", show="*")
+        ent_pass.pack(side="left", expand=True, fill="x")
+
+        def _toggle_pass():
+            if ent_pass.cget("show") == "":
+                ent_pass.configure(show="*")
+                eye_btn.configure(text="👁")
+            else:
+                ent_pass.configure(show="")
+                eye_btn.configure(text="🔒")
+
+        eye_btn = ctk.CTkButton(pass_frm, text="👁", width=35, height=30,
+                                fg_color="transparent", text_color=("#475569", "#94a3b8"),
+                                hover_color=("#e2e8f0", "#334155"), command=_toggle_pass)
+        eye_btn.pack(side="right", padx=(5, 0))
 
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
         btn_row.pack(fill="x")

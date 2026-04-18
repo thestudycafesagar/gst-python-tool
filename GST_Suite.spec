@@ -156,7 +156,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='GST_Suite',
+    name='AutomationCafe',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

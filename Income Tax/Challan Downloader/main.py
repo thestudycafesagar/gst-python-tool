@@ -1,3 +1,6 @@
+import re
+import glob
+import shutil
 import threading
 import time
 import os
@@ -45,14 +48,13 @@ def normalize_columns(df):
     return user_col, pass_col, dob_col
 
 def create_unique_folder(base_dir, folder_name):
+    folder_name = re.sub(r'[<>:"/\\|?*]', '_', folder_name).strip()
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
-        
     full_path = os.path.join(base_dir, folder_name)
     if not os.path.exists(full_path):
         os.makedirs(full_path)
         return full_path
-    
     counter = 1
     while True:
         new_name = f"{folder_name} ({counter})"
@@ -61,6 +63,42 @@ def create_unique_folder(base_dir, folder_name):
             os.makedirs(full_path)
             return full_path
         counter += 1
+
+def get_taxpayer_name(driver, fallback=""):
+    """
+    Extracts the logged-in taxpayer's name from the Income Tax portal header.
+    Uses JavaScript (innerText) as primary method for Angular reliability.
+    """
+    strategies = [
+        lambda d: d.execute_script(
+            "var el = document.querySelector('.userNameVal span:first-child'); "
+            "return el ? el.innerText.trim() : '';"
+        ),
+        lambda d: d.execute_script(
+            "var el = document.querySelector('.profileMenubtn .userNameVal span'); "
+            "return el ? el.innerText.trim() : '';"
+        ),
+        lambda d: next(
+            (s for s in (
+                d.execute_script(
+                    "var spans = document.querySelectorAll('.userNameVal span'); "
+                    "return Array.from(spans).map(function(s){return s.innerText.trim();});"
+                ) or []
+            ) if s and s.lower() not in ['expand_more', '']),
+            ''
+        ),
+        lambda d: d.find_element(By.XPATH, "//span[contains(@class,'userNameVal')]/span[1]").text.strip(),
+    ]
+    for strategy in strategies:
+        try:
+            result = strategy(driver)
+            if result and len(result) > 1 and result.lower() not in ['expand_more']:
+                result = result.split('\n')[0].strip()
+                if result:
+                    return result
+        except:
+            continue
+    return fallback
 
 # ============================================================
 #  WORKER CLASS: CHALLAN DOWNLOADER
@@ -106,13 +144,12 @@ class ChallanWorker:
 
                 base_dir = os.getcwd()
                 download_root = os.path.join(base_dir, "Challan_Downloads")
-                final_path = create_unique_folder(download_root, user_id)
 
-                status, reason = self.process_single_user(user_id, password, dob, final_path)
+                status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 
                 self.report_data.append({
                     "PAN": user_id, "Status": status, "Details": reason,
-                    "Folder Saved": os.path.basename(final_path),
+                    "Folder Saved": os.path.basename(final_path) if final_path else user_id,
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
                 self.log("-" * 40)
@@ -126,6 +163,8 @@ class ChallanWorker:
             self.log(f"❌ CRITICAL ERROR: {str(e)}")
             self.app.process_finished_safe("Critical Error Occurred")
 
+
+
     def generate_report(self):
         try:
             if not self.report_data: return
@@ -135,10 +174,10 @@ class ChallanWorker:
             self.log(f"📄 Report saved: {filename}")
         except: pass
 
-    def process_single_user(self, user_id, password, dob, download_folder):
+    def process_single_user(self, user_id, password, dob, download_root):
         driver = None
+        download_folder = create_unique_folder(download_root, user_id)  # temp fallback
         try:
-            # --- CHROME OPTIONS & ANTI-BOT CONFIG ---
             options = webdriver.ChromeOptions()
             options.add_argument("--start-maximized")
             options.add_argument("--disable-gpu")
@@ -150,33 +189,17 @@ class ChallanWorker:
                 "download.default_directory": download_folder,
                 "download.prompt_for_download": False,
                 "download.directory_upgrade": True,
-                "plugins.always_open_pdf_externally": True,
-                "profile.default_content_setting_values.automatic_downloads": 1,
-                "download_restrictions": 0,
                 "safebrowsing.enabled": True,
-                "safebrowsing.disable_download_protection": True
             }
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
-            
-            # Set aggressive timeouts
             driver.set_page_load_timeout(30)
             driver.set_script_timeout(30)
             driver.implicitly_wait(10)
-            
             wait = WebDriverWait(driver, 20)
-            actions = ActionChains(driver)
 
-            # --- 1. LOGIN WITH COMPREHENSIVE RETRY ---
+            # --- LOGIN ---
             login_success = False
             for login_attempt in range(1, 4):
                 if login_success: break
@@ -199,11 +222,10 @@ class ChallanWorker:
                     except Exception as e:
                         self.log(f"   ⚠️ Page load error: {str(e)[:30]}. Retrying...")
                         continue
-                    
+
                     try: driver.switch_to.alert.accept(); time.sleep(1)
                     except: pass
 
-                    # Step 1: Enter PAN with retry
                     pan_entered = False
                     for pan_retry in range(3):
                         try:
@@ -212,66 +234,51 @@ class ChallanWorker:
                             pan_field.send_keys(user_id)
                             pan_entered = True
                             break
-                        except Exception as e:
-                            if pan_retry == 2:
-                                self.log(f"   ⚠️ Failed to enter PAN after 3 tries")
-                                raise
+                        except:
+                            if pan_retry == 2: raise
                             time.sleep(1)
-                    
-                    if not pan_entered:
-                        continue
-                    
+
+                    if not pan_entered: continue
                     time.sleep(0.5)
-                    
-                    # Step 2: Click Continue button with retry
+
                     for cont_retry in range(3):
                         try:
                             continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.large-button-primary")))
                             driver.execute_script("arguments[0].click();", continue_btn)
                             break
-                        except Exception as e:
-                            if cont_retry == 2:
-                                self.log(f"   ⚠️ Failed to click Continue after 3 tries")
-                                raise
+                        except:
+                            if cont_retry == 2: raise
                             time.sleep(1)
-                    
-                    time.sleep(1.5)
-                    if "does not exist" in driver.page_source: return "Failed", "Invalid PAN"
 
-                    # Step 3: Enter Password with retry
+                    time.sleep(1.5)
+                    if "does not exist" in driver.page_source: return "Failed", "Invalid PAN", download_folder
+
                     for pwd_retry in range(3):
                         try:
                             pwd_field = wait.until(EC.visibility_of_element_located((By.ID, "loginPasswordField")))
                             pwd_field.clear()
                             pwd_field.send_keys(password)
                             break
-                        except Exception as e:
-                            if pwd_retry == 2:
-                                self.log(f"   ⚠️ Failed to enter password after 3 tries")
-                                raise
+                        except:
+                            if pwd_retry == 2: raise
                             time.sleep(1)
-                    
-                    # Show password checkbox
-                    try: 
+
+                    try:
                         driver.execute_script("document.getElementById('passwordCheckBox-input').click();")
                         time.sleep(0.3)
                     except: pass
-                    
+
                     self.log("   ⏳ Waiting for security check (3s)...")
                     time.sleep(3.5)
-                    
-                    # Step 4: Submit login with retry
+
                     for submit_retry in range(3):
                         try:
                             driver.execute_script("document.querySelector('button.large-button-primary').click();")
                             break
-                        except Exception as e:
-                            if submit_retry == 2:
-                                self.log(f"   ⚠️ Failed to submit login after 3 tries")
-                                raise
+                        except:
+                            if submit_retry == 2: raise
                             time.sleep(1)
 
-                    # Step 5: Wait for successful login
                     for _ in range(20):
                         time.sleep(1)
                         try:
@@ -279,22 +286,42 @@ class ChallanWorker:
                                 self.log("   ✅ Login Successful!")
                                 login_success = True; break
                         except: pass
-                        
-                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password"
-                        
+
+                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password", download_folder
+
                         try:
                             dual = driver.find_elements(By.XPATH, "//button[contains(text(), 'Login Here')]")
                             if dual and dual[0].is_displayed():
                                 driver.execute_script("arguments[0].click();", dual[0])
                                 time.sleep(2)
                         except: pass
+
                     if login_success: break
                 except Exception as e:
                     self.log(f"   ⚠️ Login Error: {str(e)[:50]}")
                     if login_attempt < 3:
                         time.sleep(2)
 
-            if not login_success: return "Failed", "Login Timeout"
+            if not login_success: return "Failed", "Login Timeout", download_folder
+
+            # Extract taxpayer name and create NAME_PAN folder
+            name_from_header = get_taxpayer_name(driver, fallback=user_id)
+            if name_from_header != user_id:
+                self.log(f"   👤 Taxpayer Name: {name_from_header}")
+            else:
+                self.log("   ⚠️ Name not found in header; using PAN as folder name.")
+
+            folder_name = f"{name_from_header}_{user_id}"
+            download_folder = create_unique_folder(download_root, folder_name)
+            self.log(f"   📁 Download folder: {os.path.basename(download_folder)}")
+            try:
+                driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+                    'behavior': 'allow',
+                    'downloadPath': download_folder
+                })
+            except Exception as cdp_e:
+                self.log(f"   ⚠️ CDP redirect failed ({str(cdp_e)[:30]}); folder still created.")
+
 
             # ==========================================================
             # STEP A: Click "e-File" from the top navigation menu
@@ -519,7 +546,19 @@ class ChallanWorker:
                         )
                         driver.execute_script("arguments[0].click();", download_btn)
                         self.log(f"      ✅ 'Download' clicked for {year}.")
-                        time.sleep(4)  # Wait for file download to initiate
+                        time.sleep(4)  # Wait for file to appear
+
+                        # Rename the downloaded PDF to NAME-PAN-YEAR.pdf
+                        pdf_files = sorted(glob.glob(os.path.join(download_folder, '*.pdf')), key=os.path.getmtime, reverse=True)
+                        if pdf_files:
+                            latest_pdf = pdf_files[0]
+                            new_name = f"{name_from_header}-{user_id}-{year}.pdf"
+                            new_path = os.path.join(download_folder, new_name)
+                            try:
+                                shutil.move(latest_pdf, new_path)
+                                self.log(f"      📄 Renamed to: {new_name}")
+                            except Exception as e:
+                                self.log(f"      ⚠️ Could not rename PDF: {str(e)[:60]}")
 
                         downloaded_years.append(year)
                         break
@@ -541,10 +580,10 @@ class ChallanWorker:
             if failed_years:
                 summary += f" | Failed: {', '.join(failed_years)}"
             self.log(f"   📦 {summary}")
-            return ("Success" if downloaded_years else "Failed"), summary
+            return ("Success" if downloaded_years else "Failed"), summary, download_folder
 
         except Exception as e: 
-            return "Failed", f"Browser Error: {str(e)[:20]}"
+            return "Failed", f"Browser Error: {str(e)[:20]}", download_folder
         finally:
             if driver: driver.quit()
 
@@ -663,14 +702,6 @@ class DemandCheckerWorker:
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
             driver.set_page_load_timeout(30)
             driver.set_script_timeout(30)
             driver.implicitly_wait(10)
@@ -1228,8 +1259,23 @@ class App(ctk.CTk):
         ent_user.pack(fill="x", pady=(4, 10))
 
         ctk.CTkLabel(card, text="Password").pack(anchor="w")
-        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter Password", show="*")
-        ent_pass.pack(fill="x", pady=(4, 10))
+        pass_frm = ctk.CTkFrame(card, fg_color="transparent")
+        pass_frm.pack(fill="x", pady=(4, 10))
+        ent_pass = ctk.CTkEntry(pass_frm, placeholder_text="Enter Password", show="*")
+        ent_pass.pack(side="left", expand=True, fill="x")
+
+        def _toggle_pass():
+            if ent_pass.cget("show") == "":
+                ent_pass.configure(show="*")
+                eye_btn.configure(text="👁")
+            else:
+                ent_pass.configure(show="")
+                eye_btn.configure(text="🔒")
+
+        eye_btn = ctk.CTkButton(pass_frm, text="👁", width=35, height=30,
+                                fg_color="transparent", text_color=("#475569", "#94a3b8"),
+                                hover_color=("#e2e8f0", "#334155"), command=_toggle_pass)
+        eye_btn.pack(side="right", padx=(5, 0))
 
         ctk.CTkLabel(card, text="DOB (optional)").pack(anchor="w")
         ent_dob = ctk.CTkEntry(card, placeholder_text="DD/MM/YYYY")

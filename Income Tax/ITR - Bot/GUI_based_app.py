@@ -22,6 +22,48 @@ from webdriver_manager.chrome import ChromeDriverManager
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
+YEAR_MODE_OPTIONS = [
+    "Current Year",
+    "Current and Last Year",
+    "Current and Last 2 Years",
+]
+
+def get_taxpayer_name(driver, fallback=""):
+    """
+    Extracts the logged-in taxpayer's name from the Income Tax portal header.
+    Uses JavaScript (innerText) as primary method for Angular reliability.
+    """
+    strategies = [
+        lambda d: d.execute_script(
+            "var el = document.querySelector('.userNameVal span:first-child'); "
+            "return el ? el.innerText.trim() : '';"
+        ),
+        lambda d: d.execute_script(
+            "var el = document.querySelector('.profileMenubtn .userNameVal span'); "
+            "return el ? el.innerText.trim() : '';"
+        ),
+        lambda d: next(
+            (s for s in (
+                d.execute_script(
+                    "var spans = document.querySelectorAll('.userNameVal span'); "
+                    "return Array.from(spans).map(function(s){return s.innerText.trim();});"
+                ) or []
+            ) if s and s.lower() not in ['expand_more', '']),
+            ''
+        ),
+        lambda d: d.find_element(By.XPATH, "//span[contains(@class,'userNameVal')]/span[1]").text.strip(),
+    ]
+    for strategy in strategies:
+        try:
+            result = strategy(driver)
+            if result and len(result) > 1 and result.lower() not in ['expand_more']:
+                result = result.split('\n')[0].strip()
+                if result:
+                    return result
+        except:
+            continue
+    return fallback
+
 class IncomeTaxWorker:
     """
     Handles the background automation logic (Selenium).
@@ -96,32 +138,20 @@ class IncomeTaxWorker:
 
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
-                # --- FOLDER CREATION ---
+                # --- FOLDER ROOT (actual folder created after login with name) ---
                 base_dir = os.getcwd()
                 download_root = os.path.join(base_dir, "Downloads")
                 if not os.path.exists(download_root): os.makedirs(download_root)
 
-                # Unique Folder Logic
-                folder_name = user_id
-                counter = 1
-                final_path = os.path.join(download_root, folder_name)
-                
-                while os.path.exists(final_path):
-                    folder_name = f"{user_id}({counter})"
-                    final_path = os.path.join(download_root, folder_name)
-                    counter += 1
-                
-                # We create the folder only if login is successful later, 
-                # but we define the path here.
-                
                 # START BROWSER
-                status, reason = self.process_single_user(user_id, password, final_path)
+                status, reason, final_path = self.process_single_user(user_id, password, download_root)
                 
                 # Add to Report
                 self.report_data.append({
                     "PAN / User ID": user_id,
                     "Status": status,
                     "Reason/Details": reason,
+                    "Folder": os.path.basename(final_path) if final_path else user_id,
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
                 
@@ -149,11 +179,16 @@ class IncomeTaxWorker:
         except Exception as e:
             self.log(f"⚠️ Failed to save report: {e}")
 
-    def process_single_user(self, user_id, password, main_download_folder):
+    def process_single_user(self, user_id, password, download_root):
         """
-        Returns tuple: (Status, Reason)
+        Returns tuple: (Status, Reason, FolderPath)
         """
         driver = None
+        # Temp PAN-only folder (Chrome needs a path at startup)
+        safe_name = re.sub(r'[<>:"/\\|?*]', '_', user_id).strip()
+        main_download_folder = os.path.join(download_root, safe_name)
+        if not os.path.exists(main_download_folder):
+            os.makedirs(main_download_folder)
         try:
             # --- BROWSER CONFIG ---
             options = webdriver.ChromeOptions()
@@ -161,10 +196,6 @@ class IncomeTaxWorker:
             options.add_experimental_option("excludeSwitches", ["enable-automation"])
             options.add_experimental_option('useAutomationExtension', False)
             options.add_argument("--disable-blink-features=AutomationControlled")
-            
-            # Prepare folder (create only if needed)
-            if not os.path.exists(main_download_folder):
-                os.makedirs(main_download_folder)
 
             prefs = {
                 "download.default_directory": main_download_folder,
@@ -176,14 +207,6 @@ class IncomeTaxWorker:
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
             wait = WebDriverWait(driver, 15)
             actions = ActionChains(driver)
 
@@ -281,7 +304,20 @@ class IncomeTaxWorker:
             
             if not login_success:
                 self.log("   ❌ Login Timed Out. Skipping User.")
-                return "Failed", "Login Timeout / Server Issue"
+                return "Failed", "Login Timeout / Server Issue", main_download_folder
+
+            # Extract taxpayer name and create NAME_PAN folder
+            name_from_header = get_taxpayer_name(driver, fallback=user_id)
+            if name_from_header != user_id:
+                self.log(f"   👤 Taxpayer Name: {name_from_header}")
+            else:
+                self.log("   ⚠️ Name not found in header; using PAN as folder name.")
+
+            folder_name = re.sub(r'[<>:"/\\|?*]', '_', f"{name_from_header}_{user_id}").strip()
+            main_download_folder = os.path.join(download_root, folder_name)
+            if not os.path.exists(main_download_folder):
+                os.makedirs(main_download_folder)
+            self.log(f"   📁 Download folder: {folder_name}")
 
             # STEP 3: NAVIGATION
             self.log("   🚀 Navigating to Returns...")
@@ -323,14 +359,17 @@ class IncomeTaxWorker:
                 total_available = len(cards)
                 
                 # --- CALCULATE TARGET COUNT ---
-                if "All" in self.years_pref:
+                selected_mode = (self.years_pref or "").strip()
+                if selected_mode in ("Current and Last 2 Years", "Last 3 Years"):
+                    target_count = 3
+                elif selected_mode in ("Current and Last Year", "Last 2 Years"):
+                    target_count = 2
+                elif selected_mode in ("Current Year", "Last 1 Year"):
+                    target_count = 1
+                elif "All" in selected_mode:
                     target_count = total_available
                 else:
-                    try:
-                        # Extract number: "Last 3 Years" -> 3
-                        target_count = int(self.years_pref.split()[1])
-                    except:
-                        target_count = 3
+                    target_count = 1
                 
                 final_count = min(total_available, target_count)
                 
@@ -370,26 +409,26 @@ class IncomeTaxWorker:
                             time.sleep(0.5)
                         except: pass
 
-                    click_dl("dformback", "Form")
-                    click_dl("drecback", "Receipt")
-                    click_dl("dxmlback", "JSON")
+                    click_dl("dformback", f"{name_from_header}-Form")
+                    click_dl("drecback", f"{name_from_header}-Receipt")
+                    click_dl("dxmlback", f"{name_from_header}-JSON")
                     
                     time.sleep(2) 
                 
                 self.log("   ✅ All Year Downloads Finished.")
                 time.sleep(3)
-                return "Success", f"Downloaded {final_count} years"
+                return "Success", f"Downloaded {final_count} years", main_download_folder
                 
             except TimeoutException:
                 self.log("   ⚠️ No filed returns found on account. Skipping.")
-                return "Warning", "No Returns Filed"
+                return "Warning", "No Returns Filed", main_download_folder
             except Exception as e:
                 self.log(f"   ❌ Download Error: {e}")
-                return "Failed", f"Download Error: {str(e)[:30]}"
+                return "Failed", f"Download Error: {str(e)[:30]}", main_download_folder
 
         except Exception as e:
             self.log(f"   ❌ Browser Error: {e}")
-            return "Failed", f"Browser Crash: {str(e)[:30]}"
+            return "Failed", f"Browser Crash: {str(e)[:30]}", main_download_folder
         finally:
             if driver:
                 driver.quit()
@@ -470,9 +509,9 @@ class App(ctk.CTk):
         self.lbl_years.pack(side="left", padx=(0, 10))
 
         self.combo_years = ctk.CTkComboBox(self.pref_frame, 
-                         values=["Last 1 Year"],
+                         values=YEAR_MODE_OPTIONS,
                          width=200, state="readonly")
-        self.combo_years.set("Last 1 Year") 
+        self.combo_years.set("Current Year") 
         self.combo_years.pack(side="left")
 
         # --- 2. TERMINAL LOG SECTION ---
@@ -596,8 +635,23 @@ class App(ctk.CTk):
         ent_user.pack(fill="x", pady=(4, 10))
 
         ctk.CTkLabel(card, text="Password").pack(anchor="w")
-        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter Password", show="*")
-        ent_pass.pack(fill="x", pady=(4, 14))
+        pass_frm = ctk.CTkFrame(card, fg_color="transparent")
+        pass_frm.pack(fill="x", pady=(4, 14))
+        ent_pass = ctk.CTkEntry(pass_frm, placeholder_text="Enter Password", show="*")
+        ent_pass.pack(side="left", expand=True, fill="x")
+
+        def _toggle_pass():
+            if ent_pass.cget("show") == "":
+                ent_pass.configure(show="*")
+                eye_btn.configure(text="👁")
+            else:
+                ent_pass.configure(show="")
+                eye_btn.configure(text="🔒")
+
+        eye_btn = ctk.CTkButton(pass_frm, text="👁", width=35, height=30,
+                                fg_color="transparent", text_color=("#475569", "#94a3b8"),
+                                hover_color=("#e2e8f0", "#334155"), command=_toggle_pass)
+        eye_btn.pack(side="right", padx=(5, 0))
 
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
         btn_row.pack(fill="x")

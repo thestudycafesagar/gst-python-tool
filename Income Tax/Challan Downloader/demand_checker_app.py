@@ -157,14 +157,6 @@ class DemandCheckerWorker:
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
             driver.set_page_load_timeout(30)
             driver.set_script_timeout(30)
             driver.implicitly_wait(10)
@@ -670,8 +662,23 @@ class DemandCheckerApp(ctk.CTk):
         ent_user.pack(fill="x", pady=(4, 10))
 
         ctk.CTkLabel(card, text="Password").pack(anchor="w")
-        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter Password", show="*")
-        ent_pass.pack(fill="x", pady=(4, 10))
+        pass_frm = ctk.CTkFrame(card, fg_color="transparent")
+        pass_frm.pack(fill="x", pady=(4, 10))
+        ent_pass = ctk.CTkEntry(pass_frm, placeholder_text="Enter Password", show="*")
+        ent_pass.pack(side="left", expand=True, fill="x")
+
+        def _toggle_pass():
+            if ent_pass.cget("show") == "":
+                ent_pass.configure(show="*")
+                eye_btn.configure(text="👁")
+            else:
+                ent_pass.configure(show="")
+                eye_btn.configure(text="🔒")
+
+        eye_btn = ctk.CTkButton(pass_frm, text="👁", width=35, height=30,
+                                fg_color="transparent", text_color=("#475569", "#94a3b8"),
+                                hover_color=("#e2e8f0", "#334155"), command=_toggle_pass)
+        eye_btn.pack(side="right", padx=(5, 0))
 
         ctk.CTkLabel(card, text="DOB (optional)").pack(anchor="w")
         ent_dob = ctk.CTkEntry(card, placeholder_text="DD/MM/YYYY")

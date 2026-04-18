@@ -33,6 +33,13 @@ from webdriver_manager.chrome import ChromeDriverManager
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
+YEAR_MODE_OPTIONS = [
+    "Current Year",
+    "Current and Last Year",
+    "Current and Last 2 Years",
+    "Manual Selection (Popup)",
+]
+
 # ============================================================
 #  POPUP WINDOW CLASS (For Year Selection)
 # ============================================================
@@ -56,7 +63,7 @@ class YearSelectionPopup(ctk.CTkToplevel):
         self.check_vars = {}
         for year in years_found:
             var = ctk.StringVar(value="off")
-            if years_found.index(year) < 3: 
+            if years_found.index(year) < 3:
                 var.set(year)
             
             chk = ctk.CTkCheckBox(self.scroll_frame, text=year, variable=var, onvalue=year, offvalue="off")
@@ -122,6 +129,8 @@ def normalize_columns(df):
     return user_col, pass_col, dob_col
 
 def create_unique_folder(base_dir, folder_name):
+    # Sanitize folder name to remove characters invalid on Windows
+    folder_name = re.sub(r'[<>:"/\\|?*]', '_', folder_name).strip()
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
         
@@ -139,6 +148,51 @@ def create_unique_folder(base_dir, folder_name):
             return full_path
         counter += 1
 
+def get_taxpayer_name(driver, fallback=""):
+    """
+    Extracts the logged-in taxpayer's name from the Income Tax portal header.
+    Uses JavaScript (innerText) as the primary method since Angular apps often
+    render content after Selenium's .text has already been read.
+    Returns a sanitized name string, or fallback if extraction fails.
+    """
+    strategies = [
+        # Strategy 1: JavaScript innerText on the userNameVal span (most reliable for Angular)
+        lambda d: d.execute_script(
+            "var el = document.querySelector('.userNameVal span:first-child'); "
+            "return el ? el.innerText.trim() : '';"
+        ),
+        # Strategy 2: JS querySelector on the button containing the name
+        lambda d: d.execute_script(
+            "var el = document.querySelector('.profileMenubtn .userNameVal span'); "
+            "return el ? el.innerText.trim() : '';"
+        ),
+        # Strategy 3: JS - grab all spans inside userNameVal and return first non-empty
+        lambda d: next(
+            (s for s in (
+                d.execute_script(
+                    "var spans = document.querySelectorAll('.userNameVal span'); "
+                    "return Array.from(spans).map(function(s){return s.innerText.trim();});"
+                ) or []
+            ) if s and not s.lower() in ['expand_more', '']),
+            ''
+        ),
+        # Strategy 4: Selenium XPath - span directly inside userNameVal
+        lambda d: d.find_element(By.XPATH, "//span[contains(@class,'userNameVal')]/span[1]").text.strip(),
+        # Strategy 5: Selenium - the button that shows the name tag
+        lambda d: d.find_element(By.XPATH, "//button[contains(@class,'profileMenubtn')]//span[contains(@class,'userNameVal')]//span[1]").text.strip(),
+    ]
+    for strategy in strategies:
+        try:
+            result = strategy(driver)
+            if result and len(result) > 1 and result.lower() not in ['expand_more']:
+                # Final sanitize: remove any leftover icon text
+                result = result.split('\n')[0].strip()
+                if result:
+                    return result
+        except:
+            continue
+    return fallback
+
 def clean_temp_files(folder, prefixes=("AIS_", "TIS_", "20")):
     """Deletes temporary downloads and un-renamed raw PDFs to prevent false captures."""
     if not os.path.exists(folder): return
@@ -152,7 +206,7 @@ def clean_temp_files(folder, prefixes=("AIS_", "TIS_", "20")):
                 try: os.remove(os.path.join(folder, f))
                 except: pass
 
-def wait_and_rename_file(folder, year_label, logger, prefix="", start_time=None):
+def wait_and_rename_file(folder, year_label, logger, prefix="", start_time=None, taxpayer_name=None):
     """Waits for a new PDF to appear and renames it. Returns the file path if successful."""
     timeout = 30  # seconds
     if not os.path.exists(folder):
@@ -185,7 +239,10 @@ def wait_and_rename_file(folder, year_label, logger, prefix="", start_time=None)
         newest_file = max(candidates, key=lambda x: x[1])[0]
 
         safe_year = year_label.replace("F.Y.", "").replace('/', '-').strip()
-        base_target = f"{prefix}{safe_year}.pdf"
+        if taxpayer_name:
+            base_target = f"{taxpayer_name}-{prefix}{safe_year}.pdf"
+        else:
+            base_target = f"{prefix}{safe_year}.pdf"
         new_name = os.path.join(folder, base_target)
 
         if os.path.abspath(newest_file) == os.path.abspath(new_name):
@@ -195,7 +252,10 @@ def wait_and_rename_file(folder, year_label, logger, prefix="", start_time=None)
         if os.path.exists(new_name):
             i = 1
             while True:
-                candidate_name = os.path.join(folder, f"{prefix}{safe_year} ({i}).pdf")
+                if taxpayer_name:
+                    candidate_name = os.path.join(folder, f"{taxpayer_name}-{prefix}{safe_year} ({i}).pdf")
+                else:
+                    candidate_name = os.path.join(folder, f"{prefix}{safe_year} ({i}).pdf")
                 if not os.path.exists(candidate_name):
                     new_name = candidate_name
                     break
@@ -326,13 +386,12 @@ class Tax26ASWorker:
 
                 base_dir = os.getcwd()
                 download_root = os.path.join(base_dir, "26AS_Downloads")
-                final_path = create_unique_folder(download_root, user_id)
 
-                status, reason = self.process_single_user(user_id, password, dob, final_path)
+                status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 
                 self.report_data.append({
                     "PAN": user_id, "Status": status, "Details": reason,
-                    "Folder Saved": os.path.basename(final_path),
+                    "Folder Saved": os.path.basename(final_path) if final_path else user_id,
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
                 self.log("-" * 40)
@@ -355,8 +414,9 @@ class Tax26ASWorker:
             self.log(f"📄 Report saved: {filename}")
         except: pass
 
-    def process_single_user(self, user_id, password, dob, download_folder):
+    def process_single_user(self, user_id, password, dob, download_root):
         driver = None
+        download_folder = create_unique_folder(download_root, user_id)  # temp fallback folder
         try:
             options = webdriver.ChromeOptions()
             options.add_argument("--start-maximized")
@@ -378,14 +438,6 @@ class Tax26ASWorker:
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
             
             # Set aggressive timeouts to prevent hanging
             driver.set_page_load_timeout(30)  # 30 seconds for page load
@@ -499,7 +551,7 @@ class Tax26ASWorker:
                                 login_success = True; break
                         except: pass
                         
-                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password"
+                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password", download_folder
                         
                         try:
                             dual = driver.find_elements(By.XPATH, "//button[contains(text(), 'Login Here')]")
@@ -513,7 +565,26 @@ class Tax26ASWorker:
                     if login_attempt < 3:
                         time.sleep(2)
 
-            if not login_success: return "Failed", "Login Timeout"
+            if not login_success: return "Failed", "Login Timeout", download_folder
+
+            # Extract taxpayer name from dashboard header and create NAME_PAN folder
+            name_from_header = get_taxpayer_name(driver, fallback=user_id)
+            if name_from_header != user_id:
+                self.log(f"   👤 Taxpayer Name: {name_from_header}")
+            else:
+                self.log("   ⚠️ Name not found in header; using PAN as folder name.")
+
+            # Create the proper NAME_PAN folder and redirect Chrome downloads via CDP
+            folder_name = f"{name_from_header}_{user_id}"
+            download_folder = create_unique_folder(download_root, folder_name)
+            self.log(f"   📁 Download folder: {os.path.basename(download_folder)}")
+            try:
+                driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+                    'behavior': 'allow',
+                    'downloadPath': download_folder
+                })
+            except Exception as cdp_e:
+                self.log(f"   ⚠️ CDP redirect failed ({str(cdp_e)[:30]}); folder still created.")
 
             # 2. NAVIGATE TO 26AS MENU (with retry logic)
             self.log("   🚀 Navigating to Form 26AS...")
@@ -692,7 +763,7 @@ class Tax26ASWorker:
                             driver.execute_script("arguments[0].click();", pdf_btn)
                             self.log("        ✅ Export Triggered.")
                             
-                            saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="", start_time=dl_click_time)
+                            saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="", start_time=dl_click_time, taxpayer_name=name_from_header)
                             if saved_path:
                                 count += 1
                                 unlock_pdf(saved_path, user_id, dob, self.log)
@@ -707,10 +778,10 @@ class Tax26ASWorker:
                             if pdf_attempt == 3:
                                 self.log("       ❌ PDF Export failed after 3 attempts.")
 
-                return "Success", f"Downloaded {count} files"
+                return "Success", f"Downloaded {count} files", download_folder
 
-            except Exception as e: return "Failed", f"TRACES Error: {str(e)[:20]}"
-        except Exception: return "Failed", "Browser Crash"
+            except Exception as e: return "Failed", f"TRACES Error: {str(e)[:20]}", download_folder
+        except Exception: return "Failed", "Browser Crash", download_folder
         finally:
             if driver: driver.quit()
 
@@ -762,13 +833,12 @@ class AISWorker:
 
                 base_dir = os.getcwd()
                 download_root = os.path.join(base_dir, "AIS_Downloads")
-                final_path = create_unique_folder(download_root, user_id)
 
-                status, reason = self.process_single_user(user_id, password, dob, final_path)
+                status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 
                 self.report_data.append({
                     "PAN": user_id, "Status": status, "Details": reason,
-                    "Folder Saved": os.path.basename(final_path),
+                    "Folder Saved": os.path.basename(final_path) if final_path else user_id,
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
                 self.log("-" * 40)
@@ -791,8 +861,9 @@ class AISWorker:
             self.log(f"📄 Report saved: {filename}")
         except: pass
 
-    def process_single_user(self, user_id, password, dob, download_folder):
+    def process_single_user(self, user_id, password, dob, download_root):
         driver = None
+        download_folder = create_unique_folder(download_root, user_id)  # temp fallback folder
         try:
             options = webdriver.ChromeOptions()
             options.add_argument("--start-maximized")
@@ -814,14 +885,6 @@ class AISWorker:
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
             
             # Set aggressive timeouts to prevent hanging
             driver.set_page_load_timeout(30)  # 30 seconds for page load
@@ -964,7 +1027,7 @@ class AISWorker:
                                 login_success = True; break
                         except: pass
                         
-                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password"
+                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password", download_folder
                         
                         try:
                             dual = driver.find_elements(By.XPATH, "//button[contains(text(), 'Login Here')]")
@@ -978,7 +1041,26 @@ class AISWorker:
                     if login_attempt < 3:
                         time.sleep(2)
 
-            if not login_success: return "Failed", "Login Timeout"
+            if not login_success: return "Failed", "Login Timeout", download_folder
+
+            # Extract taxpayer name from dashboard header and create NAME_PAN folder
+            name_from_header = get_taxpayer_name(driver, fallback=user_id)
+            if name_from_header != user_id:
+                self.log(f"   👤 Taxpayer Name: {name_from_header}")
+            else:
+                self.log("   ⚠️ Name not found in header; using PAN as folder name.")
+
+            # Create the proper NAME_PAN folder and redirect Chrome downloads via CDP
+            folder_name = f"{name_from_header}_{user_id}"
+            download_folder = create_unique_folder(download_root, folder_name)
+            self.log(f"   📁 Download folder: {os.path.basename(download_folder)}")
+            try:
+                driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+                    'behavior': 'allow',
+                    'downloadPath': download_folder
+                })
+            except Exception as cdp_e:
+                self.log(f"   ⚠️ CDP redirect failed ({str(cdp_e)[:30]}); folder still created.")
 
             # 2. NAVIGATE TO AIS (with retry logic)
             self.log("   🚀 Navigating to AIS...")
@@ -1151,7 +1233,7 @@ class AISWorker:
 
                             if direct_download:
                                 self.log("        ✅ Direct download detected.")
-                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=modal_click_time-2)
+                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=modal_click_time-2, taxpayer_name=name_from_header)
                                 if saved_path:
                                     count += 1
                                     unlock_pdf(saved_path, user_id, dob, self.log)
@@ -1182,7 +1264,7 @@ class AISWorker:
                                 driver.execute_script("arguments[0].click();", final_dl_icon)
                                 self.log("        ✅ Export Triggered from History.")
                                 
-                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=hist_click_time-2)
+                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=hist_click_time-2, taxpayer_name=name_from_header)
                                 if saved_path:
                                     count += 1
                                     unlock_pdf(saved_path, user_id, dob, self.log)
@@ -1203,11 +1285,11 @@ class AISWorker:
                         time.sleep(2)
                     except: pass
 
-                return "Success", f"Downloaded {count} files"
+                return "Success", f"Downloaded {count} files", download_folder
 
-            except Exception as e: return "Failed", f"AIS Portal Error: {str(e)[:20]}"
+            except Exception as e: return "Failed", f"AIS Portal Error: {str(e)[:20]}", download_folder
 
-        except Exception as e: return "Failed", "Browser Crash"
+        except Exception as e: return "Failed", "Browser Crash", download_folder
         finally:
             if driver: driver.quit()
 
@@ -1255,12 +1337,11 @@ class TISWorker:
 
                 base_dir = os.getcwd()
                 download_root = os.path.join(base_dir, "TIS_Downloads")
-                final_path = create_unique_folder(download_root, user_id)
 
-                status, reason = self.process_single_user(user_id, password, dob, final_path)
+                status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 self.report_data.append({
                     "PAN": user_id, "Status": status, "Details": reason,
-                    "Folder Saved": os.path.basename(final_path),
+                    "Folder Saved": os.path.basename(final_path) if final_path else user_id,
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
                 self.log("-" * 40)
@@ -1283,8 +1364,9 @@ class TISWorker:
             self.log(f"📄 Report saved: {filename}")
         except: pass
 
-    def process_single_user(self, user_id, password, dob, download_folder):
+    def process_single_user(self, user_id, password, dob, download_root):
         driver = None
+        download_folder = create_unique_folder(download_root, user_id)  # temp fallback folder
         try:
             options = webdriver.ChromeOptions()
             options.add_argument("--start-maximized")
@@ -1306,14 +1388,6 @@ class TISWorker:
             options.add_experimental_option("prefs", prefs)
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
             
             # Set aggressive timeouts to prevent hanging
             driver.set_page_load_timeout(30)  # 30 seconds for page load
@@ -1455,7 +1529,7 @@ class TISWorker:
                                 login_success = True; break
                         except: pass
                         
-                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password"
+                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password", download_folder
                         
                         try:
                             dual = driver.find_elements(By.XPATH, "//button[contains(text(), 'Login Here')]")
@@ -1469,7 +1543,26 @@ class TISWorker:
                     if login_attempt < 3:
                         time.sleep(2)
 
-            if not login_success: return "Failed", "Login Timeout"
+            if not login_success: return "Failed", "Login Timeout", download_folder
+
+            # Extract taxpayer name from dashboard header and create NAME_PAN folder
+            name_from_header = get_taxpayer_name(driver, fallback=user_id)
+            if name_from_header != user_id:
+                self.log(f"   👤 Taxpayer Name: {name_from_header}")
+            else:
+                self.log("   ⚠️ Name not found in header; using PAN as folder name.")
+
+            # Create the proper NAME_PAN folder and redirect Chrome downloads via CDP
+            folder_name = f"{name_from_header}_{user_id}"
+            download_folder = create_unique_folder(download_root, folder_name)
+            self.log(f"   📁 Download folder: {os.path.basename(download_folder)}")
+            try:
+                driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+                    'behavior': 'allow',
+                    'downloadPath': download_folder
+                })
+            except Exception as cdp_e:
+                self.log(f"   ⚠️ CDP redirect failed ({str(cdp_e)[:30]}); folder still created.")
 
             # 2. NAVIGATE TO AIS (with retry logic)
             self.log("   🚀 Navigating to AIS (for TIS)...")
@@ -1567,7 +1660,7 @@ class TISWorker:
                     self.user_selection_event.wait()
 
                 years_to_download = [y for y in self.current_user_selected_years if y in available_years]
-                if not years_to_download: return "Warning", "No valid years selected"
+                if not years_to_download: return "Warning", "No valid years selected", download_folder
 
                 self.log(f"   ⬇️ Downloading {len(years_to_download)} Years (TIS)...")
                 count = 0
@@ -1639,7 +1732,7 @@ class TISWorker:
 
                             if direct_download:
                                 self.log("        ✅ Direct download detected.")
-                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=modal_click_time-2)
+                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=modal_click_time-2, taxpayer_name=name_from_header)
                                 if saved_path:
                                     count += 1
                                     unlock_pdf(saved_path, user_id, dob, self.log)
@@ -1669,7 +1762,7 @@ class TISWorker:
                                 driver.execute_script("arguments[0].click();", final_dl_icon)
                                 self.log("        ✅ Export Triggered from History.")
                                 
-                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=hist_click_time-2)
+                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=hist_click_time-2, taxpayer_name=name_from_header)
                                 if saved_path:
                                     count += 1
                                     unlock_pdf(saved_path, user_id, dob, self.log)
@@ -1690,13 +1783,13 @@ class TISWorker:
                         time.sleep(2)
                     except: pass
 
-                return "Success", f"Downloaded {count} files"
+                return "Success", f"Downloaded {count} files", download_folder
 
             except Exception as e:
-                return "Failed", f"TIS Portal Error: {str(e)[:20]}"
+                return "Failed", f"TIS Portal Error: {str(e)[:20]}", download_folder
 
         except Exception as e:
-            return "Failed", "Browser Crash"
+            return "Failed", "Browser Crash", download_folder
         finally:
             if driver: driver.quit()
 
@@ -1779,14 +1872,6 @@ class FiledReturnWorker:
             options.add_argument("--disable-blink-features=AutomationControlled")
 
             driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
             
             # Set aggressive timeouts to prevent hanging
             driver.set_page_load_timeout(30)  # 30 seconds for page load
@@ -2008,7 +2093,7 @@ class FiledReturnWorker:
                     return "Success", "No Filed Returns Found"
                 
                 self.log(f"   📋 Found {len(available_years)} Assessment Years: {', '.join(available_years)}")
-                
+
                 # Apply year selection logic based on year_mode
                 if self.year_mode == "Current Year":
                     self.current_user_selected_years = available_years[:1]
@@ -2377,7 +2462,7 @@ class App(ctk.CTk):
         pref_frame = ctk.CTkFrame(self.config_26as, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
         ctk.CTkLabel(pref_frame, text="Download Return:", text_color="gray").pack(side="left", padx=(0, 10))
-        self.combo_years_26as = ctk.CTkComboBox(pref_frame, values=["Current Year"], width=250, state="readonly")
+        self.combo_years_26as = ctk.CTkComboBox(pref_frame, values=YEAR_MODE_OPTIONS, width=250, state="readonly")
         self.combo_years_26as.set("Current Year")
         self.combo_years_26as.pack(side="left")
 
@@ -2432,7 +2517,7 @@ class App(ctk.CTk):
         pref_frame = ctk.CTkFrame(self.config_ais, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
         ctk.CTkLabel(pref_frame, text="Download Return:", text_color="gray").pack(side="left", padx=(0, 10))
-        self.combo_years_ais = ctk.CTkComboBox(pref_frame, values=["Current Year"], width=250, state="readonly")
+        self.combo_years_ais = ctk.CTkComboBox(pref_frame, values=YEAR_MODE_OPTIONS, width=250, state="readonly")
         self.combo_years_ais.set("Current Year")
         self.combo_years_ais.pack(side="left")
 
@@ -2487,7 +2572,7 @@ class App(ctk.CTk):
         pref_frame = ctk.CTkFrame(self.config_tis, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
         ctk.CTkLabel(pref_frame, text="Download Return:", text_color="gray").pack(side="left", padx=(0, 10))
-        self.combo_years_tis = ctk.CTkComboBox(pref_frame, values=["Current Year"], width=250, state="readonly")
+        self.combo_years_tis = ctk.CTkComboBox(pref_frame, values=YEAR_MODE_OPTIONS, width=250, state="readonly")
         self.combo_years_tis.set("Current Year")
         self.combo_years_tis.pack(side="left")
 
@@ -2622,8 +2707,23 @@ class App(ctk.CTk):
         ent_user.pack(fill="x", pady=(4, 10))
 
         ctk.CTkLabel(card, text="Password").pack(anchor="w")
-        ent_pass = ctk.CTkEntry(card, placeholder_text="Enter Password", show="*")
-        ent_pass.pack(fill="x", pady=(4, 10))
+        pass_frm = ctk.CTkFrame(card, fg_color="transparent")
+        pass_frm.pack(fill="x", pady=(4, 10))
+        ent_pass = ctk.CTkEntry(pass_frm, placeholder_text="Enter Password", show="*")
+        ent_pass.pack(side="left", expand=True, fill="x")
+
+        def _toggle_pass():
+            if ent_pass.cget("show") == "":
+                ent_pass.configure(show="*")
+                eye_btn.configure(text="👁")
+            else:
+                ent_pass.configure(show="")
+                eye_btn.configure(text="🔒")
+
+        eye_btn = ctk.CTkButton(pass_frm, text="👁", width=35, height=30,
+                                fg_color="transparent", text_color=("#475569", "#94a3b8"),
+                                hover_color=("#e2e8f0", "#334155"), command=_toggle_pass)
+        eye_btn.pack(side="right", padx=(5, 0))
 
         ctk.CTkLabel(card, text="DOB (optional)").pack(anchor="w")
         ent_dob = ctk.CTkEntry(card, placeholder_text="DD/MM/YYYY")
@@ -2699,10 +2799,28 @@ class App(ctk.CTk):
 
         return ""
 
+    def _get_selected_year_mode(self, mode):
+        combo_map = {
+            "26as": "combo_years_26as",
+            "ais": "combo_years_ais",
+            "tis": "combo_years_tis",
+        }
+        combo_attr = combo_map.get(mode)
+        if not combo_attr:
+            return "Current Year"
+
+        combo = getattr(self, combo_attr, None)
+        try:
+            selected = (combo.get() or "").strip() if combo is not None else ""
+        except Exception:
+            selected = ""
+
+        return selected if selected in YEAR_MODE_OPTIONS else "Current Year"
+
     def start_process(self, mode):
         if getattr(self, 'chk_download_all_var', None) and self.chk_download_all_var.get() == "on":
             excel_path = None
-            year_mode = "Current Year"
+            year_mode = self._get_selected_year_mode(mode)
             if mode == "26as":
                 excel_path = self._resolve_excel_path("26as")
                 if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
@@ -2739,29 +2857,32 @@ class App(ctk.CTk):
         if mode == "26as":
             excel_path = self._resolve_excel_path("26as")
             if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
+            year_mode = self._get_selected_year_mode("26as")
             self.btn_start_26as.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             self.btn_stop_26as.pack(side="left", padx=(10, 0))
             self.btn_open_folder_26as.pack_forget()
             self.progress_26as.set(0)
-            self.worker = Tax26ASWorker(self, excel_path, "Current Year")
+            self.worker = Tax26ASWorker(self, excel_path, year_mode)
             threading.Thread(target=self.worker.run, daemon=True).start()
         elif mode == "ais":
             excel_path = self._resolve_excel_path("ais")
             if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
+            year_mode = self._get_selected_year_mode("ais")
             self.btn_start_ais.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             self.btn_stop_ais.pack(side="left", padx=(10, 0))
             self.btn_open_folder_ais.pack_forget()
             self.progress_ais.set(0)
-            self.worker = AISWorker(self, excel_path, "Current Year")
+            self.worker = AISWorker(self, excel_path, year_mode)
             threading.Thread(target=self.worker.run, daemon=True).start()
         elif mode == "tis":
             excel_path = self._resolve_excel_path("tis")
             if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
+            year_mode = self._get_selected_year_mode("tis")
             self.btn_start_tis.configure(state="disabled", text="PROCESSING...", fg_color="gray")
             self.btn_stop_tis.pack(side="left", padx=(10, 0))
             self.btn_open_folder_tis.pack_forget()
             self.progress_tis.set(0)
-            self.worker = TISWorker(self, excel_path, "Current Year")
+            self.worker = TISWorker(self, excel_path, year_mode)
             threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self, mode=None):
