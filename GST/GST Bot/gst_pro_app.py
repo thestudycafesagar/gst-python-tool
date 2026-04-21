@@ -399,20 +399,20 @@ class GSTWorker:
                 self.log("🛑 Process stopped by user.", "warning")
                 if results:
                     timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-                    base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier")
-                    if not os.path.exists(base_dir): os.makedirs(base_dir, exist_ok=True)
+                    base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier", "reports")
+                    os.makedirs(base_dir, exist_ok=True)
                     output_file = os.path.join(base_dir, f"GST_Report_{timestamp}.xlsx")
                     self.log(f"📊 Partial results count: {len(results)}. Saving to: {output_file}", "info")
                     try:
                         pd.DataFrame(results).to_excel(output_file, index=False)
-                        self.app.process_finished(f"Stopped by user. Partial report saved in GST Verifier folder")
+                        self.app.process_finished(f"Stopped by user. Partial report saved in GST Verifier reports folder")
                     except Exception as e:
                         # Try CSV fallback
                         try:
                             csv_file = output_file.replace('.xlsx', '.csv')
                             pd.DataFrame(results).to_csv(csv_file, index=False)
                             self.log(f"⚠️ Excel save failed ({e}). CSV saved at {csv_file}", "warning")
-                            self.app.process_finished(f"Stopped by user. Partial CSV saved in GST Verifier folder")
+                            self.app.process_finished(f"Stopped by user. Partial CSV saved in GST Verifier reports folder")
                         except Exception as e2:
                             self.app.log_message(f"CRITICAL ERROR: Could not save report. {e}; {e2}", "fatal")
                             self.app.process_finished("Stopped by user.")
@@ -423,21 +423,21 @@ class GSTWorker:
             # Export
             self.app.update_progress(1.0)
             timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-            base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier")
-            if not os.path.exists(base_dir): os.makedirs(base_dir, exist_ok=True)
+            base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier", "reports")
+            os.makedirs(base_dir, exist_ok=True)
             output_file = os.path.join(base_dir, f"GST_Report_{timestamp}.xlsx")
             self.log(f"📊 Final results count: {len(results)}. Saving to: {output_file}", "info")
 
             try:
                 pd.DataFrame(results).to_excel(output_file, index=False)
-                self.app.process_finished(f"Completed! Saved in GST Verifier folder")
+                self.app.process_finished(f"Completed! Saved in GST Verifier reports folder")
             except Exception as e:
                 # Try CSV fallback
                 try:
                     csv_file = output_file.replace('.xlsx', '.csv')
                     pd.DataFrame(results).to_csv(csv_file, index=False)
                     self.log(f"⚠️ Excel save failed ({e}). CSV saved at {csv_file}", "warning")
-                    self.app.process_finished(f"Completed! Saved CSV in GST Verifier folder")
+                    self.app.process_finished(f"Completed! Saved CSV in GST Verifier reports folder")
                 except Exception as e2:
                     self.app.log_message(f"CRITICAL ERROR: Could not save report. {e}; {e2}", "fatal")
                     self.app.process_finished("Failed to save")
@@ -541,25 +541,25 @@ class GSTApp(ctk.CTk):
         self.btn_row_actions = ctk.CTkFrame(self, fg_color="transparent")
         self.btn_row_actions.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
 
-        self.btn_demo = ctk.CTkButton(self.btn_row_actions, text="▶ View Demo", command=self.open_demo_link, 
-                                      fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"), width=120)
-        self.btn_demo.pack(side="left", padx=(0, 10))
+        self.btn_add_id = ctk.CTkButton(self.btn_row_actions, text="➕ Add GSTIN", command=self.add_id_password,
+                         fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"), width=120)
+        self.btn_add_id.pack(side="left", padx=(0, 10))
+
+        self.btn_view_id = ctk.CTkButton(self.btn_row_actions, text="👁 View", command=self.view_saved_user,
+                         fg_color="#475569", hover_color="#334155", height=28, font=("Segoe UI", 11, "bold"), width=80)
+        self.btn_view_id.pack(side="left", padx=(0, 10))
+
+        self.btn_delete_id = ctk.CTkButton(self.btn_row_actions, text="🗑 Delete", command=self.delete_saved_user,
+                           fg_color="#7C3AED", hover_color="#6D28D9", height=28, font=("Segoe UI", 11, "bold"), width=80)
+        self.btn_delete_id.pack(side="left", padx=(0, 10))
 
         self.btn_sample = ctk.CTkButton(self.btn_row_actions, text="📥 Download Sample", command=self.download_sample,
-                                       fg_color="#2563EB", hover_color="#1D4ED8", height=28, font=("Segoe UI", 12, "bold"), width=160)
+                           fg_color="#2563EB", hover_color="#1D4ED8", height=28, font=("Segoe UI", 12, "bold"), width=160)
         self.btn_sample.pack(side="left", padx=(0, 10))
 
-        self.btn_add_id = ctk.CTkButton(self.btn_row_actions, text="➕ Add GSTIN", command=self.add_id_password,
-                                         fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"), width=120)
-        self.btn_add_id.pack(side="left", padx=(0, 10))
-        
-        self.btn_view_id = ctk.CTkButton(self.btn_row_actions, text="👁 View", command=self.view_saved_user,
-                                         fg_color="#475569", hover_color="#334155", height=28, font=("Segoe UI", 11, "bold"), width=80)
-        self.btn_view_id.pack(side="left", padx=(0, 10))
-        
-        self.btn_delete_id = ctk.CTkButton(self.btn_row_actions, text="🗑 Delete", command=self.delete_saved_user,
-                                           fg_color="#7C3AED", hover_color="#6D28D9", height=28, font=("Segoe UI", 11, "bold"), width=80)
-        self.btn_delete_id.pack(side="left")
+        self.btn_demo = ctk.CTkButton(self.btn_row_actions, text="▶ View Demo", command=self.open_demo_link, 
+                          fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"), width=120)
+        self.btn_demo.pack(side="left")
         
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")

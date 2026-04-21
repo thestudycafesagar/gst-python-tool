@@ -153,7 +153,10 @@ class IMSWorker:
             if not self.report_data:
                 return
             report_df = pd.DataFrame(self.report_data)
-            filename = f"IMS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            # Create reports subfolder under GST Downloaded/IMS
+            base_dir = os.path.join(os.getcwd(), "GST Downloaded", "IMS", "reports")
+            os.makedirs(base_dir, exist_ok=True)
+            filename = os.path.join(base_dir, f"IMS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
             report_df.to_excel(filename, index=False)
             self.log(f"Summary Report saved: {filename}")
         except Exception as e:
@@ -421,20 +424,22 @@ class IMSWorker:
         while self.keep_running:
             try:
                 url = self.driver.current_url.lower()
+                src = (self.driver.page_source or "").lower()
+                
                 # Must have left the login page
                 if "login" in url or "services/login" in url:
                     time.sleep(2)
                     continue
-                # Now check we're on a post-login page
-                if (
-                    "fowelcome" in url or
-                    "auth/home" in url or
-                    "auth/dashboard" in url or
-                    "returns/auth" in url or
-                    "services/auth" in url
-                ):
-                    self.log("   ✅ Login detected!")
-                    break
+
+                # Strictly check for post-login indicators
+                is_logged_in = any(k in url for k in ("dashboard", "auth/home", "services/auth", "fowelcome")) or \
+                               len(self.driver.find_elements(By.XPATH, "//a[contains(@href, 'logout')]")) > 0
+                
+                if is_logged_in:
+                    # Double check we're not still on the login page/captcha
+                    if not self.driver.find_elements(By.ID, "imgCaptcha"):
+                        self.log("   ✅ Login detected!")
+                        break
             except Exception:
                 pass
             time.sleep(2)

@@ -426,11 +426,18 @@ class GSTWorker:
         
         while self.keep_running:
             try:
-                src = self.driver.page_source.lower()
                 url = self.driver.current_url.lower()
-                if "dashboard" in url or "dashboard" in src or "welcome" in src or "services/auth/home" in url:
-                    self.log("   ✅ Login detected!")
-                    break
+                src = self.driver.page_source.lower()
+                
+                # Strictly check for post-login indicators
+                is_logged_in = any(k in url for k in ("dashboard", "auth/home", "services/auth")) or \
+                               len(self.driver.find_elements(By.XPATH, "//a[contains(@href, 'logout')]")) > 0
+                
+                if is_logged_in:
+                    # Double check we're not still on the login page/captcha
+                    if not self.driver.find_elements(By.ID, "imgCaptcha"):
+                        self.log("   ✅ Login detected!")
+                        break
             except Exception:
                 pass
             time.sleep(2)
@@ -626,7 +633,27 @@ class App(ctk.CTk):
         self.cb_month.pack(side="right", expand=True, fill="x")
         self.toggle_inputs()
 
-        # Logs
+        # CAPTCHA SECTION
+        self.cap_frame = ctk.CTkFrame(self, border_color="#DC2626", border_width=1)
+        self.cap_frame.grid_columnconfigure(0, weight=1)
+        
+        cap_inner = ctk.CTkFrame(self.cap_frame, fg_color="transparent")
+        cap_inner.pack(pady=10, padx=10, fill="x")
+        
+        self.cap_lbl_img = ctk.CTkLabel(cap_inner, text="", image=None)
+        self.cap_lbl_img.pack(side="left", padx=10)
+        
+        self.cap_ent = ctk.CTkEntry(cap_inner, placeholder_text="Enter Captcha", width=120, height=35)
+        self.cap_ent.pack(side="left", padx=10)
+        self.cap_ent.bind("<Return>", self.submit_captcha)
+        
+        self.cap_btn = ctk.CTkButton(cap_inner, text="SUBMIT", command=self.submit_captcha, width=100, height=35)
+        self.cap_btn.pack(side="left", padx=5)
+        
+        self.cap_stop_btn = ctk.CTkButton(cap_inner, text="⏹ STOP", command=self.stop_process, width=100, height=35, fg_color="#475569", hover_color="#334155")
+        self.cap_stop_btn.pack(side="left", padx=5)
+
+        # LOGS
         self.log_frame = ctk.CTkFrame(self)
         self.log_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
         self.log_frame.grid_columnconfigure(0, weight=1)
@@ -919,7 +946,8 @@ class App(ctk.CTk):
             "manual_login": self.chk_manual_login_var.get()
         }
         self.close_captcha_safe()
-        self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+        if hasattr(self, 'cap_stop_btn'):
+            self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
         self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.pack(side="left", padx=(10, 0))
@@ -945,7 +973,8 @@ class App(ctk.CTk):
 
         self.close_captcha_safe()
         self.btn_stop.configure(state="disabled", text="STOPPED")
-        self.cap_stop_btn.configure(state="disabled", text="STOPPED")
+        if hasattr(self, 'cap_stop_btn'):
+            self.cap_stop_btn.configure(state="disabled", text="STOPPED")
         self.update_log_safe("🛑 Process stopped by user.")
 
 if __name__ == "__main__":

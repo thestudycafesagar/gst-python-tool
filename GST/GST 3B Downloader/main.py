@@ -376,20 +376,56 @@ class GSTWorker:
                 self.driver = None
 
     def perform_login(self, username, password, wait):
-        self.log("   🚀 MANUAL LOGIN MODE.")
-        self.log("   👉 Please LOGIN manually in the Chrome window.")
+        self.log("   🔐 Attempting login (auto-fill if credentials provided)...")
         self.driver.maximize_window()
         self.driver.get("https://services.gst.gov.in/services/login")
-        
-        # Wait for dashboard
+
+        # Try to auto-fill credentials if available
+        try:
+            if username:
+                try:
+                    usr = WebDriverWait(self.driver, 6).until(EC.visibility_of_element_located((By.ID, "username")))
+                    self.type_like_human(usr, username)
+                except Exception:
+                    usr = None
+
+                try:
+                    pwd = self.driver.find_element(By.ID, "user_pass")
+                    self.type_like_human(pwd, password)
+                except Exception:
+                    pwd = None
+
+                # Try clicking submit — captcha may be required and will be handled manually
+                try:
+                    btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
+                    self.driver.execute_script("arguments[0].click();", btn)
+                except Exception:
+                    pass
+
+                # If captcha present, show a browser banner
+                try:
+                    if self.driver.find_elements(By.ID, "imgCaptcha"):
+                        show_browser_alert(self.driver, "Please enter captcha in the browser and submit to continue.")
+                        self.log("   🟨 Captcha detected — please complete it in the browser.")
+                except Exception:
+                    pass
+        except Exception as e:
+            self.log(f"   ⚠️ Auto-fill issue: {str(e)[:20]}")
+
         while self.keep_running:
             try:
-                src = self.driver.page_source.lower()
-                url = self.driver.current_url.lower()
-                # Markers of login success
-                if "dashboard" in url or "dashboard" in src or "welcome" in src or "services/auth/home" in url:
-                    self.log("   ✅ Login detected!")
-                    break
+                url = (self.driver.current_url or "").lower()
+                src = (self.driver.page_source or "").lower()
+                
+                # Check for post-login indicators
+                is_logged_in = any(k in url for k in ("dashboard", "auth/home", "services/auth")) or \
+                               len(self.driver.find_elements(By.XPATH, "//a[contains(@href, 'logout')]")) > 0
+                
+                if is_logged_in:
+                    # Double check we're not still on the login page/captcha
+                    if not self.driver.find_elements(By.ID, "imgCaptcha"):
+                        self.log("   ✅ Login detected!")
+                        break
             except Exception:
                 pass
             time.sleep(2)

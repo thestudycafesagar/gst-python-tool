@@ -482,22 +482,29 @@ class App(ctk.CTk):
 
         self.file_actions_frame = ctk.CTkFrame(self.file_frame, fg_color="transparent")
         self.file_actions_frame.pack(side="right")
-        self.btn_demo = ctk.CTkButton(self.file_actions_frame, text="▶ Demo", command=self.open_demo_link,
-                                      fg_color="#DC2626", hover_color="#B91C1C", width=80,
-                                      font=("Segoe UI", 12, "bold"))
-        self.btn_demo.pack(side="left", padx=(0, 5))
+        # Add ID first
         self.btn_sample = ctk.CTkButton(self.file_actions_frame, text="➕ Add ID Password", command=self.add_id_password,
-                        fg_color="#059669", hover_color="#047857", width=150,
-                                        font=("Segoe UI", 12, "bold"))
+            fg_color="#059669", hover_color="#047857", width=150,
+                font=("Segoe UI", 12, "bold"))
         self.btn_sample.pack(side="left")
+
+        # View and Delete next
         self.btn_view_id = ctk.CTkButton(self.file_actions_frame, text="👁 View ID", command=self.view_saved_user,
-                         fg_color="#475569", hover_color="#334155", width=95,
-                         font=("Segoe UI", 11, "bold"))
+             fg_color="#475569", hover_color="#334155", width=95,
+             font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="left", padx=(5, 0))
+
         self.btn_delete_id = ctk.CTkButton(self.file_actions_frame, text="🗑 Delete ID", command=self.delete_saved_user,
-                           fg_color="#7C3AED", hover_color="#6D28D9", width=105,
-                           font=("Segoe UI", 11, "bold"))
+               fg_color="#7C3AED", hover_color="#6D28D9", width=105,
+               font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="left", padx=(5, 0))
+
+        # Demo last
+        self.btn_demo = ctk.CTkButton(self.file_actions_frame, text="▶ Demo", command=self.open_demo_link,
+                  fg_color="#DC2626", hover_color="#B91C1C", width=80,
+                  font=("Segoe UI", 12, "bold"))
+        self.btn_demo.pack(side="left", padx=(5, 0))
+
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
 

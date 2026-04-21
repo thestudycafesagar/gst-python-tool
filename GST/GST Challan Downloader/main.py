@@ -23,7 +23,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import sys
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
-from stealth_driver import create_chrome_driver, build_chrome_options
+from stealth_driver import create_chrome_driver, build_chrome_options, show_browser_alert
 
 # --- UI CONFIGURATION ---
 # Commented out: theme is controlled globally by GST_Suite.py
@@ -154,7 +154,10 @@ class GSTWorker:
         try:
             if not self.report_data: return
             report_df = pd.DataFrame(self.report_data)
-            filename = f"Challan_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            # Create reports subfolder under GST Downloaded/GST Challan
+            base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Challan", "reports")
+            os.makedirs(base_dir, exist_ok=True)
+            filename = os.path.join(base_dir, f"Challan_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
             report_df.to_excel(filename, index=False)
             self.log(f"📄 Summary Report saved: {filename}")
         except Exception as e:
@@ -210,29 +213,128 @@ class GSTWorker:
                 self.driver = None
 
     def perform_login(self, username, password, wait):
-        self.log("   🚀 MANUAL LOGIN MODE.")
-        self.log("   👉 Please LOGIN manually in the Chrome window.")
+        self.log("   🔐 Attempting login (auto-fill if credentials provided)...")
         self.driver.maximize_window()
         self.driver.get("https://services.gst.gov.in/services/login")
-        
-        while self.keep_running:
+
+        # Try to auto-fill credentials if available
+        try:
+            if username:
+                try:
+                    usr = WebDriverWait(self.driver, 6).until(EC.visibility_of_element_located((By.ID, "username")))
+                    self.type_like_human(usr, username)
+                except Exception:
+                    usr = None
+
+                try:
+                    pwd = self.driver.find_element(By.ID, "user_pass")
+                    self.type_like_human(pwd, password)
+                except Exception:
+                    pwd = None
+
+                # Try clicking submit — captcha may be required and will be handled manually
+                try:
+                    btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
+                    self.driver.execute_script("arguments[0].click();", btn)
+                except Exception:
+                    pass
+
+                # If captcha present, show a browser banner asking user to enter it
+                captcha_shown = False
+                try:
+                    if self.driver.find_elements(By.ID, "imgCaptcha"):
+                        show_browser_alert(self.driver, "Please enter captcha in the browser and submit to continue.")
+                        self.log("   🟨 Captcha detected — please complete it in the browser.")
+                        captcha_shown = True
+                        # Request user confirmation from the main UI that captcha was entered.
+                        pass
+                except Exception:
+                    pass
+
+                # If captcha modal was shown, block here until user clicks Continue (or portal shows dashboard)
+                # Wait for user to complete captcha is now handled by the main polling loop below.
+                pass
+            else:
+                self.log("   👉 No credentials supplied — please login manually in the Chrome window.")
+
+            # Wait for dashboard or login failure. If captcha modal was shown, wait for user to click Continue.
+            while self.keep_running:
+                try:
+                    url = (self.driver.current_url or "").lower()
+                    src = (self.driver.page_source or "").lower()
+
+                    # Debug helper: occasionally log the current URL for diagnosis
+                    if any(k in url for k in ("dashboard", "auth/home")):
+                        self.log(f"   ℹ️ Current URL: {url}")
+
+                    # Strictly check for post-login indicators
+                    is_logged_in_url = any(k in url for k in ("dashboard", "auth/home", "services/auth"))
+                    has_logout = len(self.driver.find_elements(By.XPATH, "//a[contains(@href, 'logout')]")) > 0
+                    has_captcha = len(self.driver.find_elements(By.ID, "imgCaptcha")) > 0
+                    
+                    found_services = False
+                    if (is_logged_in_url or has_logout) and not has_captcha:
+                        services_xpath = "//li[contains(@class,'menuList')]//a[contains(text(),'Services') and contains(@class,'dropdown-toggle')]"
+                        els = self.driver.find_elements(By.XPATH, services_xpath)
+                        for el in els:
+                            try:
+                                if el.is_displayed():
+                                    found_services = True
+                                    break
+                            except: continue
+
+                    if found_services:
+                        self.log("   ✅ Login detected!")
+                        break
+                    else:
+                        if is_logged_in_url or has_logout:
+                            self.log("   ℹ️ Dashboard seen but Services menu missing; waiting...")
+
+                    # If portal shows a captcha error, keep waiting for user to re-enter
+                    if "enter valid letters" in src or "invalid captcha" in src:
+                        self.log("   ⚠️ Invalid Captcha detected. Waiting for user to re-enter...")
+                        time.sleep(2)
+                        continue
+
+                    # Polling logic will detect login automatically
+                    pass
+
+                    if "invalid username or password" in src:
+                        self.log("   ❌ Bad Credentials.")
+                        return False, "Invalid Credentials"
+                except Exception:
+                    pass
+                time.sleep(2)
+
+            if not self.keep_running:
+                return False, "Stopped"
+
+            time.sleep(2)
             try:
-                src = self.driver.page_source.lower()
-                url = self.driver.current_url.lower()
-                if "dashboard" in url or "dashboard" in src or "welcome" in src or "services/auth/home" in url:
-                    self.log("   ✅ Login detected!")
-                    break
+                self.handle_popups()
             except Exception:
                 pass
-            time.sleep(2)
-        
-        if not self.keep_running: 
-            return False, "Stopped"
-        
-        time.sleep(2)
-        self.handle_popups()
-        
-        return True, "Success"
+
+            return True, "Success"
+        except Exception as e:
+            self.log(f"   ❌ Login Exception: {e}")
+            return False, f"Login Error: {str(e)[:20]}"
+
+    def handle_popups(self):
+        """Dismiss common 'Remind me later' popups after login."""
+        try:
+            xpath = "//a[contains(text(), 'No-Remind me later')] | //a[contains(text(),'Remind me later')] | //button[contains(text(),'Remind Me Later')]"
+            popups = self.driver.find_elements(By.XPATH, xpath)
+            for popup in popups:
+                try:
+                    if popup.is_displayed():
+                        self.log("   🛡️ Dismissing popup...")
+                        popup.click()
+                        time.sleep(1.0)
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
     def navigate_to_challan_history(self, wait):
         """ Navigates via UI: Services → Payments → Challan History. Returns (status, msg) """
@@ -559,16 +661,28 @@ class App(ctk.CTk):
         self.cb_month.set("April")
         self.cb_month.pack(side="right", expand=True, fill="x")
 
-        self.frm_type = ctk.CTkFrame(self.card_period, fg_color="transparent")
-        self.frm_type.pack(fill="x", padx=15, pady=(6, 15))
-        ctk.CTkLabel(self.frm_type, text="Challan Type:", width=140, anchor="w").pack(side="left")
-        self.cb_type = ctk.CTkComboBox(self.frm_type,
-                                       values=["Monthly (AOP)"],
-                                       width=150,
-                                       state="disabled")
-        self.cb_type.set("Monthly (AOP)")
-        self.cb_type.pack(side="right", expand=True, fill="x")
+        # Removed Challan Type field (label and combobox) for both Monthly and Quarterly modes
         self.toggle_inputs()
+        
+        # CAPTCHA SECTION
+        self.cap_frame = ctk.CTkFrame(self, border_color="#DC2626", border_width=1)
+        self.cap_frame.grid_columnconfigure(0, weight=1)
+        
+        cap_inner = ctk.CTkFrame(self.cap_frame, fg_color="transparent")
+        cap_inner.pack(pady=10, padx=10, fill="x")
+        
+        self.cap_lbl_img = ctk.CTkLabel(cap_inner, text="", image=None)
+        self.cap_lbl_img.pack(side="left", padx=10)
+        
+        self.cap_ent = ctk.CTkEntry(cap_inner, placeholder_text="Enter Captcha", width=120, height=35)
+        self.cap_ent.pack(side="left", padx=10)
+        self.cap_ent.bind("<Return>", self.submit_captcha)
+        
+        self.cap_btn = ctk.CTkButton(cap_inner, text="SUBMIT", command=self.submit_captcha, width=100, height=35)
+        self.cap_btn.pack(side="left", padx=5)
+        
+        self.cap_stop_btn = ctk.CTkButton(cap_inner, text="⏹ STOP", command=self.stop_process, width=100, height=35, fg_color="#475569", hover_color="#334155")
+        self.cap_stop_btn.pack(side="left", padx=5)
 
         # LOGS
         self.log_frame = ctk.CTkFrame(self)
@@ -829,27 +943,36 @@ class App(ctk.CTk):
     def close_captcha_safe(self):
         self.after(0, lambda: self.cap_frame.grid_forget())
 
+
     def start_process(self):
-        credentials = list(self.manual_credentials)
-        if not credentials and not self.excel_file:
-            messagebox.showerror("Error", "Please add ID/Password first")
-            return
-        settings = {
-            "year": self.cb_year.get(),
-            "quarter": self.cb_qtr.get(),
-            "month": self.cb_month.get(),
-            "period_mode": self.period_mode_var.get(),
-            "type": "Monthly (AOP)",
-            "manual_login": self.chk_manual_login_var.get()
-        }
-        self.close_captcha_safe()
-        self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
-        self.btn_stop.configure(state="normal", text="⏹ STOP")
-        self.btn_start.configure(state="disabled", text="RUNNING...")
-        self.btn_stop.pack(side="left", padx=(10, 0))
-        self.btn_open_folder.pack_forget()
-        self.worker = GSTWorker(self, self.excel_file, settings, credentials=credentials)
-        threading.Thread(target=self.worker.run, daemon=True).start()
+        try:
+            credentials = list(self.manual_credentials)
+            if not credentials and not self.excel_file:
+                messagebox.showerror("Error", "Please add ID/Password first")
+                self.update_log_safe("❌ No credentials or Excel file provided.")
+                return
+            settings = {
+                "year": self.cb_year.get(),
+                "quarter": self.cb_qtr.get(),
+                "month": self.cb_month.get(),
+                "period_mode": self.period_mode_var.get(),
+                "type": "Monthly (AOP)"
+            }
+            if not settings["year"]:
+                messagebox.showerror("Error", "Please select a year.")
+                self.update_log_safe("❌ No year selected.")
+                return
+            if hasattr(self, 'cap_stop_btn'):
+                self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+            self.btn_stop.configure(state="normal", text="⏹ STOP")
+            self.btn_start.configure(state="disabled", text="RUNNING...")
+            self.btn_stop.pack(side="left", padx=(10, 0))
+            self.btn_open_folder.pack_forget()
+            self.worker = GSTWorker(self, self.excel_file, settings, credentials=credentials)
+            threading.Thread(target=self.worker.run, daemon=True).start()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start process: {e}")
+            self.update_log_safe(f"❌ Exception in start_process: {e}")
 
     def stop_process(self):
         if not self.worker:
@@ -867,6 +990,8 @@ class App(ctk.CTk):
             self.update_log_safe(f"⚠️ Error closing Chrome: {e}")
 
         self.btn_stop.configure(state="disabled", text="STOPPED")
+        if hasattr(self, 'cap_stop_btn'):
+            self.cap_stop_btn.configure(state="disabled", text="STOPPED")
         self.update_log_safe("🛑 Process stopped by user.")
 
 if __name__ == "__main__":

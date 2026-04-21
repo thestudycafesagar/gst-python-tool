@@ -170,12 +170,14 @@ class ChallanWorker:
             if not self.report_data: return
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"Challan_Report_{timestamp}.xlsx"
-            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Challan Downloader")
-            if not os.path.exists(report_dir): os.makedirs(report_dir, exist_ok=True)
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Challan Downloader", "reports")
+            os.makedirs(report_dir, exist_ok=True)
             report_path = os.path.join(report_dir, filename)
+            df_report = pd.DataFrame(self.report_data)
             df_report.to_excel(report_path, index=False)
-            self.log(f"📄 Report saved: {filename}")
-        except: pass
+            self.log(f"📄 Report saved: {report_path}")
+        except Exception as e:
+            self.log(f"❌ Failed to save report: {e}")
 
     def process_single_user(self, user_id, password, dob, download_root):
         driver = None
@@ -1139,12 +1141,15 @@ class App(ctk.CTk):
         self.entry_file.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(0, 5))
+        # Add ID first
         ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=self.add_id_password, width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
+        # View and Delete next
         self.btn_view_id = ctk.CTkButton(btn_actions, text="👁 View ID", command=self.view_saved_user, width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="left", padx=(5, 0))
         self.btn_delete_id = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=self.delete_saved_user, width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="left", padx=(5, 0))
+        # Demo last
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
 

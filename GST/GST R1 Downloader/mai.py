@@ -26,7 +26,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import sys
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
-from stealth_driver import create_chrome_driver, build_chrome_options
+from stealth_driver import create_chrome_driver, build_chrome_options, show_browser_alert
 
 # --- UI CONFIGURATION ---
 ctk.set_appearance_mode("System")
@@ -62,6 +62,24 @@ class GSTWorker:
         for ch in str(text):
             element.send_keys(ch)
             time.sleep(random.uniform(0.06, 0.18))
+
+    def handle_popups(self):
+        """Bypass Aadhaar and other GST portal popups."""
+        try:
+            # Aadhaar Remind Later
+            aadhaar_skip = self.driver.find_elements(By.XPATH, "//a[contains(text(),'Remind me later')]")
+            if aadhaar_skip and aadhaar_skip[0].is_displayed():
+                aadhaar_skip[0].click()
+                time.sleep(1)
+        except: pass
+
+        try:
+            # Generic Remind Me Later
+            generic_skip = self.driver.find_elements(By.XPATH, "//button[contains(text(),'Remind Me Later')]")
+            if generic_skip and generic_skip[0].is_displayed():
+                generic_skip[0].click()
+                time.sleep(1)
+        except: pass
 
     def run(self):
         mode = self.settings['action_mode']
@@ -335,18 +353,56 @@ class GSTWorker:
         time.sleep(4) 
 
     def perform_login(self, username, password, wait):
-        self.log("   🚀 MANUAL LOGIN MODE.")
-        self.log("   👉 Please LOGIN manually in the Chrome window.")
+        self.log("   🔐 Attempting login (auto-fill if credentials provided)...")
         self.driver.maximize_window()
         self.driver.get("https://services.gst.gov.in/services/login")
-        
+
+        # Try to auto-fill credentials if available
+        try:
+            if username:
+                try:
+                    usr = WebDriverWait(self.driver, 6).until(EC.visibility_of_element_located((By.ID, "username")))
+                    self.type_like_human(usr, username)
+                except Exception:
+                    usr = None
+
+                try:
+                    pwd = self.driver.find_element(By.ID, "user_pass")
+                    self.type_like_human(pwd, password)
+                except Exception:
+                    pwd = None
+
+                # Try clicking submit — captcha may be required and will be handled manually
+                try:
+                    btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
+                    self.driver.execute_script("arguments[0].click();", btn)
+                except Exception:
+                    pass
+
+                # If captcha present, show a browser banner
+                try:
+                    if self.driver.find_elements(By.ID, "imgCaptcha"):
+                        show_browser_alert(self.driver, "Please enter captcha in the browser and submit to continue.")
+                        self.log("   🟨 Captcha detected — please complete it in the browser.")
+                except Exception:
+                    pass
+        except Exception as e:
+            self.log(f"   ⚠️ Auto-fill issue: {str(e)[:20]}")
+
         while self.keep_running:
             try:
-                src = self.driver.page_source.lower()
-                url = self.driver.current_url.lower()
-                if "dashboard" in url or "dashboard" in src or "welcome" in src or "services/auth/home" in url:
-                    self.log("   ✅ Login detected!")
-                    break
+                url = (self.driver.current_url or "").lower()
+                src = (self.driver.page_source or "").lower()
+                
+                # Check for post-login indicators
+                is_logged_in = any(k in url for k in ("dashboard", "auth/home", "services/auth")) or \
+                               len(self.driver.find_elements(By.XPATH, "//a[contains(@href, 'logout')]")) > 0
+                
+                if is_logged_in:
+                    # Double check we're not still on the login page/captcha
+                    if not self.driver.find_elements(By.ID, "imgCaptcha"):
+                        self.log("   ✅ Login detected!")
+                        break
             except Exception:
                 pass
             time.sleep(2)
@@ -629,6 +685,26 @@ class App(ctk.CTk):
         self.cb_month.set("April")
         self.cb_month.pack(side="right", expand=True, fill="x")
         self.toggle_inputs()
+
+        # CAPTCHA SECTION
+        self.cap_frame = ctk.CTkFrame(self, border_color="#DC2626", border_width=1)
+        self.cap_frame.grid_columnconfigure(0, weight=1)
+        
+        cap_inner = ctk.CTkFrame(self.cap_frame, fg_color="transparent")
+        cap_inner.pack(pady=10, padx=10, fill="x")
+        
+        self.cap_lbl_img = ctk.CTkLabel(cap_inner, text="", image=None)
+        self.cap_lbl_img.pack(side="left", padx=10)
+        
+        self.cap_ent = ctk.CTkEntry(cap_inner, placeholder_text="Enter Captcha", width=120, height=35)
+        self.cap_ent.pack(side="left", padx=10)
+        self.cap_ent.bind("<Return>", self.submit_captcha)
+        
+        self.cap_btn = ctk.CTkButton(cap_inner, text="SUBMIT", command=self.submit_captcha, width=100, height=35)
+        self.cap_btn.pack(side="left", padx=5)
+        
+        self.cap_stop_btn = ctk.CTkButton(cap_inner, text="⏹ STOP", command=self.stop_process, width=100, height=35, fg_color="#475569", hover_color="#334155")
+        self.cap_stop_btn.pack(side="left", padx=5)
 
         # LOGS
         self.log_frame = ctk.CTkFrame(self)
@@ -917,7 +993,8 @@ class App(ctk.CTk):
             "action_mode": self.cb_action.get()
         }
         self.close_captcha_safe()
-        self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+        if hasattr(self, 'cap_stop_btn'):
+            self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
         self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.pack(side="left", padx=(10, 0))
@@ -943,7 +1020,8 @@ class App(ctk.CTk):
 
         self.close_captcha_safe()
         self.btn_stop.configure(state="disabled", text="STOPPED")
-        self.cap_stop_btn.configure(state="disabled", text="STOPPED")
+        if hasattr(self, 'cap_stop_btn'):
+            self.cap_stop_btn.configure(state="disabled", text="STOPPED")
         self.update_log_safe("🛑 Process stopped by user.")
 
 if __name__ == "__main__":
