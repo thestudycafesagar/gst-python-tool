@@ -385,7 +385,7 @@ class Tax26ASWorker:
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "26AS_Downloads")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "26 AS")
 
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 
@@ -832,7 +832,7 @@ class AISWorker:
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "AIS_Downloads")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "AIS")
 
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 
@@ -1336,7 +1336,7 @@ class TISWorker:
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "TIS_Downloads")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "TIS")
 
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 self.report_data.append({
@@ -2307,7 +2307,7 @@ class CombinedWorker:
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 base_dir = os.getcwd()
-                combined_root = os.path.join(base_dir, "Combined_Downloads")
+                combined_root = os.path.join(base_dir, "Income Tax Downloaded", "Combined 26-AIS-TIS")
                 if not os.path.exists(combined_root): os.makedirs(combined_root, exist_ok=True)
                 
                 user_folder = create_unique_folder(combined_root, user_id)
@@ -2957,15 +2957,15 @@ class App(ctk.CTk):
 
     def open_download_folder(self, mode):
         folder_map = {
-            "26as": "26AS_Downloads",
-            "ais":  "AIS_Downloads",
-            "tis":  "TIS_Downloads",
+            "26as": os.path.join("Income Tax Downloaded", "26 AS"),
+            "ais":  os.path.join("Income Tax Downloaded", "AIS"),
+            "tis":  os.path.join("Income Tax Downloaded", "TIS"),
         }
         try:
-            folder = folder_map.get(mode, "26AS_Downloads")
+            folder = folder_map.get(mode, os.path.join("Income Tax Downloaded", "26 AS"))
             target = os.path.join(os.getcwd(), folder)
             if not os.path.exists(target):
-                target = os.getcwd()
+                target = os.path.join(os.getcwd(), "Income Tax Downloaded")
             os.startfile(target)
         except Exception as e:
             from tkinter import messagebox

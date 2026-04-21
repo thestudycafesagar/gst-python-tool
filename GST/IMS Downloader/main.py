@@ -1,3 +1,4 @@
+
 import threading
 import time
 import os
@@ -8,17 +9,19 @@ import zipfile
 import pandas as pd
 import customtkinter as ctk
 from PIL import Image
-from datetime import datetime
+from datetime import datetime, timedelta
 from tkinter import filedialog, messagebox
 
-# Selenium Imports
-from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException
+
+# Shared Stealth Driver Import
+import sys
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
+from stealth_driver import create_chrome_driver, build_chrome_options
 
 # --- UI CONFIGURATION ---
 ctk.set_appearance_mode("System")
@@ -34,59 +37,15 @@ IMS_DASHBOARD_URL = "https://return.gst.gov.in/imsweb/auth/imsDashboard"
 
 
 class IMSWorker:
-    def __init__(self, app_instance, excel_path, credentials=None):
+    def __init__(self, app_instance, excel_path, settings, credentials=None):
         self.app = app_instance
         self.excel_path = excel_path
+        self.settings = settings
         self.credentials = credentials or []
         self.keep_running = True
         self.driver = None
         self.captcha_response = None
-        self.captcha_event = threading.Event()
         self.report_data = []
-
-    def _save_captcha_image(self, wait, output_path):
-        """Capture captcha image bytes reliably (avoids DPI crop mismatch on Windows)."""
-        captcha_img = wait.until(EC.presence_of_element_located((By.ID, "imgCaptcha")))
-
-        wait.until(lambda d: d.execute_script(
-            """
-            const img = document.getElementById('imgCaptcha');
-            return !!(img && img.complete && (img.naturalWidth || img.width) > 0 && (img.naturalHeight || img.height) > 0);
-            """
-        ))
-
-        src = captcha_img.get_attribute("src") or ""
-        if src.startswith("data:image"):
-            payload = src.split(",", 1)[1]
-            with open(output_path, "wb") as f:
-                f.write(base64.b64decode(payload))
-            return
-
-        try:
-            data_url = self.driver.execute_script(
-                """
-                const img = document.getElementById('imgCaptcha');
-                if (!img) return null;
-                const w = img.naturalWidth || img.width;
-                const h = img.naturalHeight || img.height;
-                const canvas = document.createElement('canvas');
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, w, h);
-                return canvas.toDataURL('image/png');
-                """
-            )
-            if isinstance(data_url, str) and data_url.startswith("data:image"):
-                payload = data_url.split(",", 1)[1]
-                with open(output_path, "wb") as f:
-                    f.write(base64.b64decode(payload))
-                return
-        except Exception:
-            pass
-
-        with open(output_path, "wb") as f:
-            f.write(captcha_img.screenshot_as_png)
 
     def log(self, message):
         self.app.update_log_safe(message)
@@ -129,9 +88,9 @@ class IMSWorker:
 
             total = len(df)
 
-            base_dir = os.path.join(os.getcwd(), "IMS_Downloads")
+            base_dir = os.path.join(os.getcwd(), "GST Downloaded", "IMS")
             if not os.path.exists(base_dir):
-                os.makedirs(base_dir)
+                os.makedirs(base_dir, exist_ok=True)
 
             stopped_by_user = False
             for index, row in df.iterrows():
@@ -220,40 +179,8 @@ class IMSWorker:
 
     def process_single_user(self, username, password, user_dir):
         try:
-            # --- BROWSER SETUP (ANTI-DETECT) ---
-            options = webdriver.ChromeOptions()
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument(
-                "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-            )
-            prefs = {
-                "download.prompt_for_download": False,
-                "directory_upgrade": True,
-                "safebrowsing.enabled": True,
-                "download.default_directory": user_dir,
-                "profile.default_content_setting_values.automatic_downloads": 1,
-            }
-            options.add_experimental_option("prefs", prefs)
-
-            self.driver = webdriver.Chrome(options=options)
-            self.driver.maximize_window()
-
-            # Stealth JS Injection
-            self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
-            self.driver.execute_cdp_cmd(
-                "Page.setDownloadBehavior",
-                {"behavior": "allow", "downloadPath": user_dir},
-            )
+            # --- BROWSER SETUP (SHARED STEALTH DRIVER) ---
+            self.driver = create_chrome_driver(build_chrome_options(user_dir))
 
             wait = WebDriverWait(self.driver, 20)
 
@@ -264,82 +191,137 @@ class IMSWorker:
 
             self.human_delay()
 
-            # --- STEP 1: CLICK 'Services' IN NAVBAR ---
-            self.log("   Clicking 'Services' in navbar...")
-            s_xpath = "//a[contains(text(), 'Services') or contains(normalize-space(),'Services')]"
-            services_btn = self._robust_find_clickable(By.XPATH, s_xpath, timeout=5, refreshes=1, alert_msg="Services navbar not found")
-            if not services_btn: return "Failed", "Services navbar not found"
+            from selenium.webdriver.common.action_chains import ActionChains
+            actions = ActionChains(self.driver)
+
+            # --- STEP 1: CLICK 'Services' to open the smenu dropdown ---
+            self.log("   Clicking 'Services' to open dropdown...")
+            time.sleep(random.uniform(1.5, 2.5))
+            services_btn = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH,
+                    "//a[@data-toggle='dropdown' and contains(normalize-space(.),'Services')]"
+                ))
+            )
             self.driver.execute_script("arguments[0].click();", services_btn)
-            time.sleep(2)
+            time.sleep(random.uniform(1.5, 2.0))
 
-            # --- STEP 2: CLICK 'Returns' IN NAVBAR ---
-            self.log("   Clicking 'Returns' in navbar...")
-            r_xpath = "//a[contains(text(), 'Returns')]"
-            returns_btn = self._robust_find_clickable(By.XPATH, r_xpath, timeout=5, refreshes=0, alert_msg="Returns navbar not found")
-            if not returns_btn: return "Failed", "Returns navbar not found"
-            self.driver.execute_script("arguments[0].click();", returns_btn)
-            time.sleep(2)
+            # --- STEP 2: HOVER on 'Returns' tab inside smenu to reveal submenu ---
+            self.log("   Hovering on 'Returns'...")
+            returns_tab = WebDriverWait(self.driver, 8).until(
+                EC.visibility_of_element_located((By.XPATH,
+                    "//ul[contains(@class,'smenu')]//a[contains(@href,'quicklinks/returns') or normalize-space(text())='Returns']"
+                ))
+            )
+            actions.move_to_element(returns_tab).perform()
+            time.sleep(random.uniform(1.2, 1.8))
 
-            # --- STEP 3: CLICK 'Invoice Management System (IMS) Dashboard' LINK ---
-            self.log("   Clicking IMS Dashboard link...")
-            ims_xpath = "//a[contains(@href,'imsDashboard')]"
-            ims_link = self._robust_find_clickable(By.XPATH, ims_xpath, timeout=5, refreshes=0, alert_msg="IMS Dashboard link not found")
-            if not ims_link: return "Failed", "IMS Dashboard link not found"
+            # --- STEP 3: CLICK IMS Dashboard from isubmenu using exact href ---
+            self.log("   Clicking IMS Dashboard...")
+            ims_link = WebDriverWait(self.driver, 8).until(
+                EC.visibility_of_element_located((By.XPATH,
+                    "//ul[contains(@class,'isubmenu')]//a[contains(@href,'imsDashboard') or contains(@data-ng-href,'imsDashboard')]"
+                ))
+            )
+            actions.move_to_element(ims_link).pause(random.uniform(0.4, 0.8)).perform()
+            time.sleep(0.5)
             self.driver.execute_script("arguments[0].click();", ims_link)
-            time.sleep(5)
+            self.log("   ✅ IMS Dashboard clicked.")
+            time.sleep(random.uniform(4, 6))
 
-            # --- STEP 4: CLICK 'View' UNDER INWARD SUPPLIES ---
-            self.log("   Clicking Inward Supplies > View...")
-            v_xpath = "//button[contains(@data-ng-click,'navigateInwsupDashboard')]"
-            view_btn = self._robust_find_clickable(By.XPATH, v_xpath, timeout=5, refreshes=0, alert_msg="Inward Supplies View button not found")
-            if not view_btn: return "Failed", "Inward Supplies View button not found"
-            self.driver.execute_script("arguments[0].click();", view_btn)
-            time.sleep(5)
+            # --- STEP 4: CLICK 'View' UNDER INWARD SUPPLIES (skip if already there) ---
+            if "inwardsupplies" not in self.driver.current_url.lower():
+                self.log("   Clicking Inward Supplies > View...")
+                try:
+                    v_btn = WebDriverWait(self.driver, 8).until(
+                        EC.element_to_be_clickable((By.XPATH,
+                            "//button[contains(@data-ng-click,'navigateInwsupDashboard') or contains(text(),'VIEW') or contains(text(),'View')]"
+                        ))
+                    )
+                    self.driver.execute_script("arguments[0].click();", v_btn)
+                    self.log("   ✅ Clicked View / Inward Supplies.")
+                    time.sleep(4)
+                except Exception as e:
+                    self.log(f"   ⚠️ View button not found, continuing: {e}")
+            else:
+                self.log("   ✅ Already on Inward Supplies page.")
 
-            # --- STEP 5: DISMISS INFORMATION POPUP (click OKAY) ---
-            self.log("   Handling Information popup...")
+            # --- STEP 5: DISMISS INFORMATION POPUP (click OKAY if visible) ---
+            self.log("   Checking for Information popup...")
             try:
-                # Wait for popup animation to complete
                 time.sleep(2)
-                
-                # Retrieve all buttons matching "Okay" or "OKAY" inside modals
-                okay_xpath = "//div[contains(@class, 'modal-content')]//button[contains(translate(text(), 'OKAY', 'okay'), 'okay')]"
+                okay_xpath = "//div[contains(@class,'modal') and contains(@style,'display: block') or contains(@class,'modal-open')]//button[contains(translate(text(),'okay','OKAY'),'OKAY') or contains(text(),'Ok') or contains(text(),'OK')]"
                 okay_buttons = self.driver.find_elements(By.XPATH, okay_xpath)
-                
                 popup_closed = False
                 for btn in okay_buttons:
-                    if btn.is_displayed():  # Crucial fix: Only interact if the button is physically visible
-                        self.driver.execute_script("arguments[0].click();", btn)
-                        popup_closed = True
-                        self.log("   Popup closed successfully.")
-                        time.sleep(2)
-                        break # Stop after clicking the visible one
-                        
+                    try:
+                        if btn.is_displayed():
+                            self.driver.execute_script("arguments[0].click();", btn)
+                            popup_closed = True
+                            self.log("   Popup closed.")
+                            time.sleep(2)
+                            break
+                    except Exception:
+                        pass
                 if not popup_closed:
-                    self.log("   No visible popup found, moving to download...")
-                    
+                    self.log("   No popup found, proceeding to download...")
             except Exception as e:
-                self.log(f"   Popup error: {e}")
+                self.log(f"   Popup check error: {e}")
 
             # --- STEP 6: CLICK DOWNLOAD IMS DETAILS (EXCEL) ---
             self.log("   Clicking DOWNLOAD IMS DETAILS (EXCEL)...")
-            dl_xpath = "//button[contains(@data-ng-click,'downloadIMSSummary')] | //button[contains(text(), 'DOWNLOAD IMS DETAILS (EXCEL)')]"
-            dl_btn = self._robust_find_clickable(By.XPATH, dl_xpath, timeout=5, refreshes=1, alert_msg="Download button not found")
-            if not dl_btn: return "Failed", "Download button not found"
-            self.driver.execute_script("arguments[0].click();", dl_btn)
+            try:
+                dl_btn = WebDriverWait(self.driver, 15).until(
+                    EC.element_to_be_clickable((By.XPATH,
+                        "//button[@data-ng-click='downloadIMSSummary()' or contains(text(),'DOWNLOAD IMS DETAILS')]"
+                    ))
+                )
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", dl_btn)
+                time.sleep(0.5)
+                self.driver.execute_script("arguments[0].click();", dl_btn)
+                self.log("   ✅ Download button clicked.")
+            except Exception as e:
+                self.log(f"   ❌ Download button not found: {e}")
+                return "Failed", "Download button not found"
             time.sleep(5)
 
-            # --- STEP 7: CLICK THE GENERATED DOWNLOAD LINK ---
-            self.log("   Waiting for the file generation link to appear (this may take up to 2 mins)...")
-            # We don't want to refresh this, because generating is an async task we wait for. So we use wait.until here.
+            # --- CHECK: File generation in progress (20-min wait message) ---
+            try:
+                gen_msgs = self.driver.find_elements(By.XPATH,
+                    "//div[contains(@class,'alert-success') and contains(.,'generation is in progress')]"
+                )
+                if gen_msgs and any(m.is_displayed() for m in gen_msgs):
+                    retry_time = datetime.now().replace(second=0, microsecond=0)
+                    retry_time = retry_time + timedelta(minutes=20)
+                    retry_str = retry_time.strftime("%I:%M %p")
+                    msg = (
+                        f"File generation is in progress for {username}.\n\n"
+                        f"The GST portal needs up to 20 minutes to prepare the file.\n\n"
+                        f"⏰  Please try again after:  {retry_str}"
+                    )
+                    self.log(f"   ⏳ File generation in progress. Retry after {retry_str}")
+                    self.app.after(0, lambda m=msg: messagebox.showinfo("File Generating — Retry Later", m))
+                    return "Retry Later", f"File generating. Try again after {retry_str}"
+            except Exception as e:
+                self.log(f"   Generation check error: {e}")
+
+            # --- STEP 7: CLICK ALL GENERATED DOWNLOAD LINKS (file 1, file 2, ...) ---
+            self.log("   Waiting for download link(s) to appear (up to 2 mins)...")
             try:
                 long_wait = WebDriverWait(self.driver, 120)
-                file_link = long_wait.until(EC.element_to_be_clickable(
-                    (By.XPATH, "//a[contains(@href, 'imsExcel') or contains(., 'download file')]")
+                # Wait until at least one download link appears
+                long_wait.until(EC.presence_of_element_located(
+                    (By.XPATH, "//a[@ng-repeat and contains(@href,'imsExcel')]")
                 ))
-                self.driver.execute_script("arguments[0].click();", file_link)
-                self.log("   Clicked the generated download link.")
-                time.sleep(5)
+                time.sleep(2)
+                # Grab all download links (file 1, file 2, ...)
+                file_links = self.driver.find_elements(By.XPATH,
+                    "//a[@ng-repeat and contains(@href,'imsExcel')]"
+                )
+                self.log(f"   Found {len(file_links)} download link(s).")
+                for i, lnk in enumerate(file_links, 1):
+                    self.driver.execute_script("arguments[0].click();", lnk)
+                    self.log(f"   ✅ Clicked download file {i}.")
+                    time.sleep(3)
             except Exception as e:
                 self.log(f"   Generated link error: {e}")
                 return "Failed", "Generated file link did not appear"
@@ -394,95 +376,105 @@ class IMSWorker:
                 self.driver = None
 
     def perform_login(self, username, password, wait):
-        self.log("   Opening GST Portal...")
+        self.log("   🚀 Opening GST Portal login page...")
+        self.driver.maximize_window()
         self.driver.get(LOGIN_URL)
+        time.sleep(3)
 
-        while True:
-            if not self.keep_running:
-                return False, "Stopped"
+        # Auto-fill Username
+        try:
+            user_field = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//input[@id='username' or @name='username' or @placeholder='Username' or @type='text']"))
+            )
+            self.type_like_human(user_field, username)
+            self.log(f"   ✅ Username filled: {username}")
+        except Exception as e:
+            self.log(f"   ⚠️ Could not auto-fill username: {e}")
+
+        # Wait for password field to appear (GST portal shows it after username is typed)
+        time.sleep(2)
+
+        # Auto-fill Password — target the visible field by id="user_pass" (not the hidden duplicate)
+        try:
+            pass_field = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.ID, "user_pass"))
+            )
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", pass_field)
+            self.driver.execute_script("arguments[0].focus();", pass_field)
+            time.sleep(0.5)
+            # Use JS to set value then trigger Angular ng-model update
+            self.driver.execute_script(
+                "arguments[0].value = arguments[1];"
+                "arguments[0].dispatchEvent(new Event('input', {bubbles:true}));"
+                "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));",
+                pass_field, password
+            )
+            self.log("   ✅ Password filled.")
+        except Exception as e:
+            self.log(f"   ⚠️ Could not auto-fill password: {e}")
+
+        self.log("   👉 Please enter the CAPTCHA in the Chrome window and click LOGIN.")
+        self.log("   ⏳ Waiting for you to complete login... (no time limit)")
+
+        # Wait for user to complete captcha & login
+        # Only detect AFTER leaving the login page URL
+        while self.keep_running:
             try:
-                user_box = wait.until(EC.visibility_of_element_located((By.ID, "username")))
-                self.type_like_human(user_box, username)
-
-                pass_box = self.driver.find_element(By.ID, "user_pass")
-                self.type_like_human(pass_box, password)
-
-                self._save_captcha_image(wait, "temp_captcha.png")
-
-                self.log("   Waiting for Captcha...")
-                self.captcha_response = None
-                self.captcha_event.clear()
-                self.app.request_captcha_safe("temp_captcha.png")
-                self.captcha_event.wait()
-
-                if not self.captcha_response:
-                    return False, "Captcha Cancelled"
-
-                cap_box = self.driver.find_element(By.ID, "captcha")
-                self.type_like_human(cap_box, self.captcha_response)
-                self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
-
-                self.human_delay()
-
-                src = self.driver.page_source
-                if "Invalid Username or Password" in src:
-                    self.log("   Bad Credentials.")
-                    return False, "Invalid Credentials"
-
-                if "Enter valid Letters" in src or "Invalid Captcha" in src:
-                    self.log("   Invalid Captcha. Retrying...")
-                    self.human_delay(1.0, 1.0)
+                url = self.driver.current_url.lower()
+                # Must have left the login page
+                if "login" in url or "services/login" in url:
+                    time.sleep(2)
                     continue
+                # Now check we're on a post-login page
+                if (
+                    "fowelcome" in url or
+                    "auth/home" in url or
+                    "auth/dashboard" in url or
+                    "returns/auth" in url or
+                    "services/auth" in url
+                ):
+                    self.log("   ✅ Login detected!")
+                    break
+            except Exception:
+                pass
+            time.sleep(2)
 
-                if "Dashboard" in self.driver.title or "Return Dashboard" in src or "fowelcome" in self.driver.current_url:
-                    self.log("   Login Successful!")
-                    self.app.close_captcha_safe()
+        if not self.keep_running:
+            return False, "Stopped"
 
-                    # --- POPUP HANDLER ---
-                    self.human_delay()
-                    try:
-                        aadhaar_skip = self.driver.find_elements(By.XPATH, "//a[contains(text(),'Remind me later')]")
-                        if aadhaar_skip and aadhaar_skip[0].is_displayed():
-                            self.log("   Closing Aadhaar Popup...")
-                            aadhaar_skip[0].click()
-                            self.human_delay()
-                    except:
-                        pass
+        time.sleep(2)
 
-                    try:
-                        generic_skip = self.driver.find_elements(By.XPATH, "//button[contains(text(),'Remind Me Later')]")
-                        if generic_skip and generic_skip[0].is_displayed():
-                            self.log("   Closing Generic Popup...")
-                            generic_skip[0].click()
-                            self.human_delay()
-                    except:
-                        pass
+        # Handle popups
+        try:
+            aadhaar_skip = self.driver.find_elements(By.XPATH, "//a[contains(text(),'Remind me later')]")
+            if aadhaar_skip and aadhaar_skip[0].is_displayed():
+                aadhaar_skip[0].click()
+        except: pass
 
-                    # Click Return Dashboard to establish session on return.gst.gov.in
-                    try:
-                        dash_btn = wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(., 'Return Dashboard')]")))
-                        self.driver.execute_script("arguments[0].click();", dash_btn)
-                        time.sleep(3)
-                        return True, "Success"
-                    except:
-                        self.log("   Dashboard Nav Error.")
-                        return False, "Dashboard Nav Failed"
+        try:
+            generic_skip = self.driver.find_elements(By.XPATH, "//button[contains(text(),'Remind Me Later')]")
+            if generic_skip and generic_skip[0].is_displayed():
+                generic_skip[0].click()
+        except: pass
 
-            except Exception as e:
-                self.log(f"   Login Exception: {e}")
-                return False, f"Login Error: {str(e)[:30]}"
+        self.log("   ✅ Login complete. Proceeding to IMS...")
+        return True, "Success"
 
 
 # ─── GUI ──────────────────────────────────────────────────────────────────────
 
 class App(ctk.CTk):
+    def download_sample(self):
+        # TODO: Implement actual sample download logic
+        messagebox.showinfo("Download Sample", "Sample download not implemented yet.")
+
     def __init__(self):
         super().__init__()
         self.title("IMS Dashboard Downloader")
         self.geometry("800x700")
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1)
+        self.grid_rowconfigure(2, weight=1)
 
         self.worker = None
         self.excel_file = ""
@@ -533,62 +525,51 @@ class App(ctk.CTk):
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
 
-        # LOG BOX
+        # LOG BOX (row=2, expands)
         self.log_frame = ctk.CTkFrame(self)
-        self.log_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
+        self.log_frame.grid(row=2, column=0, sticky="nsew", padx=20, pady=(10, 0))
         self.log_frame.grid_columnconfigure(0, weight=1)
         self.log_frame.grid_rowconfigure(1, weight=1)
         ctk.CTkLabel(self.log_frame, text="Execution Logs", font=("Segoe UI", 12, "bold")).grid(
             row=0, column=0, sticky="w", padx=10, pady=5
         )
-        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), text_color="#10B981", height=200)
+        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), text_color="#10B981", height=80)
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         self.log_box.configure(state="disabled")
 
-        # CAPTCHA PANEL
-        self.cap_frame = ctk.CTkFrame(self, border_color="#DC2626", border_width=2, fg_color="#1E293B")
-        cap_inner = ctk.CTkFrame(self.cap_frame, fg_color="transparent")
-        cap_inner.pack(fill="both", padx=20, pady=10)
-        ctk.CTkLabel(
-            cap_inner, text="CAPTCHA ACTION REQUIRED",
-            text_color="#EF4444", font=("Segoe UI", 14, "bold")
-        ).pack()
-        self.cap_lbl_img = ctk.CTkLabel(cap_inner, text="")
-        self.cap_lbl_img.pack(pady=10)
-        self.cap_ent = ctk.CTkEntry(
-            cap_inner, placeholder_text="Type Captcha Here...",
-            font=("Consolas", 20), justify="center", height=45, width=250
-        )
-        self.cap_ent.pack(pady=5)
-        self.cap_ent.bind("<Return>", self.submit_captcha)
-        self.cap_btn = ctk.CTkButton(
-            cap_inner, text="SUBMIT CAPTCHA",
-            fg_color="#DC2626", hover_color="#B91C1C",
-            height=40, width=250, font=("Segoe UI", 12, "bold"),
-            command=self.submit_captcha
-        )
-        self.cap_btn.pack(pady=(10, 0))
-        self.cap_stop_btn = ctk.CTkButton(
-            cap_inner, text="⏹ STOP PROCESS",
-            fg_color="#475569", hover_color="#334155",
-            height=35, width=250, font=("Segoe UI", 11, "bold"),
-            command=self.stop_process
-        )
-        self.cap_stop_btn.pack(pady=(8, 5))
-
-        # FOOTER
+        # FOOTER (row=3, fixed — always visible)
         self.footer = ctk.CTkFrame(self, fg_color="transparent")
-        self.footer.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 20))
-        self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#10B981")
-        self.prog_bar.pack(fill="x", pady=(0, 10))
-        self.prog_bar.set(0)
+        self.footer.grid(row=3, column=0, sticky="sew", padx=20, pady=(8, 16))
+
         self.btn_row_footer = ctk.CTkFrame(self.footer, fg_color="transparent")
-        self.btn_row_footer.pack(fill="x")
-        self.btn_start = ctk.CTkButton(self.btn_row_footer, text="START IMS DOWNLOAD", height=50, font=("Segoe UI", 16, "bold"),
-                                       fg_color="#047857", hover_color="#047857", command=self.start_process)
+        self.btn_row_footer.pack(fill="x", pady=(0, 8))
+
+        self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#10B981")
+        self.prog_bar.pack(fill="x")
+        self.prog_bar.set(0)
+
+        self.btn_start = ctk.CTkButton(
+            self.btn_row_footer,
+            text="START IMS DOWNLOAD",
+            height=50,
+            font=("Segoe UI", 16, "bold"),
+            fg_color="#059669",
+            hover_color="#047857",
+            text_color="white",
+            command=self.start_process
+        )
         self.btn_start.pack(side="left", expand=True, fill="x")
-        self.btn_stop = ctk.CTkButton(self.btn_row_footer, text="⏹ STOP", height=50, font=("Segoe UI", 16, "bold"),
-                                      fg_color="#DC2626", hover_color="#B91C1C", command=self.stop_process, width=150)
+
+        self.btn_stop = ctk.CTkButton(
+            self.btn_row_footer,
+            text="⏹ STOP",
+            height=50,
+            font=("Segoe UI", 16, "bold"),
+            fg_color="#DC2626",
+            hover_color="#B91C1C",
+            command=self.stop_process,
+            width=150
+        )
         self.btn_stop.pack(side="left", padx=(10, 0))
         self.btn_stop.pack_forget()
 
@@ -723,11 +704,9 @@ class App(ctk.CTk):
         def _finish_ui():
             messagebox.showinfo("Done", msg)
             is_stopped = "stopped" in (msg or "").lower()
-            self.close_captcha_safe()
             self.btn_start.configure(state="normal", text="STOPPED" if is_stopped else "START IMS DOWNLOAD")
             self.btn_stop.pack_forget()
             self.btn_stop.configure(state="normal", text="⏹ STOP")
-            self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
             if is_stopped:
                 self.after(1200, lambda: self.btn_start.configure(text="START IMS DOWNLOAD"))
             else:
@@ -736,72 +715,34 @@ class App(ctk.CTk):
 
     def open_output_folder(self):
         try:
-            target = os.path.join(os.getcwd(), "IMS_Downloads")
+            target = os.path.join(os.getcwd(), "GST Downloaded", "IMS")
             if not os.path.exists(target):
                 target = os.getcwd()
             os.startfile(target)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open folder: {e}")
 
-    def request_captcha_safe(self, img_path):
-        def show():
-            if not self.worker or not self.worker.keep_running:
-                return
-            with Image.open(img_path) as raw_img:
-                pil_img = raw_img.convert("RGB")
+    def clear_captcha_safe(self):
+        pass
 
-            w, h = pil_img.size
-            if w <= 0 or h <= 0:
-                return
-
-            max_w, max_h = 230, 78
-            scale = min(max_w / float(w), max_h / float(h), 1.0)
-            if scale < 1.0:
-                size = (max(1, int(w * scale)), max(1, int(h * scale)))
-                display_img = pil_img.resize(size, _CAPTCHA_RESAMPLE)
-            else:
-                size = (w, h)
-                display_img = pil_img
-
-            self._captcha_ctk_img = ctk.CTkImage(light_image=display_img, dark_image=display_img, size=size)
-            self.cap_lbl_img.image = self._captcha_ctk_img
-            self.cap_lbl_img.configure(image=self._captcha_ctk_img)
-            self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#DC2626")
-            self.cap_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
-            self.cap_ent.delete(0, "end")
-            self.attributes('-topmost', True)
-            self.deiconify()
-            self.lift()
-            def _focus():
-                self.focus_force()
-                self.cap_ent.focus_set()
-                self.after(1000, lambda: self.attributes('-topmost', False))
-            self.after(200, _focus)
-        self.after(0, show)
-
-    def submit_captcha(self, event=None):
-        txt = self.cap_ent.get()
-        if not txt:
-            return
-        self.cap_btn.configure(state="disabled", text="VERIFYING...", fg_color="gray")
-        self.worker.captcha_response = txt
-        self.worker.captcha_event.set()
-
-    def close_captcha_safe(self):
-        self.after(0, lambda: self.cap_frame.grid_forget())
+    def submit_captcha(self):
+        pass
 
     def start_process(self):
         credentials = list(self.manual_credentials)
         if not credentials and not self.excel_file:
             messagebox.showerror("Error", "Please add ID/Password first")
             return
-        self.close_captcha_safe()
-        self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
+        settings = {
+            "all_quarters": False,
+            "manual_login": True
+        }
+        self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.pack(side="left", padx=(10, 0))
         self.btn_open_folder.pack_forget()
-        self.worker = IMSWorker(self, self.excel_file, credentials=credentials)
+        self.worker = IMSWorker(self, self.excel_file, settings, credentials=credentials)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self):
@@ -810,7 +751,6 @@ class App(ctk.CTk):
 
         self.worker.keep_running = False
         self.worker.captcha_response = None
-        self.worker.captcha_event.set()
 
         try:
             if self.worker.driver:
@@ -820,9 +760,7 @@ class App(ctk.CTk):
         except Exception as e:
             self.update_log_safe(f"⚠️ Error closing Chrome: {e}")
 
-        self.close_captcha_safe()
         self.btn_stop.configure(state="disabled", text="STOPPED")
-        self.cap_stop_btn.configure(state="disabled", text="STOPPED")
         self.update_log_safe("🛑 Process stopped by user.")
 
 

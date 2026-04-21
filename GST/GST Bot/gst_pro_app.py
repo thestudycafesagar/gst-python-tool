@@ -1,4 +1,5 @@
 import sys
+import os
 import time
 import threading
 import pandas as pd
@@ -8,14 +9,15 @@ import customtkinter as ctk  # Modern UI Library
 import tkinter as tk # Standard TK for rich text support
 from tkinter import filedialog, messagebox
 
-# Selenium Imports
-from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+# Shared Stealth Driver Import
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
+from stealth_driver import create_chrome_driver, build_chrome_options
 
 # --- CONFIGURATION ---
 ctk.set_appearance_mode("System")
@@ -28,31 +30,16 @@ class GSTWorker:
         self.file_path = file_path
         self.manual_gstins = manual_gstins or []
         self.keep_running = True
-        self.user_captcha_response = None
-        self.is_waiting_for_captcha = False
         self.driver = None
 
     def log(self, message, tag=None):
-        self.app.update_log(message, tag)
+        self.app.update_log_safe(message, tag)
 
     def run(self):
         self.log("🚀 Initializing Browser Engine...", "info")
         
-        options = webdriver.ChromeOptions()
-        options.add_argument("--start-maximized") 
-        options.add_argument("--disable-blink-features=AutomationControlled") 
-        
         try:
-            self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            self.driver.maximize_window()
-            self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.navigator.chrome = { runtime: {} };
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                """
-            })
+            self.driver = create_chrome_driver(build_chrome_options())
             driver = self.driver
         except Exception as e:
             self.log(f"❌ Failed to start browser: {e}", "error")
@@ -107,226 +94,302 @@ class GSTWorker:
                         self.log("⚠️ Site timeout. Retrying...", "warning")
                         continue
 
-                    # --- CAPTCHA RETRY LOOP ---
-                    while self.keep_running:
-                        self.log("📷 Fetching Captcha...", "normal")
+                    # --- MANUAL CAPTCHA WAIT LOOP ---
+                    self.log("👉 Please enter the captcha in the browser and click Search.", "info")
+                    
+                    search_completed = False
+                    while self.keep_running and not search_completed:
                         try:
-                            # Wait for overlay to disappear
-                            try:
-                                WebDriverWait(driver, 2).until(
-                                    EC.invisibility_of_element_located((By.CLASS_NAME, "dimmer-holder"))
-                                )
-                            except: pass
-
-                            captcha_img = WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.ID, "imgCaptcha"))
-                            )
-                        except:
-                            try:
-                                captcha_img = driver.find_element(By.XPATH, "//img[contains(@src, 'captcha')]")
-                            except:
-                                self.log("⚠️ Could not find captcha image. Reloading...", "warning")
-                                driver.refresh()
-                                continue
-
-                        driver.execute_script("arguments[0].scrollIntoView();", captcha_img)
-                        time.sleep(0.5) 
-                        png_data = captcha_img.screenshot_as_png
-                        
-                        # Ask User
-                        self.user_captcha_response = None
-                        self.is_waiting_for_captcha = True
-                        self.app.show_captcha_popup(png_data, gstin) 
-                        
-                        while self.user_captcha_response is None and self.keep_running:
-                            time.sleep(0.1)
-                        
-                        self.is_waiting_for_captcha = False
-                        if not self.keep_running: break
-
-                        # Submit
-                        self.log("📨 Submitting...", "normal")
-                        try:
-                            captcha_box = WebDriverWait(driver, 5).until(
-                                EC.presence_of_element_located((By.ID, "fo-captcha"))
-                            )
-                            captcha_box.clear()
-                            captcha_box.send_keys(self.user_captcha_response)
+                            # Check for Success/Error markers
+                            page_source = driver.page_source
+                            if "Legal Name" in page_source:
+                                search_completed = True
+                                self.log("✅ Result detected!", "success")
+                            elif "The GSTIN/UIN that you have entered is invalid" in page_source:
+                                search_completed = True
+                            elif "Enter valid characters" in page_source or "characters shown" in page_source:
+                                # Still on page, wait more
+                                pass
                             
-                            search_btn = WebDriverWait(driver, 5).until(
-                                EC.element_to_be_clickable((By.ID, "lotsearch"))
-                            )
-                            driver.execute_script("arguments[0].click();", search_btn)
-                            
-                        except Exception as e:
-                            self.log(f"❌ Error submitting: {e}", "error")
-                            break 
+                            if not search_completed:
+                                time.sleep(1)
+                        except Exception:
+                            time.sleep(1)
+                    
 
-                        # Verify Results
-                        self.log("⏳ Verifying...", "normal")
-                        
-                        # Wait for ANY outcome
+                    if not self.keep_running: break
+
+                    # Verify Results
+                    self.log("⏳ Verifying...", "normal")
+
+                    # We'll retry verification a few times before deciding it's a wrong captcha
+                    verify_attempt = 0
+                    max_verify_attempts = 3
+                    skip_this_gstin = False
+
+                    while True:
                         try:
                             WebDriverWait(driver, 5).until(
-                                EC.presence_of_element_located((By.XPATH, 
+                                EC.presence_of_element_located((By.XPATH,
                                     "//strong[contains(text(),'Legal Name')] | " +
                                     "//p[contains(text(),'Legal Name')] | " +
                                     "//div[contains(text(),'Enter valid characters')] | " +
-                                    "//span[contains(text(),'Invalid')]")) 
+                                    "//span[contains(text(),'Invalid')]"))
                             )
+                            break
                         except:
                             self.log("⚠️ Response slow. Checking page...", "warning")
+                            page_source = driver.page_source
 
-                        page_source = driver.page_source
+                            # Check if GST is invalid (explicit error element)
+                            is_invalid_gst = False
+                            try:
+                                err_msg = driver.find_element(By.XPATH, "//span[contains(text(), 'The GSTIN/UIN that you have entered is invalid')]")
+                                if err_msg.is_displayed():
+                                    is_invalid_gst = True
+                            except:
+                                pass
 
-                        # --- CRITICAL FIX: CHECK VISIBILITY OF ERROR MESSAGE ---
-                        is_invalid_gst = False
+                            if is_invalid_gst:
+                                self.log(f"🚫 INVALID GSTIN DETECTED: {gstin}", "fatal")
+                                # Save debug snapshot to help diagnose false negatives
+                                try:
+                                    self.save_debug_snapshot(driver, gstin, tag="invalid")
+                                except Exception:
+                                    pass
+                                self.app.show_invalid_gst_alert()
+                                results.append({"GSTIN": gstin, "Status": "Invalid GSTIN"})
+                                time.sleep(2)
+                                skip_this_gstin = True
+                                break
+
+                            # If page still shows captcha prompt text, wait a few times before giving up
+                            if "Enter valid characters" in page_source or "characters shown" in page_source:
+                                verify_attempt += 1
+                                if verify_attempt <= max_verify_attempts:
+                                    self.log(f"⏳ Waiting for manual captcha submission... ({verify_attempt}/{max_verify_attempts})", "info")
+                                    time.sleep(1.5)
+                                    continue
+                                else:
+                                    self.log("❌ WRONG CAPTCHA! Retrying...", "error")
+                                    # capture debug snapshot on captcha timeouts
+                                    try:
+                                        self.save_debug_snapshot(driver, gstin, tag=f"captcha_timeout_{verify_attempt}")
+                                    except Exception:
+                                        pass
+                                    time.sleep(1.5)
+                                    skip_this_gstin = True
+                                    break
+
+                            # If result content appears despite timeout, proceed to extract
+                            if "Legal Name" in page_source:
+                                break
+
+                            # Unknown state: retry a few times then skip
+                            verify_attempt += 1
+                            if verify_attempt <= max_verify_attempts:
+                                self.log("⚠️ Unknown state. Retrying...", "warning")
+                                time.sleep(1.5)
+                                continue
+                            else:
+                                self.log("⚠️ Unable to determine page state. Skipping this GSTIN.", "warning")
+                                skip_this_gstin = True
+                                break
+
+                    if skip_this_gstin:
+                        continue
+
+                    # Re-evaluate page and extract if result is present
+                    page_source = driver.page_source
+
+                    # Robust visible-element checks to avoid false negatives from template text
+                    is_invalid_visible = False
+                    try:
+                        invalid_elems = driver.find_elements(By.XPATH, "//span[contains(text(), 'The GSTIN/UIN that you have entered is invalid')]")
+                        for el in invalid_elems:
+                            try:
+                                if el.is_displayed():
+                                    is_invalid_visible = True
+                                    break
+                            except:
+                                continue
+                    except:
+                        is_invalid_visible = False
+
+                    # Check for obvious success markers being visible on page
+                    is_success_visible = False
+                    try:
+                        success_elems = driver.find_elements(By.XPATH, "//*[contains(text(),'Search Result based on GSTIN')]|//strong[contains(text(),'Legal Name')]|//p[contains(text(),'Legal Name of Business')]")
+                        for el in success_elems:
+                            try:
+                                if el.is_displayed() and el.text.strip():
+                                    is_success_visible = True
+                                    break
+                            except:
+                                continue
+                    except:
+                        is_success_visible = False
+
+                    if is_success_visible:
+                        # proceed to extract
+                        self.app.reset_status_label()
+                        self.log("✅ Captcha Correct! Extracting Data...", "success")
+
+                        row_data = {"GSTIN": gstin}
+
+                        def get_text(label):
+                            xpaths = [
+                                f"//p[contains(text(),'{label}')]/following-sibling::p",
+                                f"//strong[contains(text(),'{label}')]/../following-sibling::p",
+                                f"//*[contains(text(),'{label}')]/following::p[1]"
+                            ]
+                            for xpath in xpaths:
+                                try:
+                                    el = driver.find_element(By.XPATH, xpath)
+                                    if el.text.strip(): return el.text.strip()
+                                except: continue
+                            return "N/A"
+
+                        row_data["Legal Name"] = get_text("Legal Name of Business")
+                        row_data["Trade Name"] = get_text("Trade Name")
+                        row_data["Effective Date"] = get_text("Effective Date of registration")
+                        row_data["Constitution"] = get_text("Constitution of Business")
+                        row_data["Taxpayer Type"] = get_text("Taxpayer Type")
+                        row_data["Address"] = get_text("Principal Place of Business")
+
+                        # Status + Suspension Fix
                         try:
-                            # Look for the specific error span
-                            err_msg = driver.find_element(By.XPATH, "//span[contains(text(), 'The GSTIN/UIN that you have entered is invalid')]")
-                            if err_msg.is_displayed():
-                                is_invalid_gst = True
+                            siblings = driver.find_elements(By.XPATH, "//strong[contains(text(),'GSTIN / UIN')]/parent::p/following-sibling::p")
+                            if siblings:
+                                status_text = siblings[0].text.strip()
+                                if len(siblings) > 1:
+                                    date_text = siblings[1].text.strip()
+                                    if "Effective" in date_text:
+                                        status_text += f" {date_text}"
+                                row_data["Status"] = status_text
+                            else:
+                                row_data["Status"] = get_text("GSTIN / UIN")
                         except:
-                            pass # Element not found, so it's not invalid
+                            row_data["Status"] = get_text("GSTIN / UIN")
 
-                        # --- CASE 1: INVALID GSTIN (Fatal) ---
-                        if is_invalid_gst:
+                        def get_list_text(xpath):
+                            try:
+                                items = driver.find_elements(By.XPATH, xpath)
+                                return ", ".join([x.text.strip() for x in items if x.text.strip()])
+                            except: return "N/A"
+
+                        row_data["Admin Office"] = get_list_text("//strong[contains(text(),'Administrative Office')]/parent::p/following-sibling::ul//li")
+                        row_data["Other Office"] = get_list_text("//strong[contains(text(),'Other Office')]/parent::p/following-sibling::ul//li")
+                        row_data["Core Business"] = get_text("Nature Of Core Business Activity")
+                        row_data["Business Activities"] = get_list_text("//p[contains(text(),'Nature of Business Activities')]/ancestor::div[@class='panel-heading']/following-sibling::div//li")
+
+                        try:
+                            hsn_rows = []
+                            rows = driver.find_elements(By.XPATH, "//div[contains(@class,'table-responsive')]//table[contains(@class,'tbl')]//tbody//tr")
+                            for row in rows:
+                                cols = row.find_elements(By.TAG_NAME, "td")
+                                if len(cols) >= 2:
+                                    t1, t2 = cols[0].text.strip(), cols[1].text.strip()
+                                    if t1 or t2: hsn_rows.append(f"{t1}-{t2}")
+                                if len(cols) >= 4:
+                                    t3, t4 = cols[2].text.strip(), cols[3].text.strip()
+                                    if t3 or t4: hsn_rows.append(f"{t3}-{t4}")
+                            row_data["Goods & Services"] = " | ".join(hsn_rows)
+                        except:
+                            row_data["Goods & Services"] = "N/A"
+
+                        self.log("📥 Extracting Filing Data...", "normal")
+                        try:
+                            show_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.ID, "filingTable")))
+                            driver.execute_script("arguments[0].click();", show_btn)
+
+                            search_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.btn.btn-primary.srchbtn")))
+                            driver.execute_script("arguments[0].click();", search_btn)
+                            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//h4[contains(text(),'GSTR3B')]")))
+                            time.sleep(1)
+
+                            def get_filing_history(header_text):
+                                history = []
+                                try:
+                                    xpath = f"//h4[contains(text(),'{header_text}')]/ancestor::div[@class='table-responsive']//tbody/tr"
+                                    rows = driver.find_elements(By.XPATH, xpath)
+                                    for row in rows[:5]:
+                                        cols = row.find_elements(By.TAG_NAME, "td")
+                                        if len(cols) >= 4:
+                                            history.append(f"[{cols[1].text}-{cols[0].text}: {cols[3].text} on {cols[2].text}]")
+                                    return " | ".join(history)
+                                except: return "Not Found"
+
+                            row_data["GSTR-3B History"] = get_filing_history("GSTR3B")
+                            row_data["GSTR-1 History"] = get_filing_history("GSTR-1")
+                        except:
+                            row_data["GSTR-3B History"] = "Hidden/Error"
+                            row_data["GSTR-1 History"] = "Hidden/Error"
+
+                        self.log("📥 Extracting Return Frequency...", "normal")
+                        try:
+                            freq_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.ID, "profileTable")))
+                            driver.execute_script("arguments[0].click();", freq_btn)
+                            WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//table[contains(@class,'exp')]")))
+                            time.sleep(1)
+                            freq_data = []
+                            freq_rows = driver.find_elements(By.XPATH, "//table[contains(@class,'exp')]//tbody//tr")
+                            for row in freq_rows:
+                                cols = row.find_elements(By.TAG_NAME, "td")
+                                if len(cols) >= 9:
+                                    yr = cols[0].text.strip()
+                                    q1, f1 = cols[1].text.strip(), cols[2].text.strip()
+                                    q2, f2 = cols[3].text.strip(), cols[4].text.strip()
+                                    q3, f3 = cols[5].text.strip(), cols[6].text.strip()
+                                    q4, f4 = cols[7].text.strip(), cols[8].text.strip()
+                                    freq_data.append(f"[{yr}: {q1}({f1}), {q2}({f2}), {q3}({f3}), {q4}({f4})]")
+                            row_data["Return Frequency"] = " | ".join(freq_data)
+                        except:
+                            row_data["Return Frequency"] = "Not Available"
+
+                        self.log(f"✅ Success: {row_data['Legal Name']}", "success")
+                        results.append(row_data)
+                        continue
+                    else:
+                        # Not clearly successful; if invalid is visible mark invalid, else attempt a gentle extraction
+                        if is_invalid_visible:
                             self.log(f"🚫 INVALID GSTIN DETECTED: {gstin}", "fatal")
+                            try:
+                                self.save_debug_snapshot(driver, gstin, tag="invalid_final")
+                            except Exception:
+                                pass
                             self.app.show_invalid_gst_alert()
                             results.append({"GSTIN": gstin, "Status": "Invalid GSTIN"})
                             time.sleep(2)
-                            break 
-                        
-                        # --- CASE 2: WRONG CAPTCHA (Retry) ---
-                        elif "Enter valid characters" in page_source or "characters shown" in page_source:
-                            self.log("❌ WRONG CAPTCHA! Retrying...", "error")
-                            time.sleep(1.5) 
-                            continue 
-                        
-                        # --- CASE 3: SUCCESS ---
-                        elif "Legal Name" in page_source:
-                            self.app.reset_status_label() 
-                            self.log("✅ Captcha Correct! Extracting Data...", "success")
-                            
-                            row_data = {"GSTIN": gstin}
-                            
-                            def get_text(label):
-                                xpaths = [
-                                    f"//p[contains(text(),'{label}')]/following-sibling::p",
-                                    f"//strong[contains(text(),'{label}')]/../following-sibling::p",
-                                    f"//*[contains(text(),'{label}')]/following::p[1]" 
-                                ]
-                                for xpath in xpaths:
-                                    try:
-                                        el = driver.find_element(By.XPATH, xpath)
-                                        if el.text.strip(): return el.text.strip()
-                                    except: continue
-                                return "N/A"
-
-                            row_data["Legal Name"] = get_text("Legal Name of Business")
-                            row_data["Trade Name"] = get_text("Trade Name")
-                            row_data["Effective Date"] = get_text("Effective Date of registration")
-                            row_data["Constitution"] = get_text("Constitution of Business")
-                            row_data["Taxpayer Type"] = get_text("Taxpayer Type")
-                            row_data["Address"] = get_text("Principal Place of Business")
-                            
-                            # Status + Suspension Fix
-                            try:
-                                siblings = driver.find_elements(By.XPATH, "//strong[contains(text(),'GSTIN / UIN')]/parent::p/following-sibling::p")
-                                if siblings:
-                                    status_text = siblings[0].text.strip()
-                                    if len(siblings) > 1:
-                                        date_text = siblings[1].text.strip()
-                                        if "Effective" in date_text:
-                                            status_text += f" {date_text}"
-                                    row_data["Status"] = status_text
-                                else:
-                                    row_data["Status"] = get_text("GSTIN / UIN")
-                            except:
-                                row_data["Status"] = get_text("GSTIN / UIN")
-
-                            def get_list_text(xpath):
-                                try:
-                                    items = driver.find_elements(By.XPATH, xpath)
-                                    return ", ".join([x.text.strip() for x in items if x.text.strip()])
-                                except: return "N/A"
-
-                            row_data["Admin Office"] = get_list_text("//strong[contains(text(),'Administrative Office')]/parent::p/following-sibling::ul//li")
-                            row_data["Other Office"] = get_list_text("//strong[contains(text(),'Other Office')]/parent::p/following-sibling::ul//li")
-                            row_data["Core Business"] = get_text("Nature Of Core Business Activity")
-                            row_data["Business Activities"] = get_list_text("//p[contains(text(),'Nature of Business Activities')]/ancestor::div[@class='panel-heading']/following-sibling::div//li")
-
-                            try:
-                                hsn_rows = []
-                                rows = driver.find_elements(By.XPATH, "//div[contains(@class,'table-responsive')]//table[contains(@class,'tbl')]//tbody//tr")
-                                for row in rows:
-                                    cols = row.find_elements(By.TAG_NAME, "td")
-                                    if len(cols) >= 2:
-                                        t1, t2 = cols[0].text.strip(), cols[1].text.strip()
-                                        if t1 or t2: hsn_rows.append(f"{t1}-{t2}")
-                                    if len(cols) >= 4:
-                                        t3, t4 = cols[2].text.strip(), cols[3].text.strip()
-                                        if t3 or t4: hsn_rows.append(f"{t3}-{t4}")
-                                row_data["Goods & Services"] = " | ".join(hsn_rows)
-                            except:
-                                row_data["Goods & Services"] = "N/A"
-
-                            self.log("📥 Extracting Filing Data...", "normal")
-                            try:
-                                show_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.ID, "filingTable")))
-                                driver.execute_script("arguments[0].click();", show_btn)
-                                
-                                search_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.btn.btn-primary.srchbtn")))
-                                driver.execute_script("arguments[0].click();", search_btn)
-                                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//h4[contains(text(),'GSTR3B')]")))
-                                time.sleep(1)
-
-                                def get_filing_history(header_text):
-                                    history = []
-                                    try:
-                                        xpath = f"//h4[contains(text(),'{header_text}')]/ancestor::div[@class='table-responsive']//tbody/tr"
-                                        rows = driver.find_elements(By.XPATH, xpath)
-                                        for row in rows[:5]:
-                                            cols = row.find_elements(By.TAG_NAME, "td")
-                                            if len(cols) >= 4:
-                                                history.append(f"[{cols[1].text}-{cols[0].text}: {cols[3].text} on {cols[2].text}]")
-                                        return " | ".join(history)
-                                    except: return "Not Found"
-
-                                row_data["GSTR-3B History"] = get_filing_history("GSTR3B")
-                                row_data["GSTR-1 History"] = get_filing_history("GSTR-1")
-                            except:
-                                row_data["GSTR-3B History"] = "Hidden/Error"
-                                row_data["GSTR-1 History"] = "Hidden/Error"
-
-                            self.log("📥 Extracting Return Frequency...", "normal")
-                            try:
-                                freq_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.ID, "profileTable")))
-                                driver.execute_script("arguments[0].click();", freq_btn)
-                                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//table[contains(@class,'exp')]")))
-                                time.sleep(1)
-                                freq_data = []
-                                freq_rows = driver.find_elements(By.XPATH, "//table[contains(@class,'exp')]//tbody//tr")
-                                for row in freq_rows:
-                                    cols = row.find_elements(By.TAG_NAME, "td")
-                                    if len(cols) >= 9:
-                                        yr = cols[0].text.strip()
-                                        q1, f1 = cols[1].text.strip(), cols[2].text.strip()
-                                        q2, f2 = cols[3].text.strip(), cols[4].text.strip()
-                                        q3, f3 = cols[5].text.strip(), cols[6].text.strip()
-                                        q4, f4 = cols[7].text.strip(), cols[8].text.strip()
-                                        freq_data.append(f"[{yr}: {q1}({f1}), {q2}({f2}), {q3}({f3}), {q4}({f4})]")
-                                row_data["Return Frequency"] = " | ".join(freq_data)
-                            except:
-                                row_data["Return Frequency"] = "Not Available"
-
-                            self.log(f"✅ Success: {row_data['Legal Name']}", "success")
-                            results.append(row_data)
-                            break 
-                        
-                        else:
-                            self.log("⚠️ Unknown state. Retrying...", "warning")
                             continue
+                        else:
+                            # Try extracting Legal Name directly as a fallback
+                            try:
+                                candidate = "N/A"
+                                try:
+                                    el = driver.find_element(By.XPATH, "//strong[contains(text(),'Legal Name')]/../following-sibling::p")
+                                    if el and el.text.strip():
+                                        candidate = el.text.strip()
+                                except:
+                                    pass
+
+                                if candidate != "N/A":
+                                    # minimal extraction succeeded
+                                    row_data = {"GSTIN": gstin, "Legal Name": candidate, "Status": "Partial"}
+                                    results.append(row_data)
+                                    self.log(f"✅ Partial extraction succeeded for {gstin}", "success")
+                                    continue
+                                else:
+                                    self.log("⚠️ Unable to determine page state. Marking as Invalid.", "warning")
+                                    try:
+                                        self.save_debug_snapshot(driver, gstin, tag="unknown_state")
+                                    except Exception:
+                                        pass
+                                    results.append({"GSTIN": gstin, "Status": "Unknown/Skipped"})
+                                    continue
+                            except Exception:
+                                results.append({"GSTIN": gstin, "Status": "Error"})
+                                continue
 
                 except Exception as e:
                     self.log(f"❌ Error processing {gstin}: {str(e)}", "error")
@@ -336,13 +399,23 @@ class GSTWorker:
                 self.log("🛑 Process stopped by user.", "warning")
                 if results:
                     timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-                    output_file = f"GST_Report_{timestamp}.xlsx"
+                    base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier")
+                    if not os.path.exists(base_dir): os.makedirs(base_dir, exist_ok=True)
+                    output_file = os.path.join(base_dir, f"GST_Report_{timestamp}.xlsx")
+                    self.log(f"📊 Partial results count: {len(results)}. Saving to: {output_file}", "info")
                     try:
                         pd.DataFrame(results).to_excel(output_file, index=False)
-                        self.app.process_finished(f"Stopped by user. Partial report saved as {output_file}")
+                        self.app.process_finished(f"Stopped by user. Partial report saved in GST Verifier folder")
                     except Exception as e:
-                        self.app.log_message(f"CRITICAL ERROR: Could not save report. {e}", "fatal")
-                        self.app.process_finished("Stopped by user.")
+                        # Try CSV fallback
+                        try:
+                            csv_file = output_file.replace('.xlsx', '.csv')
+                            pd.DataFrame(results).to_csv(csv_file, index=False)
+                            self.log(f"⚠️ Excel save failed ({e}). CSV saved at {csv_file}", "warning")
+                            self.app.process_finished(f"Stopped by user. Partial CSV saved in GST Verifier folder")
+                        except Exception as e2:
+                            self.app.log_message(f"CRITICAL ERROR: Could not save report. {e}; {e2}", "fatal")
+                            self.app.process_finished("Stopped by user.")
                 else:
                     self.app.process_finished("Stopped by user.")
                 return
@@ -350,14 +423,24 @@ class GSTWorker:
             # Export
             self.app.update_progress(1.0)
             timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-            output_file = f"GST_Report_{timestamp}.xlsx"
-            
+            base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier")
+            if not os.path.exists(base_dir): os.makedirs(base_dir, exist_ok=True)
+            output_file = os.path.join(base_dir, f"GST_Report_{timestamp}.xlsx")
+            self.log(f"📊 Final results count: {len(results)}. Saving to: {output_file}", "info")
+
             try:
                 pd.DataFrame(results).to_excel(output_file, index=False)
-                self.app.process_finished(f"Completed! Saved as {output_file}")
+                self.app.process_finished(f"Completed! Saved in GST Verifier folder")
             except Exception as e:
-                self.app.log_message(f"CRITICAL ERROR: Could not save report. {e}", "fatal")
-                self.app.process_finished("Failed to save")
+                # Try CSV fallback
+                try:
+                    csv_file = output_file.replace('.xlsx', '.csv')
+                    pd.DataFrame(results).to_csv(csv_file, index=False)
+                    self.log(f"⚠️ Excel save failed ({e}). CSV saved at {csv_file}", "warning")
+                    self.app.process_finished(f"Completed! Saved CSV in GST Verifier folder")
+                except Exception as e2:
+                    self.app.log_message(f"CRITICAL ERROR: Could not save report. {e}; {e2}", "fatal")
+                    self.app.process_finished("Failed to save")
             
         except Exception as e:
             self.log(f"CRITICAL ERROR: {e}", "fatal")
@@ -371,6 +454,37 @@ class GSTWorker:
 
     def receive_captcha_input(self, text):
         self.user_captcha_response = text
+
+    def save_debug_snapshot(self, driver, gstin, tag="debug"):
+        """Save a screenshot and page HTML to GST Downloaded/GST Verifier/debug for analysis."""
+        try:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            debug_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier", "debug")
+            os.makedirs(debug_dir, exist_ok=True)
+            safe_gstin = str(gstin).replace('/', '_').replace('\\', '_')
+            img_path = os.path.join(debug_dir, f"{tag}_{safe_gstin}_{timestamp}.png")
+            html_path = os.path.join(debug_dir, f"{tag}_{safe_gstin}_{timestamp}.html")
+            try:
+                # prefer save_screenshot (widely supported)
+                driver.save_screenshot(img_path)
+            except Exception:
+                try:
+                    open(img_path, 'wb').write(driver.get_screenshot_as_png())
+                except Exception:
+                    pass
+            try:
+                with open(html_path, 'w', encoding='utf-8') as f:
+                    f.write(driver.page_source)
+            except Exception:
+                pass
+            # Log saved paths
+            self.log(f"🔍 Debug snapshot saved: {img_path}", "info")
+            self.log(f"🔍 Debug HTML saved: {html_path}", "info")
+        except Exception as e:
+            try:
+                self.log(f"⚠️ Failed to save debug snapshot: {e}", "warning")
+            except Exception:
+                pass
 
     def stop(self):
         self.keep_running = False
@@ -390,12 +504,12 @@ class GSTApp(ctk.CTk):
         super().__init__()
         
         self.title("GST Bulk Verification Pro")
-        self.geometry("700x800")
+        self.geometry("700x850")
         self.worker = None
         self.manual_credentials = []
         
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1) 
+        self.grid_rowconfigure(3, weight=1) 
 
         # --- HEADER ---
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -416,27 +530,43 @@ class GSTApp(ctk.CTk):
         self.lbl_step1 = ctk.CTkLabel(self.frame_file, text="STEP 1: Upload Data", font=("Segoe UI", 14, "bold"))
         self.lbl_step1.pack(anchor="w", padx=15, pady=(10, 5))
         
-        self.file_entry = ctk.CTkEntry(self.frame_file, placeholder_text="Add GSTIN manually (e.g., 27ABCDE1234F1Z5)...", width=400)
+        self.file_entry = ctk.CTkEntry(self.frame_file, placeholder_text="Select Excel file or add GSTIN manually...", width=400)
         self.file_entry.pack(side="left", padx=15, pady=(0, 15), expand=True, fill="x")
         
-        self.btn_demo = ctk.CTkButton(self.frame_file, text="▶ View Demo", command=self.open_demo_link, fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"))
-        self.btn_demo.pack(side="right", padx=(0, 5), pady=(0, 15))
-        self.btn_download = ctk.CTkButton(self.frame_file, text="➕ Add GSTIN", command=self.add_id_password, fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"))
-        self.btn_download.pack(side="right", padx=15, pady=(0, 15))
-        self.btn_view_id = ctk.CTkButton(self.frame_file, text="👁 View GSTIN", command=self.view_saved_user,
-                         fg_color="#475569", hover_color="#334155", height=28,
-                         font=("Segoe UI", 11, "bold"))
-        self.btn_view_id.pack(side="right", padx=(0, 5), pady=(0, 15))
-        self.btn_delete_id = ctk.CTkButton(self.frame_file, text="🗑 Delete GSTIN", command=self.delete_saved_user,
-                           fg_color="#7C3AED", hover_color="#6D28D9", height=28,
-                           font=("Segoe UI", 11, "bold"))
-        self.btn_delete_id.pack(side="right", padx=(0, 5), pady=(0, 15))
+        self.btn_browse = ctk.CTkButton(self.frame_file, text="Browse", command=self.browse_excel, 
+                                        width=90, height=28, font=("Segoe UI", 12, "bold"))
+        self.btn_browse.pack(side="right", padx=(0, 15), pady=(0, 15))
+
+        # --- Button Row Tools (Internal Actions) ---
+        self.btn_row_actions = ctk.CTkFrame(self, fg_color="transparent")
+        self.btn_row_actions.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
+
+        self.btn_demo = ctk.CTkButton(self.btn_row_actions, text="▶ View Demo", command=self.open_demo_link, 
+                                      fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"), width=120)
+        self.btn_demo.pack(side="left", padx=(0, 10))
+
+        self.btn_sample = ctk.CTkButton(self.btn_row_actions, text="📥 Download Sample", command=self.download_sample,
+                                       fg_color="#2563EB", hover_color="#1D4ED8", height=28, font=("Segoe UI", 12, "bold"), width=160)
+        self.btn_sample.pack(side="left", padx=(0, 10))
+
+        self.btn_add_id = ctk.CTkButton(self.btn_row_actions, text="➕ Add GSTIN", command=self.add_id_password,
+                                         fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"), width=120)
+        self.btn_add_id.pack(side="left", padx=(0, 10))
+        
+        self.btn_view_id = ctk.CTkButton(self.btn_row_actions, text="👁 View", command=self.view_saved_user,
+                                         fg_color="#475569", hover_color="#334155", height=28, font=("Segoe UI", 11, "bold"), width=80)
+        self.btn_view_id.pack(side="left", padx=(0, 10))
+        
+        self.btn_delete_id = ctk.CTkButton(self.btn_row_actions, text="🗑 Delete", command=self.delete_saved_user,
+                                           fg_color="#7C3AED", hover_color="#6D28D9", height=28, font=("Segoe UI", 11, "bold"), width=80)
+        self.btn_delete_id.pack(side="left")
+        
         self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
 
         # --- 2. RICH LOG & PROGRESS ---
         self.frame_log = ctk.CTkFrame(self)
-        self.frame_log.grid(row=2, column=0, padx=20, pady=10, sticky="nsew")
+        self.frame_log.grid(row=3, column=0, padx=20, pady=10, sticky="nsew")
         
         self.lbl_step2 = ctk.CTkLabel(self.frame_log, text="Process Log", font=("Segoe UI", 14, "bold"))
         self.lbl_step2.pack(anchor="w", padx=15, pady=(10, 5))
@@ -458,41 +588,25 @@ class GSTApp(ctk.CTk):
         self.progress_bar.pack(fill="x", padx=15, pady=15)
         self.progress_bar.set(0)
 
-        # --- 3. CAPTCHA SECTION ---
-        self.frame_captcha = ctk.CTkFrame(self, fg_color="#1E293B", border_width=2, border_color="#444")
-        self.frame_captcha.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
-        
-        self.lbl_captcha_title = ctk.CTkLabel(self.frame_captcha, text="CAPTCHA ACTION REQUIRED", font=("Segoe UI", 14, "bold"), text_color="gray")
-        self.lbl_captcha_title.pack(pady=(10, 5))
-        
-        self.lbl_image = ctk.CTkLabel(self.frame_captcha, text="[Waiting for Process...]", width=200, height=80, fg_color="#1E293B", corner_radius=10)
-        self.lbl_image.pack(pady=5)
-        
-        self.entry_captcha = ctk.CTkEntry(self.frame_captcha, placeholder_text="Enter Code", justify='center', width=200, font=("Segoe UI", 16))
-        self.entry_captcha.pack(pady=5)
-        self.entry_captcha.bind('<Return>', lambda event: self.submit_captcha())
-        self.entry_captcha.configure(state="disabled")
-        
-        self.btn_submit = ctk.CTkButton(self.frame_captcha, text="SUBMIT CAPTCHA", command=self.submit_captcha, state="disabled", fg_color="gray")
-        self.btn_submit.pack(pady=(5, 5))
-        self.cap_stop_btn = ctk.CTkButton(self.frame_captcha, text="⏹ STOP PROCESS", fg_color="#475569", hover_color="#334155",
-                                          height=35, width=200, font=("Segoe UI", 11, "bold"), command=self.stop_process)
-        self.cap_stop_btn.pack(pady=(5, 15))
-
-        # --- 4. ACTION BUTTON ---
+        # --- 3. ACTION BUTTON ---
         btn_footer = ctk.CTkFrame(self, fg_color="transparent")
         btn_footer.grid(row=4, column=0, padx=20, pady=(10, 20), sticky="ew")
         btn_footer.grid_columnconfigure(0, weight=1)
         self.btn_start = ctk.CTkButton(btn_footer, text="START AUTOMATION", font=("Segoe UI", 16, "bold"), height=50, command=self.start_process, fg_color="#2563EB", hover_color="#1D4ED8")
         self.btn_start.grid(row=0, column=0, sticky="ew")
-        self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=("Segoe UI", 16, "bold"), height=50, command=self.stop_process, fg_color="#DC2626", hover_color="#B91C1C", width=150)
+        
+        self.btn_stop = ctk.CTkButton(btn_footer, text="⏹ STOP", font=("Segoe UI", 16, "bold"), height=50, command=self.stop_process, fg_color="#475569", hover_color="#334155")
         self.btn_stop.grid(row=0, column=1, padx=(10, 0))
         self.btn_stop.grid_remove()
+
+        self.btn_open_folder = ctk.CTkButton(btn_footer, text="📂 OPEN OUTPUT FOLDER", font=("Segoe UI", 16, "bold"), height=50, command=self.open_output_folder, fg_color="#64748B", hover_color="#475569")
+        self.btn_open_folder.grid(row=0, column=2, padx=(10, 0))
+        self.btn_open_folder.grid_remove()
     def open_demo_link(self):
         import webbrowser
         webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
 
-    def browse_file(self):
+    def browse_excel(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
         if filename:
             self.file_entry.delete(0, "end")
@@ -500,6 +614,32 @@ class GSTApp(ctk.CTk):
             self.manual_credentials = []
             self._refresh_manual_controls()
             self.log_message(f"✅ File loaded: {filename.split('/')[-1]}", "info")
+
+    def download_sample(self):
+        try:
+            save_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel Files", "*.xlsx")],
+                initialfile="GST_Verifier_Sample.xlsx",
+                title="Save Sample Template"
+            )
+            if not save_path:
+                return
+
+            df = pd.DataFrame({"GSTIN": ["27ABCDE1234F1Z5", "07AAACR1234A1Z1"]})
+            df.to_excel(save_path, index=False)
+            messagebox.showinfo("Success", f"Sample file saved successfully at:\n{save_path}")
+            self.log_message(f"📥 Sample file downloaded: {os.path.basename(save_path)}", "success")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save sample file: {e}")
+            self.log_message(f"❌ Failed to download sample: {e}", "error")
+
+    def open_output_folder(self):
+        target = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier")
+        if os.path.exists(target):
+            os.startfile(target)
+        else:
+            messagebox.showinfo("Info", "Output folder not found.")
 
     def _get_saved_user_id(self):
         if not self.manual_credentials:
@@ -585,11 +725,23 @@ class GSTApp(ctk.CTk):
         ent_user.focus_set()
         dialog.bind("<Return>", lambda _e: _save())
 
+    def update_log_safe(self, message, tag="normal"):
+        self.after(0, lambda: self.log_message(message, tag))
+
     def log_message(self, message, tag="normal"):
         self.log_text.config(state="normal")
         self.log_text.insert("end", message + "\n", tag)
         self.log_text.see("end")
         self.log_text.config(state="disabled")
+
+    def update_progress(self, val):
+        self.after(0, lambda: self.progress_bar.set(val))
+
+    def reset_status_label(self):
+        pass # Optional: Add status label if needed
+
+    def show_invalid_gst_alert(self):
+        pass
 
     def start_process(self):
         file_path = self.file_entry.get()
@@ -603,12 +755,11 @@ class GSTApp(ctk.CTk):
             messagebox.showwarning("Warning", "Please add GSTIN first!")
             return
         
-        self.frame_captcha.grid()
         self.reset_status_label()
-        self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
         self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.grid()
+        self.btn_open_folder.grid_remove()
         self.log_message("🚀 Starting Automation Thread...", "info")
         self.worker = GSTWorker(self, file_path, manual_gstins=manual_gstins)
         threading.Thread(target=self.worker.run, daemon=True).start()
@@ -617,97 +768,37 @@ class GSTApp(ctk.CTk):
         if not self.worker:
             return
         self.worker.stop()
-        self.close_captcha_safe()
         self.btn_stop.configure(state="disabled", text="STOPPED")
-        self.cap_stop_btn.configure(state="disabled", text="STOPPED")
-        self.update_log("🛑 Chrome browser closed.", "warning")
-        self.update_log("🛑 Process stopped by user.", "warning")
+        self.update_log_safe("🛑 Chrome browser closed.", "warning")
+        self.update_log_safe("🛑 Process stopped by user.", "warning")
 
-    def update_log(self, message, tag):
+    def update_log_safe(self, message, tag="normal"):
         self.after(0, lambda: self.log_message(message, tag))
+
+    def log_message(self, message, tag="normal"):
+        self.log_text.config(state="normal")
+        self.log_text.insert("end", message + "\n", tag)
+        self.log_text.see("end")
+        self.log_text.config(state="disabled")
 
     def update_progress(self, val):
         self.after(0, lambda: self.progress_bar.set(val))
 
-    def close_captcha_safe(self):
-        def hide_ui():
-            self.frame_captcha.grid_remove()
-            self.lbl_image.configure(image=None, text="[Waiting for Process...]")
-            self.lbl_image.image = None
-            self.entry_captcha.configure(state="disabled")
-            self.entry_captcha.delete(0, "end")
-            self.btn_submit.configure(state="disabled", fg_color="gray", text="SUBMIT CAPTCHA")
-            self.frame_captcha.configure(border_color="#444")
-            self.lbl_captcha_title.configure(text="CAPTCHA ACTION REQUIRED", text_color="gray")
-        self.after(0, hide_ui)
+    def reset_status_label(self):
+        pass
 
     def show_invalid_gst_alert(self):
-        def update():
-            self.frame_captcha.configure(border_color="#DC2626") 
-            self.lbl_captcha_title.configure(text="🚫 INVALID GSTIN DETECTED - SKIPPING", text_color="#DC2626")
-            self.lbl_image.configure(image=None, text="INVALID")
-            self.entry_captcha.configure(state="disabled")
-            self.btn_submit.configure(state="disabled")
-        self.after(0, update)
-
-    def reset_status_label(self):
-        def update():
-            self.frame_captcha.configure(border_color="#444")
-            self.lbl_captcha_title.configure(text="CAPTCHA ACTION REQUIRED", text_color="gray")
-        self.after(0, update)
-
-    def show_captcha_popup(self, image_data, gstin):
-        def update_ui():
-            if not self.worker or not self.worker.keep_running:
-                return
-            self.frame_captcha.grid()
-            self.frame_captcha.configure(border_color="#10B981") 
-            self.lbl_captcha_title.configure(text=f"ENTER CAPTCHA FOR: {gstin}", text_color="#10B981")
-            
-            image = Image.open(BytesIO(image_data))
-            image = image.resize((200, 80), Image.Resampling.LANCZOS)
-            photo = ctk.CTkImage(light_image=image, dark_image=image, size=(200, 80))
-            
-            self.lbl_image.configure(image=photo, text="")
-            self.lbl_image.image = photo 
-            
-            self.entry_captcha.configure(state="normal", placeholder_text="Type here...")
-            self.entry_captcha.delete(0, "end")
-
-            self.btn_submit.configure(state="normal", fg_color="#10B981", text="SUBMIT NOW", hover_color="#047857")
-
-            self.attributes('-topmost', True)
-            self.deiconify()
-            self.lift()
-            def _focus():
-                self.focus_force()
-                self.entry_captcha.focus_set()
-                self.after(1000, lambda: self.attributes('-topmost', False))
-            self.after(200, _focus)
-
-        self.after(0, update_ui)
-
-    def submit_captcha(self):
-        text = self.entry_captcha.get()
-        if not text: return
-        
-        if self.worker and self.worker.is_waiting_for_captcha:
-            self.worker.receive_captcha_input(text)
-            self.entry_captcha.configure(state="disabled", placeholder_text="Verifying...")
-            self.btn_submit.configure(state="disabled", fg_color="gray", text="VERIFYING...")
-            self.frame_captcha.configure(border_color="#444")
-            self.lbl_captcha_title.configure(text_color="gray")
+        pass
 
     def process_finished(self, msg):
         def finish():
             is_stopped = "stopped" in (msg or "").lower()
             self.log_message(f"\n🎉 DONE: {msg}", "warning" if is_stopped else "success")
-            self.close_captcha_safe()
             self.btn_start.configure(state="normal", text="STOPPED" if is_stopped else "START AUTOMATION")
             self.btn_stop.grid_remove()
             self.btn_stop.configure(state="normal", text="⏹ STOP")
-            self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
-            self.lbl_captcha_title.configure(text="PROCESS STOPPED" if is_stopped else "PROCESS COMPLETED", text_color="gray")
+            if not is_stopped:
+                self.btn_open_folder.grid()
             messagebox.showinfo("Info", msg)
             if is_stopped:
                 self.after(1200, lambda: self.btn_start.configure(text="START AUTOMATION"))

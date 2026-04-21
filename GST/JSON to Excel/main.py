@@ -389,14 +389,19 @@ class App(ctk.CTk):
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.log_box.configure(state="disabled")
 
+
         self.prog_bar = ctk.CTkProgressBar(self.main_frame, height=15)
         self.prog_bar.grid(row=3, column=0, sticky="ew", padx=20, pady=(0, 10))
         self.prog_bar.set(0)
 
-        self.btn_start = ctk.CTkButton(self.main_frame, text="START CONVERSION", height=50, 
-                                       font=ctk.CTkFont(size=16, weight="bold"), fg_color="#047857", 
-                                       hover_color="#047857", state="disabled", command=self.start_process)
-        self.btn_start.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 20))
+        self.btn_start = ctk.CTkButton(self.main_frame, text="START CONVERSION", height=40, font=ctk.CTkFont(size=16, weight="bold"), fg_color="#047857", hover_color="#059669", command=self.start_process)
+        self.btn_start.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 10))
+
+        self.btn_open_folder = ctk.CTkButton(self.main_frame, text="📂 OPEN OUTPUT FOLDER", height=40,
+                                       font=ctk.CTkFont(size=14, weight="bold"), fg_color="#64748B",
+                                       hover_color="#475569", command=self.open_output_folder)
+        self.btn_open_folder.grid(row=5, column=0, sticky="ew", padx=20, pady=(0, 20))
+        self.btn_open_folder.grid_remove()
 
     def change_appearance_mode_event(self, new_appearance_mode: str):
         pass  # Theme controlled by GST_Suite.py
@@ -463,16 +468,25 @@ class App(ctk.CTk):
         self.after(0, lambda: messagebox.showinfo("Process Complete", msg))
         self.after(0, lambda: self.btn_start.configure(state="normal"))
         self.after(0, lambda: self.prog_bar.set(0))
+        self.after(0, lambda: self.btn_open_folder.grid())
+
+    def open_output_folder(self):
+        target = os.path.join(os.getcwd(), "GST Downloaded", "GSTR1 Json to Excel")
+        if os.path.exists(target):
+            os.startfile(target)
+        else:
+            messagebox.showinfo("Info", "Output folder not found.")
 
     def start_process(self):
         if not self.selected_files: return
         
         self.btn_start.configure(state="disabled")
+        self.btn_open_folder.grid_remove()
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
         
-        base = os.path.join(os.getcwd(), "GSTR_Converted_Excels")
+        base = os.path.join(os.getcwd(), "GST Downloaded", "GSTR1 Json to Excel")
         self.worker = GstConversionWorker(self, self.selected_files, base)
         threading.Thread(target=self.worker.run, daemon=True).start()
 

@@ -1556,6 +1556,11 @@ def generate_accounting_xml(
         resolved_mode = "current" if use_today_date else "excel"
     resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
 
+    resolved_mode = str(date_mode or ("current" if use_today_date else "excel")).strip().lower()
+    if resolved_mode not in {"current", "excel", "custom"}:
+        resolved_mode = "current" if use_today_date else "excel"
+    resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
+
     for idx, r in enumerate(rows):
         if resolved_mode == "current":
             source_date = datetime.today()
@@ -1615,14 +1620,20 @@ def generate_accounting_xml(
         a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>')
+        a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
         if narr:
             a(f'     <NARRATION>{narr}</NARRATION>')
 
-        # Party – Debit
+        # Party – Debit (with bill allocation so Tally links to GSTR-1)
         a('     <LEDGERENTRIES.LIST>')
         a(f'      <LEDGERNAME>{party}</LEDGERNAME>')
         a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
         a(f'      <AMOUNT>-{fmt_amt(total)}</AMOUNT>')
+        a('      <BILLALLOCATIONS.LIST>')
+        a(f'       <NAME>{vno}</NAME>')
+        a('       <BILLTYPE>New Ref</BILLTYPE>')
+        a(f'       <AMOUNT>-{fmt_amt(total)}</AMOUNT>')
+        a('      </BILLALLOCATIONS.LIST>')
         a('     </LEDGERENTRIES.LIST>')
 
         # Sales – Credit
@@ -1720,8 +1731,9 @@ def generate_item_xml(
         else:
             vno_raw = _row_voucher_number(r)
         vno      = xml_escape(vno_raw)
-        party = xml_escape(_ledger_or_suspense(_row_text(r, "PartyLedger")))
-        party_context = _collect_party_context(r, _row_text(r, "PartyLedger"))
+        party_raw = _ledger_or_suspense(_row_text(r, "PartyLedger"))
+        party_context = _collect_party_context(r, party_raw)
+        party = xml_escape(party_raw)
         taxable  = _row_float(r, "TaxableValue", 0.0)
 
         # Support common source variants while preserving current UI/flow.
@@ -1781,27 +1793,12 @@ def generate_item_xml(
             )
         sales = xml_escape(sales_ledger_raw)
 
+        cgst_led = xml_escape(_ledger_or_suspense(_row_text(r, "CGSTLedger")))
         cgst_r   = _row_float(r, "CGSTRate", 0.0)
-        cgst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax"],
-            cgst_r,
-            "CGST",
-        ))
+        sgst_led = xml_escape(_ledger_or_suspense(_row_text(r, "SGSTLedger")))
         sgst_r   = _row_float(r, "SGSTRate", 0.0)
-        sgst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax", "UTGSTLedger", "UTGST Ledger"],
-            sgst_r,
-            "SGST",
-        ))
+        igst_led = xml_escape(_ledger_or_suspense(_row_text(r, "IGSTLedger")))
         igst_r   = _row_float(r, "IGSTRate", 0.0)
-        igst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax"],
-            igst_r,
-            "IGST",
-        ))
         narr     = xml_escape(_row_text(r, "Narration"))
         hsn_code = xml_escape(_row_text(r, "HSNCode"))
 
@@ -1847,7 +1844,7 @@ def generate_item_xml(
         a('      </ACCOUNTINGALLOCATIONS.LIST>')
         a('     </ALLINVENTORYENTRIES.LIST>')
 
-        # ── Ledger entries (Party DR) ──
+        # ── Ledger entries (Party DR) with bill allocation ──
         a('     <LEDGERENTRIES.LIST>')
         a(f'      <LEDGERNAME>{party}</LEDGERNAME>')
         a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
@@ -1865,21 +1862,18 @@ def generate_item_xml(
             a(f'      <LEDGERNAME>{cgst_led}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>{fmt_amt(cgst_amt)}</AMOUNT>')
-            _append_tax_object_allocation_xml(a, "CGST")
             a('     </LEDGERENTRIES.LIST>')
         if sgst_amt:
             a('     <LEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{sgst_led}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>{fmt_amt(sgst_amt)}</AMOUNT>')
-            _append_tax_object_allocation_xml(a, "SGST")
             a('     </LEDGERENTRIES.LIST>')
         if igst_amt:
             a('     <LEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{igst_led}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>{fmt_amt(igst_amt)}</AMOUNT>')
-            _append_tax_object_allocation_xml(a, "IGST")
             a('     </LEDGERENTRIES.LIST>')
 
         a('    </VOUCHER>')
@@ -1989,6 +1983,7 @@ def generate_purchase_accounting_xml(
         a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>')
+        a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
         if supplier_invoice:
             a(f'     <REFERENCE>{supplier_invoice}</REFERENCE>')
         if narr:
@@ -2158,27 +2153,12 @@ def generate_purchase_item_xml(
             )
         purchase_ledger = xml_escape(purchase_ledger_raw)
 
+        cgst_led = xml_escape(_ledger_or_suspense(_row_text(r, "CGSTLedger")))
         cgst_r = _row_float(r, "CGSTRate", 0.0)
-        cgst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax"],
-            cgst_r,
-            "CGST",
-        ))
+        sgst_led = xml_escape(_ledger_or_suspense(_row_text(r, "SGSTLedger")))
         sgst_r = _row_float(r, "SGSTRate", 0.0)
-        sgst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax", "UTGSTLedger", "UTGST Ledger"],
-            sgst_r,
-            "SGST",
-        ))
+        igst_led = xml_escape(_ledger_or_suspense(_row_text(r, "IGSTLedger")))
         igst_r = _row_float(r, "IGSTRate", 0.0)
-        igst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax"],
-            igst_r,
-            "IGST",
-        ))
         narr = xml_escape(_row_text(r, "Narration"))
 
         item_amt = round(qty * rate, 2) if qty and rate else taxable
@@ -2199,6 +2179,7 @@ def generate_purchase_item_xml(
         a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>')
+        a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
         if supplier_invoice:
             a(f'     <REFERENCE>{supplier_invoice}</REFERENCE>')
         if narr:
@@ -2242,21 +2223,18 @@ def generate_purchase_item_xml(
             a(f'      <LEDGERNAME>{cgst_led}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(cgst_amt)}</AMOUNT>')
-            _append_tax_object_allocation_xml(a, "CGST")
             a('     </LEDGERENTRIES.LIST>')
         if sgst_amt:
             a('     <LEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{sgst_led}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(sgst_amt)}</AMOUNT>')
-            _append_tax_object_allocation_xml(a, "SGST")
             a('     </LEDGERENTRIES.LIST>')
         if igst_amt:
             a('     <LEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{igst_led}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(igst_amt)}</AMOUNT>')
-            _append_tax_object_allocation_xml(a, "IGST")
             a('     </LEDGERENTRIES.LIST>')
 
         a('    </VOUCHER>')
@@ -3442,6 +3420,7 @@ class TallySalesApp(ctk.CTk):
                 "headers": [
                     "Date",
                     "VoucherNo",
+                    "InvoiceNo",
                     "PartyLedger",
                     "PartyName",
                     "PartyMailingName",
@@ -3464,25 +3443,24 @@ class TallySalesApp(ctk.CTk):
                     "IGSTRate",
                     "Narration",
                 ],
-                "sample_rows": [],
+                "sample_rows": [
+                    ["01/04/2024", "1", "INV-001", "ABC Traders", "ABC Traders", "ABC Traders",
+                     "123 Main Street", "City Centre", "400001", "Maharashtra", "Maharashtra", "India",
+                     "Applicable", "Regular", "27AABCU9603R1ZM", "Sales Account", 10000,
+                     "CGST", 9, "SGST", 9, "IGST", 0, "Being goods sold to ABC Traders"],
+                    ["02/04/2024", "2", "INV-002", "XYZ Enterprises", "XYZ Enterprises", "XYZ Enterprises",
+                     "456 Industrial Area", "", "110001", "Delhi", "Delhi", "India",
+                     "Applicable", "Regular", "07AAGFX1234A1Z5", "Sales Account", 20000,
+                     "CGST", 0, "SGST", 0, "IGST", 18, "Being goods sold to XYZ Enterprises"],
+                ],
             },
             "item": {
                 "sheet_name": "Sheet1",
                 "headers": [
                     "Date",
                     "VoucherNo",
+                    "GSTIN",
                     "PartyLedger",
-                    "PartyName",
-                    "PartyMailingName",
-                    "PartyAddress1",
-                    "PartyAddress2",
-                    "PartyPincode",
-                    "PartyState",
-                    "PlaceOfSupply",
-                    "PartyCountry",
-                    "GSTApplicable",
-                    "GSTRegistrationType",
-                    "GSTIN/UIN",
                     "Sales Ledger",
                     "Item Name",
                     "Unit",
@@ -3504,6 +3482,8 @@ class TallySalesApp(ctk.CTk):
                 "headers": [
                     "Date",
                     "VoucherNo",
+                    "InvoiceNo",
+                    "SupplierInvoiceNo",
                     "PartyLedger",
                     "PartyName",
                     "PartyMailingName",
@@ -3516,7 +3496,7 @@ class TallySalesApp(ctk.CTk):
                     "GSTApplicable",
                     "GSTRegistrationType",
                     "GSTIN/UIN",
-                    "Purchase Ledger",
+                    "PurchaseLedger",
                     "TaxableValue",
                     "CGSTLedger",
                     "CGSTRate",
@@ -3526,7 +3506,16 @@ class TallySalesApp(ctk.CTk):
                     "IGSTRate",
                     "Narration",
                 ],
-                "sample_rows": [],
+                "sample_rows": [
+                    ["01/04/2024", "1", "SINV-001", "SINV-001", "PQR Suppliers", "PQR Suppliers", "PQR Suppliers",
+                     "789 MIDC Road", "", "411001", "Maharashtra", "Maharashtra", "India",
+                     "Applicable", "Regular", "27AAAPQ1234B1Z3", "Purchase Account", 10000,
+                     "CGST", 9, "SGST", 9, "IGST", 0, "Being goods purchased from PQR Suppliers"],
+                    ["02/04/2024", "2", "SINV-002", "SINV-002", "LMN Industries", "LMN Industries", "LMN Industries",
+                     "321 Ring Road", "", "302001", "Rajasthan", "Maharashtra", "India",
+                     "Applicable", "Regular", "08AAELM9876C1Z1", "Purchase Account", 20000,
+                     "CGST", 0, "SGST", 0, "IGST", 18, "Being goods purchased from LMN Industries"],
+                ],
             },
             "purchase_item": {
                 "sheet_name": "Sheet1",
@@ -3534,17 +3523,6 @@ class TallySalesApp(ctk.CTk):
                     "Date",
                     "Invoice No",
                     "PartyLedger",
-                    "PartyName",
-                    "PartyMailingName",
-                    "PartyAddress1",
-                    "PartyAddress2",
-                    "PartyPincode",
-                    "PartyState",
-                    "PlaceOfSupply",
-                    "PartyCountry",
-                    "GSTApplicable",
-                    "GSTRegistrationType",
-                    "GSTIN/UIN",
                     "Purchase Ledger",
                     "Item Name",
                     "Unit",
@@ -3872,7 +3850,6 @@ class TallySalesApp(ctk.CTk):
                         else:
                             if date_mode == "excel":
                                 self.after(0, lambda: self._push_message_var.set("Retrying with today date..."))
-                                retry_xml = build_voucher_xml(mode, "current", "", next_voucher, rows_snapshot)
                                 retry_xml = build_voucher_xml(
                                     mode,
                                     "current",

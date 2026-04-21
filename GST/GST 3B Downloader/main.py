@@ -46,50 +46,6 @@ class GSTWorker:
         self.captcha_event = threading.Event()
         self.report_data = [] 
 
-    def _save_captcha_image(self, wait, output_path):
-        """Capture captcha image bytes reliably (avoids DPI crop mismatch on Windows)."""
-        captcha_img = wait.until(EC.presence_of_element_located((By.ID, "imgCaptcha")))
-
-        wait.until(lambda d: d.execute_script(
-            """
-            const img = document.getElementById('imgCaptcha');
-            return !!(img && img.complete && (img.naturalWidth || img.width) > 0 && (img.naturalHeight || img.height) > 0);
-            """
-        ))
-
-        src = captcha_img.get_attribute("src") or ""
-        if src.startswith("data:image"):
-            payload = src.split(",", 1)[1]
-            with open(output_path, "wb") as f:
-                f.write(base64.b64decode(payload))
-            return
-
-        try:
-            data_url = self.driver.execute_script(
-                """
-                const img = document.getElementById('imgCaptcha');
-                if (!img) return null;
-                const w = img.naturalWidth || img.width;
-                const h = img.naturalHeight || img.height;
-                const canvas = document.createElement('canvas');
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, w, h);
-                return canvas.toDataURL('image/png');
-                """
-            )
-            if isinstance(data_url, str) and data_url.startswith("data:image"):
-                payload = data_url.split(",", 1)[1]
-                with open(output_path, "wb") as f:
-                    f.write(base64.b64decode(payload))
-                return
-        except Exception:
-            pass
-
-        with open(output_path, "wb") as f:
-            f.write(captcha_img.screenshot_as_png)
-
     def log(self, message):
         self.app.update_log_safe(message)
 
@@ -133,8 +89,8 @@ class GSTWorker:
             total = len(df)
 
             # 2. CREATE MAIN DOWNLOAD FOLDER
-            base_dir = os.path.join(os.getcwd(), "GST_3B_Downloads")
-            if not os.path.exists(base_dir): os.makedirs(base_dir)
+            base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GSTR 3B")
+            if not os.path.exists(base_dir): os.makedirs(base_dir, exist_ok=True)
 
             # 3. PROCESS LOOP
             stopped_by_user = False
@@ -420,68 +376,64 @@ class GSTWorker:
                 self.driver = None
 
     def perform_login(self, username, password, wait):
-        self.log("   🌐 Opening GST Portal...")
+        self.log("   🚀 MANUAL LOGIN MODE.")
+        self.log("   👉 Please LOGIN manually in the Chrome window.")
+        self.driver.maximize_window()
         self.driver.get("https://services.gst.gov.in/services/login")
-
-        while True:
-            if not self.keep_running: return False, "Stopped"
-
+        
+        # Wait for dashboard
+        while self.keep_running:
             try:
-                user_box = wait.until(EC.visibility_of_element_located((By.ID, "username")))
-                self.type_like_human(user_box, username)
+                src = self.driver.page_source.lower()
+                url = self.driver.current_url.lower()
+                # Markers of login success
+                if "dashboard" in url or "dashboard" in src or "welcome" in src or "services/auth/home" in url:
+                    self.log("   ✅ Login detected!")
+                    break
+            except Exception:
+                pass
+            time.sleep(2)
+        
+        if not self.keep_running: 
+            return False, "Stopped"
+        
+        time.sleep(2)
+        self.handle_popups()
+        
+        # Navigate to Return Dashboard if not already there
+        try:
+            dash_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Return Dashboard')]")))
+            self.driver.execute_script("arguments[0].click();", dash_btn)
+            return True, "Success"
+        except Exception:
+            try:
+                btn = self.driver.find_element(By.XPATH, "//button[contains(., 'Return Dashboard')]")
+                self.driver.execute_script("arguments[0].click();", btn)
+                return True, "Success (JS Click)"
+            except Exception:
+                # Maybe already on dashboard?
+                if "dashboard" in self.driver.current_url.lower():
+                    return True, "Success (Manual/Detected)"
+                self.log("   ⚠️ Dashboard Nav Error.")
+                return False, "Dashboard Nav Failed"
 
-                pass_box = self.driver.find_element(By.ID, "user_pass")
-                self.type_like_human(pass_box, password)
+    def handle_popups(self):
+        """Standard GST Portal popups (Generic modal, Aadhaar)"""
+        try:
+            aadhaar_skip = self.driver.find_elements(By.XPATH, "//a[contains(text(),'Remind me later')]")
+            if aadhaar_skip and aadhaar_skip[0].is_displayed():
+                self.log("   ℹ️ Closing Aadhaar Popup...")
+                aadhaar_skip[0].click()
+                time.sleep(1)
+        except: pass
 
-                self._save_captcha_image(wait, "temp_captcha.png")
-                
-                self.log("   ⌨️ Waiting for Captcha...")
-                self.captcha_response = None
-                self.captcha_event.clear()
-                self.app.request_captcha_safe("temp_captcha.png")
-                self.captcha_event.wait() 
-
-                if not self.captcha_response: return False, "Captcha Cancelled"
-
-                cap_box = self.driver.find_element(By.ID, "captcha")
-                self.type_like_human(cap_box, self.captcha_response)
-                self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
-                
-                self.human_delay()
-
-                src = self.driver.page_source
-                if "Invalid Username or Password" in src:
-                    self.log("   ❌ Bad Credentials.")
-                    return False, "Invalid Credentials"
-                
-                if "Enter valid Letters" in src or "Invalid Captcha" in src:
-                    self.log("   ⚠️ Invalid Captcha. Retrying...")
-                    time.sleep(1)
-                    continue 
-
-                if "Dashboard" in self.driver.title or "Return Dashboard" in src:
-                    self.log("   ✅ Login Successful!")
-                    self.app.close_captcha_safe()
-                    
-                    self.handle_popups()
-                    
-                    # Navigate to Return Dashboard
-                    try:
-                        dash_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Return Dashboard')]")))
-                        dash_btn.click()
-                        return True, "Success"
-                    except:
-                        try:
-                            btn = self.driver.find_element(By.XPATH, "//button[contains(., 'Return Dashboard')]")
-                            self.driver.execute_script("arguments[0].click();", btn)
-                            return True, "Success (JS Click)"
-                        except:
-                            self.log("   ⚠️ Dashboard Nav Error.")
-                            return False, "Dashboard Nav Failed"
-
-            except Exception as e:
-                self.log(f"   ⚠️ Login Exception: {e}")
-                return False, f"Login Error: {str(e)[:20]}"
+        try:
+            generic_skip = self.driver.find_elements(By.XPATH, "//button[contains(text(),'Remind Me Later')]")
+            if generic_skip and generic_skip[0].is_displayed():
+                self.log("   ℹ️ Closing Generic Popup...")
+                generic_skip[0].click()
+                time.sleep(1)
+        except: pass
 
     def download_gstr3b(self, wait, download_path):
         self.log("   🔍 Searching for GSTR-3B Tile...")
@@ -565,6 +517,10 @@ class App(ctk.CTk):
         self.settings_container.grid(row=1, column=0, sticky="ew", padx=20, pady=(20, 10))
         self.settings_container.grid_columnconfigure((0, 1), weight=1)
 
+        # --- LOG SECTION ---
+        self.log_frame = ctk.CTkFrame(self, border_color="#334155", border_width=1)
+        self.log_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
+
         # Credentials Card
         self.card_cred = ctk.CTkFrame(self.settings_container, border_color="#334155", border_width=1)
         self.card_cred.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
@@ -596,22 +552,21 @@ class App(ctk.CTk):
                            fg_color="#7C3AED", hover_color="#6D28D9", height=28, width=110,
                            font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="left", padx=(8, 0))
-        self.btn_view_id.configure(state="disabled")
         self.btn_delete_id.configure(state="disabled")
+
+
 
         # Period Settings Card
         self.card_period = ctk.CTkFrame(self.settings_container, border_color="#334155", border_width=1)
         self.card_period.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
         ctk.CTkLabel(self.card_period, text="📅 Period Selection", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 5))
 
-        # Dynamic Year - Generate in ascending order (oldest first)
-        cur_year = datetime.now().year
-        start_year = cur_year - 1 if datetime.now().month < 4 else cur_year
-        year_list = [f"{y}-{str(y+1)[-2:]}" for y in range(start_year - 2, start_year + 2)]
+        # Static Year List
+        year_list = ["2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]
 
         self.frm_year = ctk.CTkFrame(self.card_period, fg_color="transparent")
         self.frm_year.pack(fill="x", padx=15, pady=2)
-        ctk.CTkLabel(self.frm_year, text="Financial Year:", width=100, anchor="w").pack(side="left")
+        ctk.CTkLabel(self.frm_year, text="Financial Year:", width=140, anchor="w").pack(side="left")
         self.cb_year = ctk.CTkComboBox(self.frm_year, values=year_list, width=150)
         self.cb_year.set(year_list[0]) 
         self.cb_year.pack(side="right", expand=True, fill="x")
@@ -620,7 +575,7 @@ class App(ctk.CTk):
         self.period_mode_var = ctk.StringVar(value="Monthly")
         self.frm_mode = ctk.CTkFrame(self.card_period, fg_color="transparent")
         self.frm_mode.pack(fill="x", padx=15, pady=(4, 6))
-        ctk.CTkLabel(self.frm_mode, text="Mode:", width=100, anchor="w").pack(side="left")
+        ctk.CTkLabel(self.frm_mode, text="Filing Frequency:", width=140, anchor="w").pack(side="left")
         self.mode_tabs = ctk.CTkSegmentedButton(
             self.frm_mode,
             values=["Monthly", "Quarterly"],
@@ -633,7 +588,7 @@ class App(ctk.CTk):
         # Quarter & Month
         self.frm_qtr = ctk.CTkFrame(self.card_period, fg_color="transparent")
         self.frm_qtr.pack(fill="x", padx=15, pady=2)
-        ctk.CTkLabel(self.frm_qtr, text="Quarter:", width=100, anchor="w").pack(side="left")
+        ctk.CTkLabel(self.frm_qtr, text="Quarter:", width=140, anchor="w").pack(side="left")
         self.cb_qtr = ctk.CTkComboBox(self.frm_qtr, 
                                       values=["Quarter 1 (Apr - Jun)", "Quarter 2 (Jul - Sep)", 
                                               "Quarter 3 (Oct - Dec)", "Quarter 4 (Jan - Mar)"],
@@ -644,15 +599,17 @@ class App(ctk.CTk):
         # Month
         self.frm_mon = ctk.CTkFrame(self.card_period, fg_color="transparent")
         self.frm_mon.pack(fill="x", padx=15, pady=(2, 15))
-        ctk.CTkLabel(self.frm_mon, text="Month:", width=100, anchor="w").pack(side="left")
-        self.cb_month = ctk.CTkComboBox(self.frm_mon, values=["April", "May", "June"], width=150)
+        ctk.CTkLabel(self.frm_mon, text="Month:", width=140, anchor="w").pack(side="left")
+        
+        all_months = ["April", "May", "June", "July", "August", "September", 
+                      "October", "November", "December", "January", "February", "March"]
+        self.cb_month = ctk.CTkComboBox(self.frm_mon, values=all_months, 
+                                        command=self.update_qtr_based_on_month, width=150)
         self.cb_month.set("April")
         self.cb_month.pack(side="right", expand=True, fill="x")
         self.toggle_inputs()
 
         # LOGS
-        self.log_frame = ctk.CTkFrame(self)
-        self.log_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
         self.log_frame.grid_columnconfigure(0, weight=1)
         self.log_frame.grid_rowconfigure(1, weight=1)
         ctk.CTkLabel(self.log_frame, text="📜 Execution Logs", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=5)
@@ -660,26 +617,7 @@ class App(ctk.CTk):
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         self.log_box.configure(state="disabled")
 
-        # CAPTCHA (Hidden)
-        self.cap_frame = ctk.CTkFrame(self, border_color="#DC2626", border_width=2, fg_color="#1E293B")
-        self.cap_inner = ctk.CTkFrame(self.cap_frame, fg_color="transparent")
-        self.cap_inner.pack(fill="both", padx=20, pady=10)
-        ctk.CTkLabel(self.cap_inner, text="⚠️ CAPTCHA ACTION REQUIRED", text_color="#EF4444", font=("Segoe UI", 14, "bold")).pack()
-        self.cap_lbl_img = ctk.CTkLabel(self.cap_inner, text="")
-        self.cap_lbl_img.pack(pady=10)
-        self.cap_ent = ctk.CTkEntry(self.cap_inner, placeholder_text="Type Captcha Here...", 
-                                    font=("Consolas", 20), justify="center", height=45, width=250)
-        self.cap_ent.pack(pady=5)
-        self.cap_ent.bind("<Return>", self.submit_captcha) 
-        # --- CAPTCHA BUTTONS SIDE-BY-SIDE ---
-        self.cap_btn_row = ctk.CTkFrame(self.cap_inner, fg_color="transparent")
-        self.cap_btn_row.pack(pady=(10, 0))
-        self.cap_btn = ctk.CTkButton(self.cap_btn_row, text="SUBMIT CAPTCHA", fg_color="#DC2626", hover_color="#B91C1C",
-                         height=40, width=120, font=("Segoe UI", 12, "bold"), command=self.submit_captcha)
-        self.cap_btn.pack(side="left", padx=(0, 10))
-        self.cap_stop_btn = ctk.CTkButton(self.cap_btn_row, text="⏹ STOP PROCESS", fg_color="#475569", hover_color="#334155",
-                          height=40, width=120, font=("Segoe UI", 11, "bold"), command=self.stop_process)
-        self.cap_stop_btn.pack(side="left")
+
 
         # FOOTER
         self.footer = ctk.CTkFrame(self, fg_color="transparent")
@@ -705,11 +643,34 @@ class App(ctk.CTk):
     def toggle_inputs(self, mode_choice=None):
         if mode_choice and hasattr(self, "period_mode_var"):
             self.period_mode_var.set(mode_choice)
-        self.cb_qtr.configure(state="normal")
+        
         mode = self.period_mode_var.get() if hasattr(self, "period_mode_var") else "Monthly"
-        self.cb_month.configure(state="normal")
-        self.update_months_based_on_qtr(self.cb_qtr.get())
-        self.cb_month.configure(state="disabled" if mode == "Quarterly" else "normal")
+        
+        if mode == "Monthly":
+            self.cb_qtr.configure(state="disabled")
+            self.cb_month.configure(state="normal")
+            self.cb_month.configure(values=["April", "May", "June", "July", "August", "September", 
+                                          "October", "November", "December", "January", "February", "March"])
+            self.update_qtr_based_on_month(self.cb_month.get())
+        else:
+            self.cb_qtr.configure(state="normal")
+            self.cb_month.configure(state="disabled")
+            self.update_months_based_on_qtr(self.cb_qtr.get())
+
+    def update_qtr_based_on_month(self, choice):
+        mapping = {
+            "April": "Quarter 1 (Apr - Jun)", "May": "Quarter 1 (Apr - Jun)", "June": "Quarter 1 (Apr - Jun)",
+            "July": "Quarter 2 (Jul - Sep)", "August": "Quarter 2 (Jul - Sep)", "September": "Quarter 2 (Jul - Sep)",
+            "October": "Quarter 3 (Oct - Dec)", "November": "Quarter 3 (Oct - Dec)", "December": "Quarter 3 (Oct - Dec)",
+            "January": "Quarter 4 (Jan - Mar)", "February": "Quarter 4 (Jan - Mar)", "March": "Quarter 4 (Jan - Mar)"
+        }
+        qtr_val = mapping.get(choice, "Quarter 1 (Apr - Jun)")
+        
+        # Temporarily enable to set value, then restore state
+        curr_state = self.cb_qtr.cget("state")
+        self.cb_qtr.configure(state="normal")
+        self.cb_qtr.set(qtr_val)
+        self.cb_qtr.configure(state=curr_state)
 
     def update_months_based_on_qtr(self, choice):
         if "Quarter 1" in choice: vals = ["April", "May", "June"]
@@ -855,71 +816,20 @@ class App(ctk.CTk):
         def _finish_ui():
             messagebox.showinfo("Info", msg)
             is_stopped = "stopped" in (msg or "").lower()
-            self.close_captcha_safe()
             self.btn_start.configure(state="normal", text="STOPPED" if is_stopped else "START BATCH PROCESS")
             self.btn_stop.pack_forget()
-            self.btn_stop.configure(state="normal", text="⏹ STOP")
-            self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
-            if is_stopped:
-                self.after(1200, lambda: self.btn_start.configure(text="START BATCH PROCESS"))
-            else:
+            if not is_stopped:
                 self.btn_open_folder.pack(side="left", padx=(10, 0))
+
         self.after(0, _finish_ui)
 
     def open_output_folder(self):
-        try:
-            target = os.path.join(os.getcwd(), "GST_3B_Downloads")
-            if not os.path.exists(target):
-                target = os.getcwd()
-            os.startfile(target)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to open folder: {e}")
+        d = os.path.join(os.getcwd(), "GST Downloaded", "GSTR 3B")
+        if os.path.exists(d):
+            os.startfile(d)
+        else:
+            messagebox.showinfo("Info", "Output folder not found.")
 
-    def request_captcha_safe(self, img_path):
-        def show():
-            if not self.worker or not self.worker.keep_running:
-                return
-            with Image.open(img_path) as raw_img:
-                pil_img = raw_img.convert("RGB")
-
-            w, h = pil_img.size
-            if w <= 0 or h <= 0:
-                return
-
-            max_w, max_h = 230, 78
-            scale = min(max_w / float(w), max_h / float(h), 1.0)
-            if scale < 1.0:
-                size = (max(1, int(w * scale)), max(1, int(h * scale)))
-                display_img = pil_img.resize(size, _CAPTCHA_RESAMPLE)
-            else:
-                size = (w, h)
-                display_img = pil_img
-
-            self._captcha_ctk_img = ctk.CTkImage(light_image=display_img, dark_image=display_img, size=size)
-            self.cap_lbl_img.image = self._captcha_ctk_img
-            self.cap_lbl_img.configure(image=self._captcha_ctk_img)
-            self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#DC2626")
-            self.cap_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
-            self.cap_ent.delete(0, "end")
-            self.attributes('-topmost', True)
-            self.deiconify()
-            self.lift()
-            def _focus():
-                self.focus_force()
-                self.cap_ent.focus_set()
-                self.after(1000, lambda: self.attributes('-topmost', False))
-            self.after(200, _focus)
-        self.after(0, show)
-
-    def submit_captcha(self, event=None):
-        txt = self.cap_ent.get()
-        if not txt: return
-        self.cap_btn.configure(state="disabled", text="VERIFYING...", fg_color="gray")
-        self.worker.captcha_response = txt
-        self.worker.captcha_event.set()
-
-    def close_captcha_safe(self):
-        self.after(0, lambda: self.cap_frame.grid_forget())
 
     def start_process(self):
         credentials = list(self.manual_credentials)
@@ -930,11 +840,8 @@ class App(ctk.CTk):
             "year": self.cb_year.get(),
             "month": self.cb_month.get(),
             "quarter": self.cb_qtr.get(),
-            "period_mode": self.period_mode_var.get(),
             "all_quarters": False
         }
-        self.close_captcha_safe()
-        self.cap_stop_btn.configure(state="normal", text="⏹ STOP PROCESS")
         self.btn_stop.configure(state="normal", text="⏹ STOP")
         self.btn_start.configure(state="disabled", text="RUNNING...")
         self.btn_stop.pack(side="left", padx=(10, 0))
@@ -942,13 +849,18 @@ class App(ctk.CTk):
         self.worker = GSTWorker(self, self.excel_file, settings, credentials=credentials)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
+    def clear_captcha_safe(self):
+        pass
+
+    def submit_captcha(self):
+        pass
+
     def stop_process(self):
         if not self.worker:
             return
 
         self.worker.keep_running = False
         self.worker.captcha_response = None
-        self.worker.captcha_event.set()
 
         try:
             if self.worker.driver:
@@ -958,9 +870,7 @@ class App(ctk.CTk):
         except Exception as e:
             self.update_log_safe(f"⚠️ Error closing Chrome: {e}")
 
-        self.close_captcha_safe()
         self.btn_stop.configure(state="disabled", text="STOPPED")
-        self.cap_stop_btn.configure(state="disabled", text="STOPPED")
         self.update_log_safe("🛑 Process stopped by user.")
 
 if __name__ == "__main__":

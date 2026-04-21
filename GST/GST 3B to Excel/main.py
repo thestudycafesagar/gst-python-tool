@@ -41,7 +41,7 @@ class GSTR3BConverterPro(ctk.CTk):
         
         self.subtitle = ctk.CTkLabel(
             self.header_frame,
-            text="Saves to: /Converted Excel/ folder",
+            text="Saves to: /GST Downloaded/ folder",
             text_color="#10B981"
         )
         self.subtitle.pack()
@@ -96,20 +96,31 @@ class GSTR3BConverterPro(ctk.CTk):
             text_color="gray"
         )
         self.hint_label.pack()
-
-        # Action Area
         self.convert_btn = ctk.CTkButton(
-            self, 
-            text="Start Conversion", 
+            self,
+            text="Convert to Excel Now",
             command=self.process_files,
             state="disabled",
             height=50,
-            width=200,
-            font=("Segoe UI", 16),
-            fg_color="#10B981", 
-            hover_color="#059669"
+            width=250,
+            font=("Segoe UI", 16, "bold"),
+            fg_color="#059669",
+            hover_color="#047857"
         )
         self.convert_btn.pack(pady=20)
+
+        self.open_folder_btn = ctk.CTkButton(
+            self,
+            text="📂 Open Output Folder",
+            command=self.open_output_folder,
+            height=40,
+            width=200,
+            font=("Segoe UI", 14),
+            fg_color="#64748B",
+            hover_color="#475569"
+        )
+        self.open_folder_btn.pack(pady=(0, 10))
+        self.open_folder_btn.pack_forget() # Initially hidden
 
         # Log/Status Area
         self.textbox = ctk.CTkTextbox(self, height=120, width=600)
@@ -121,12 +132,12 @@ class GSTR3BConverterPro(ctk.CTk):
         import webbrowser
         webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
 
-    def log(self, message):
-        self.textbox.configure(state="normal")
-        self.textbox.insert("end", message + "\n")
-        self.textbox.see("end")
-        self.textbox.configure(state="disabled")
-        self.update()
+    def open_output_folder(self):
+        target = os.path.join(os.getcwd(), "GST Downloaded", "GSTR 3B to Excel")
+        if os.path.exists(target):
+            os.startfile(target)
+        else:
+            messagebox.showinfo("Info", "Output folder not found.")
 
     def select_files(self):
         filetypes = (("PDF files", "*.pdf"), ("All files", "*.*"))
@@ -295,14 +306,11 @@ class GSTR3BConverterPro(ctk.CTk):
         self.convert_btn.configure(state="disabled")
         
         # --- Output Folder Setup ---
-        if getattr(sys, 'frozen', False):
-            app_path = os.path.dirname(sys.executable)
-        else:
-            app_path = os.path.dirname(os.path.abspath(__file__))
-            
-        output_folder = os.path.join(app_path, "Converted Excel")
+        output_folder = os.path.join(os.getcwd(), "GST Downloaded", "GSTR 3B to Excel")
         if not os.path.exists(output_folder):
-            os.makedirs(output_folder)
+            os.makedirs(output_folder, exist_ok=True)
+        
+        self.open_folder_btn.pack_forget()
 
         # --- LOGIC BRANCHING ---
         is_merge = self.merge_mode.get()
@@ -342,6 +350,7 @@ class GSTR3BConverterPro(ctk.CTk):
             self.log(f"MERGE SUCCESSFUL!")
             self.log(f"Saved: {out_name}")
             messagebox.showinfo("Success", f"Merged {len(self.selected_files)} files into:\n{out_name}")
+            self.open_folder_btn.pack(pady=(0, 10))
 
         else:
             # === INDIVIDUAL MODE ===
@@ -373,6 +382,7 @@ class GSTR3BConverterPro(ctk.CTk):
 
             self.log("----------------")
             self.log("Batch Complete.")
+            self.open_folder_btn.pack(pady=(0, 10))
             messagebox.showinfo("Done", f"Processed {len(self.selected_files)} files.")
 
         self.convert_btn.configure(state="normal")

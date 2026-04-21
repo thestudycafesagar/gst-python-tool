@@ -61,10 +61,14 @@ def collect_tool_sources(tool_dir, dest_name):
     return pairs
 
 
+import customtkinter as _ctk
+_ctk_dir = os.path.dirname(_ctk.__file__)
+
 datas = [
     ('studycafelogo.ico', '.'),
     ('studycafelogo.png', '.'),
     ('dist/StudyCafeSuite_Updater.exe', '.'),
+    (_ctk_dir, 'customtkinter'),
 ]
 
 for _tool_dir, _dest in [

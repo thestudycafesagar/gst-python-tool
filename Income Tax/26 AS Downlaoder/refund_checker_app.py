@@ -456,9 +456,12 @@ class FiledReturnWorker:
             df_report = pd.DataFrame(self.report_data)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"Filed_Return_Report_{timestamp}.xlsx"
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Refund Checker")
+            if not os.path.exists(report_dir): os.makedirs(report_dir, exist_ok=True)
+            report_path = os.path.join(report_dir, filename)
+            
             self.log(f"📝 Generating report: {filename}")
-
-            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
                 df_report.to_excel(writer, index=False, sheet_name='Filed Returns')
                 worksheet = writer.sheets['Filed Returns']
                 for column in worksheet.columns:
@@ -778,7 +781,9 @@ class RefundCheckerApp(ctk.CTk):
 
     def open_output_folder_filed(self):
         try:
-            target = os.getcwd()
+            target = os.path.join(os.getcwd(), "Income Tax Downloaded", "Refund Checker")
+            if not os.path.exists(target):
+                target = os.path.join(os.getcwd(), "Income Tax Downloaded")
             os.startfile(target)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open folder: {e}")

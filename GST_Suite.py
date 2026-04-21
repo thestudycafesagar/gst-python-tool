@@ -463,16 +463,16 @@ _C = {
 
 # Per-tool accent colours (light, dark)
 _GST_ACCENTS = [
-    ("#4f46e5", "#818cf8"),   # GSTR-2B      Indigo
-    ("#7c3aed", "#a78bfa"),   # GSTR-3B      Violet
-    ("#0891b2", "#22d3ee"),   # 3B→Excel     Cyan
     ("#059669", "#34d399"),   # GST Verifier Emerald
-    ("#d97706", "#fbbf24"),   # Challan      Amber
     ("#0284c7", "#38bdf8"),   # R1 JSON      Sky
     ("#db2777", "#f472b6"),   # JSON→Excel   Pink
     ("#dc2626", "#f87171"),   # R1 PDF       Red
     ("#0f766e", "#2dd4bf"),   # IMS          Teal
-    ("#65a30d", "#a3e635"),   # GSTR1 Cons.  Lime
+    ("#4f46e5", "#818cf8"),   # GSTR-2B      Indigo
+    ("#7c3aed", "#a78bfa"),   # GSTR-3B      Violet
+    ("#0891b2", "#22d3ee"),   # 3B→Excel     Cyan
+    ("#0f766e", "#2dd4bf"),   # GST Reco     Teal
+    ("#d97706", "#fbbf24"),   # Challan      Amber
 ]
 _IT_ACCENTS = [
     ("#0891b2", "#22d3ee"),   # 26/AIS/TIS     Cyan
@@ -518,17 +518,16 @@ _TALLY_ACCENTS = [
 #  TOOL REGISTRY
 # ══════════════════════════════════════════════════════════════════════════════
 GST_TOOLS = [
-    {"key": "GSTR2B",       "tab": "📥  GSTR-2B",      "module": os.path.join(_GST_BASE, "GST 2B Downloader",     "main.py"),        "class": "App",                "desc": "Bulk download GSTR-2B returns via automated browser."},
-    {"key": "GSTR3B",       "tab": "📥  GSTR-3B",      "module": os.path.join(_GST_BASE, "GST 3B Downloader",     "main.py"),        "class": "App",                "desc": "Bulk download GSTR-3B returns via automated browser."},
-    {"key": "GSTR3B_Excel", "tab": "📊  3B → Excel",   "module": os.path.join(_GST_BASE, "GST 3B to Excel",       "main.py"),        "class": "GSTR3BConverterPro", "desc": "Convert GSTR-3B PDF files to formatted Excel sheets."},
     {"key": "GST_Verifier", "tab": "🤖  GST Verifier", "module": os.path.join(_GST_BASE, "GST Bot",               "gst_pro_app.py"), "class": "GSTApp",             "desc": "Verify bulk GSTINs and extract filing history & details."},
-    {"key": "GST_Challan",  "tab": "💰  Challan",      "module": os.path.join(_GST_BASE, "GST Challan Downloader","main.py"),        "class": "App",                "desc": "Download GST Challan PDFs in bulk (Monthly / Quarterly)."},
-    {"key": "R1_JSON",      "tab": "📑  R1 JSON",      "module": os.path.join(_GST_BASE, "GST R1 Downloader",     "mai.py"),         "class": "App",                "desc": "Request or download GSTR-1 JSON files for multiple users."},
-    {"key": "JSON_Excel",   "tab": "📊  JSON → Excel", "module": os.path.join(_GST_BASE, "JSON to Excel",          "main.py"),        "class": "App",                "desc": "Convert GSTR-1 JSON exports to multi-sheet Excel reports."},
-    {"key": "R1_PDF",       "tab": "🖨️  R1 PDF",       "module": os.path.join(_GST_BASE, "R1 PDF Downloader",     "main.py"),        "class": "App",                "desc": "Bulk download GSTR-1 PDF filed    returns from the GST portal."},
+    {"key": "R1_JSON",      "tab": "📑  GSTR1 JSON",      "module": os.path.join(_GST_BASE, "GST R1 Downloader",     "mai.py"),         "class": "App",                "desc": "Request or download GSTR-1 JSON files for multiple users."},
+    {"key": "JSON_Excel",   "tab": "📊  GSTR1 Json to Excel", "module": os.path.join(_GST_BASE, "JSON to Excel",          "main.py"),        "class": "App",                "desc": "Convert GSTR-1 JSON exports to multi-sheet Excel reports."},
+    {"key": "R1_PDF",       "tab": "📄  GSTR1 PDF",       "module": os.path.join(_GST_BASE, "R1 PDF Downloader",     "main.py"),        "class": "App",                "desc": "Bulk download GSTR-1 PDF filed    returns from the GST portal."},
     {"key": "IMS",          "tab": "📲  IMS",          "module": os.path.join(_GST_BASE, "IMS Downloader",        "main.py"),        "class": "App",                "desc": "Download IMS (Invoice Management System) data in bulk from the GST portal."},
-    {"key": "GSTR1_Cons",   "tab": "📋  GSTR1 Cons.", "module": os.path.join(_GST_BASE, "GSTR1_Consolidation",  "gst_consolidation.py"), "class": "ChallExtractorApp", "tk": True, "desc": "Consolidate multiple GSTR-1 files into a single unified Excel report."},
-    {"key": "GST_Reco",     "tab": "🔄  GST Reconciliation", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
+    {"key": "GSTR2B",       "tab": "📥  GSTR 2B",      "module": os.path.join(_GST_BASE, "GST 2B Downloader",     "main.py"),        "class": "App",                "desc": "Bulk download GSTR-2B returns via automated browser."},
+    {"key": "GSTR3B",       "tab": "📥  GSTR 3B",      "module": os.path.join(_GST_BASE, "GST 3B Downloader",     "main.py"),        "class": "App",                "desc": "Bulk download GSTR-3B returns via automated browser."},
+    {"key": "GSTR3B_Excel", "tab": "📊  GSTR 3B to Excel",   "module": os.path.join(_GST_BASE, "GST 3B to Excel",       "main.py"),        "class": "GSTR3BConverterPro", "desc": "Convert GSTR-3B PDF files to formatted Excel sheets."},
+    {"key": "GST_Reco",     "tab": "🔄  GST Reco", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
+    {"key": "GST_Challan",  "tab": "💰  GST Challan",      "module": os.path.join(_GST_BASE, "GST Challan Downloader","main.py"),        "class": "App",                "desc": "Download GST Challan PDFs in bulk (Monthly / Quarterly)."},
 ]
 
 IT_TOOLS = [
@@ -2142,28 +2141,34 @@ class LoginWindow(_RealCTk):
                      font=("Segoe UI", 11, "bold"),
                      text_color=("#475569", "#94a3b8"),
                      anchor="w").pack(fill="x")
-        
-        pass_frame = ctk.CTkFrame(wrap, fg_color="transparent")
-        pass_frame.pack(fill="x", pady=(4, 6))
-        
-        self._pass_entry = ctk.CTkEntry(pass_frame, placeholder_text="Enter your password",
+
+        pass_outer = ctk.CTkFrame(wrap, fg_color="transparent")
+        pass_outer.pack(fill="x", pady=(4, 6))
+
+        self._pass_entry = ctk.CTkEntry(pass_outer, placeholder_text="Enter your password",
                                         show="●", height=40, corner_radius=8,
                                         font=("Segoe UI", 13))
-        self._pass_entry.pack(side="left", expand=True, fill="x")
+        self._pass_entry.pack(fill="x")
         self._pass_entry.bind("<Return>", lambda e: self._do_login())
 
         def _toggle_pass():
             if self._pass_entry.cget("show") == "":
                 self._pass_entry.configure(show="●")
-                eye_btn.configure(text="👁")
+                eye_btn.configure(text="Show")
             else:
                 self._pass_entry.configure(show="")
-                eye_btn.configure(text="🔒")
+                eye_btn.configure(text="Hide")
 
-        eye_btn = ctk.CTkButton(pass_frame, text="👁", width=35, height=40, 
-                                fg_color="transparent", text_color=("#475569", "#94a3b8"),
-                                hover_color=("#e2e8f0", "#334155"), command=_toggle_pass)
-        eye_btn.pack(side="right", padx=(5, 0))
+        eye_btn = ctk.CTkButton(pass_outer, text="Show", width=50, height=26,
+                                fg_color=("#e2e8f0", "#3a3c3e"),
+                                hover_color=("#cbd5e1", "#4a4c4e"),
+                                bg_color=("#F9F9FA", "#343638"),
+                                text_color=("#475569", "#94a3b8"),
+                                border_width=0, corner_radius=13,
+                                font=("Segoe UI", 11, "bold"),
+                                command=_toggle_pass)
+        eye_btn.place(relx=1.0, rely=0.5, anchor="e", x=-8)
+        eye_btn.configure(cursor="hand2")
 
         # Status / error label
         self._status_lbl = ctk.CTkLabel(wrap, text="",
@@ -2263,77 +2268,101 @@ def _relaunch_self():
     """Restart the current app process for a clean Login→Suite cycle."""
     try:
         if getattr(sys, "frozen", False):
-            os.execl(sys.executable, sys.executable)
+            # Write a bat that waits for this process to fully exit (so PyInstaller
+            # finishes cleaning up _MEI temp dir) before launching the new instance.
+            import tempfile
+            bat_path = os.path.join(tempfile.gettempdir(), "_ac_restart.bat")
+            exe_path = sys.executable
+            pid = os.getpid()
+            with open(bat_path, "w") as f:
+                f.write("@echo off\n")
+                f.write(":wait\n")
+                f.write(f'tasklist /fi "PID eq {pid}" 2>nul | find "{pid}" >nul\n')
+                f.write("if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto wait)\n")
+                f.write(f'start "" "{exe_path}"\n')
+                f.write('del "%~f0"\n')
+            subprocess.Popen(
+                ["cmd", "/c", bat_path],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
         else:
-            os.execl(sys.executable, sys.executable, os.path.abspath(__file__))
+            subprocess.Popen([sys.executable, os.path.abspath(__file__)])
+        sys.exit(0)
     except Exception as e:
         _suite_debug_log(f"relaunch failed: {e}")
 
 
 def run_app_lifecycle():
     """Single top-level event-loop orchestration to avoid nested mainloops."""
-    # ── Try silent auto-login with saved credentials ──────────────────────
-    user_info = None
-    _saved_email, _saved_password = _load_auth()
-    if _saved_email and _saved_password:
-        _update_boot_splash("Signing you in...")
-        try:
-            resp = _call_api("/check_session", {
-                "email":       _saved_email,
-                "password":    _saved_password,
-                "hardware_id": _get_hardware_id(),
-            })
-            if resp.get("status") == "SESSION_VALID":
-                # Normalise to the same shape the rest of the app expects
-                resp["status"] = "SUCCESS"
-                user_info = resp
-        except Exception:
-            pass  # network error → fall through to login window
+    while True:
+        # ── Try silent auto-login with saved credentials ───────────────────
+        user_info = None
+        _saved_email, _saved_password = _load_auth()
+        if _saved_email and _saved_password:
+            _update_boot_splash("Signing you in...")
+            try:
+                resp = _call_api("/check_session", {
+                    "email":       _saved_email,
+                    "password":    _saved_password,
+                    "hardware_id": _get_hardware_id(),
+                })
+                if resp.get("status") == "SESSION_VALID":
+                    resp["status"] = "SUCCESS"
+                    user_info = resp
+            except Exception:
+                pass  # network error → fall through to login window
 
-    if user_info:
+        if user_info:
+            _update_boot_splash("Opening automation suite...")
+            _close_boot_splash()
+        else:
+            # ── Show login window ──────────────────────────────────────────
+            _update_boot_splash("Opening login screen...")
+            _close_boot_splash()
+            try:
+                _tk._default_root = None
+            except Exception:
+                pass
+            login = LoginWindow()
+            try:
+                login.mainloop()
+            except KeyboardInterrupt:
+                try:
+                    login._close_window()
+                except Exception:
+                    pass
+                return
+
+            user_info = login.get_auth_result()
+            if not user_info:
+                return
+
+        _show_boot_splash()
         _update_boot_splash("Opening automation suite...")
-        _close_boot_splash()
-    else:
-        # ── Show login window ──────────────────────────────────────────────
-        _update_boot_splash("Opening login screen...")
         _close_boot_splash()
         try:
             _tk._default_root = None
         except Exception:
             pass
-        login = LoginWindow()
+        suite = GSTSuite(user_info=user_info)
         try:
-            login.mainloop()
+            suite.mainloop()
         except KeyboardInterrupt:
             try:
-                login._close_window()
+                suite._on_close()
             except Exception:
                 pass
             return
 
-        user_info = login.get_auth_result()
-        if not user_info:
-            return
+        if getattr(suite, "_restart_to_login", False):
+            # In-process soft restart: loop back to login without re-launching.
+            # Re-launching a PyInstaller onefile exe causes a _MEI temp-dir race
+            # condition where cleanup from the old process deletes files the new
+            # process needs before it has finished extracting them.
+            continue
 
-    _show_boot_splash()
-    _update_boot_splash("Opening automation suite...")
-    _close_boot_splash()
-    try:
-        _tk._default_root = None
-    except Exception:
-        pass
-    suite = GSTSuite(user_info=user_info)
-    try:
-        suite.mainloop()
-    except KeyboardInterrupt:
-        try:
-            suite._on_close()
-        except Exception:
-            pass
-        return
-
-    if getattr(suite, "_restart_to_login", False):
-        _relaunch_self()
+        # Normal exit (window closed without logout)
+        break
 
 
 if __name__ == "__main__":

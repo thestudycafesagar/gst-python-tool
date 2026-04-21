@@ -134,8 +134,12 @@ class DemandCheckerWorker:
                 if c not in df_report.columns:
                     df_report[c] = ""
             df_report = df_report[[c for c in col_order if c in df_report.columns]]
-            filename = f"Demand_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            df_report.to_excel(filename, index=False)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"Demand_Report_{timestamp}.xlsx"
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Demand Checker")
+            if not os.path.exists(report_dir): os.makedirs(report_dir, exist_ok=True)
+            report_path = os.path.join(report_dir, filename)
+            df_report.to_excel(report_path, index=False)
             self.log(f"📄 Report saved: {filename}")
         except: pass
 
@@ -777,7 +781,9 @@ class DemandCheckerApp(ctk.CTk):
 
     def open_output_folder_demand(self):
         try:
-            target = os.getcwd()
+            target = os.path.join(os.getcwd(), "Income Tax Downloaded", "Demand Checker")
+            if not os.path.exists(target):
+                target = os.path.join(os.getcwd(), "Income Tax Downloaded")
             os.startfile(target)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open folder: {e}")

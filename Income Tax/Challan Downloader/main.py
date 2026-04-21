@@ -143,7 +143,7 @@ class ChallanWorker:
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Challan_Downloads")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "Challan Downloader")
 
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 
@@ -168,9 +168,12 @@ class ChallanWorker:
     def generate_report(self):
         try:
             if not self.report_data: return
-            df_report = pd.DataFrame(self.report_data)
-            filename = f"Challan_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            df_report.to_excel(filename, index=False)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"Challan_Report_{timestamp}.xlsx"
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Challan Downloader")
+            if not os.path.exists(report_dir): os.makedirs(report_dir, exist_ok=True)
+            report_path = os.path.join(report_dir, filename)
+            df_report.to_excel(report_path, index=False)
             self.log(f"📄 Report saved: {filename}")
         except: pass
 
@@ -1374,9 +1377,9 @@ class App(ctk.CTk):
 
     def open_output_folder(self):
         try:
-            target = os.path.join(os.getcwd(), "Challan_Downloads")
+            target = os.path.join(os.getcwd(), "Income Tax Downloaded", "Challan Downloader")
             if not os.path.exists(target):
-                target = os.getcwd()
+                target = os.path.join(os.getcwd(), "Income Tax Downloaded")
             os.startfile(target)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open folder: {e}")

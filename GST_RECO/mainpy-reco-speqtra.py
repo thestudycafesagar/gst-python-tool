@@ -632,9 +632,9 @@ def launch_gui(embedded=False):
 
     ctk.CTkLabel(files_card, text="Input Files",
                  font=("Arial", 13, "bold"),
-                 ).grid(row=0, column=0, columnspan=4, sticky="w", padx=16, pady=(12, 2))
+                 ).grid(row=0, column=0, columnspan=5, sticky="w", padx=16, pady=(12, 2))
     ctk.CTkFrame(files_card, height=1, fg_color=("gray75", "gray35"),
-                 ).grid(row=1, column=0, columnspan=4, sticky="ew", padx=16, pady=(0, 8))
+                 ).grid(row=1, column=0, columnspan=5, sticky="ew", padx=16, pady=(0, 8))
 
     def _file_row(parent, r, label_text):
         ctk.CTkLabel(parent, text=label_text, font=("Arial", 12), anchor="w",
@@ -696,6 +696,15 @@ def launch_gui(embedded=False):
                   command=_download_tally_sample,
                   ).grid(row=3, column=3, padx=(0, 16), pady=(5, 14))
 
+    def _open_demo_link():
+        import webbrowser
+        webbrowser.open_new_tab("https://www.youtube.com/watch?v=invalid")
+
+    ctk.CTkButton(files_card, text="▶ View Demo", width=120, height=34,
+                  fg_color="#DC2626", hover_color="#B91C1C", text_color="white",
+                  command=_open_demo_link,
+                  ).grid(row=2, column=3, padx=(0, 16), pady=5)
+
     # ═══════════════════════════════════════════════════
     # CARD 2 — Reconciliation Thresholds
     # ═══════════════════════════════════════════════════
@@ -704,9 +713,9 @@ def launch_gui(embedded=False):
 
     ctk.CTkLabel(thresh_card, text="Reconciliation Thresholds (₹)",
                  font=("Arial", 13, "bold"),
-                 ).grid(row=0, column=0, columnspan=5, sticky="w", padx=16, pady=(12, 2))
+                 ).grid(row=0, column=0, columnspan=6, sticky="w", padx=16, pady=(12, 2))
     ctk.CTkFrame(thresh_card, height=1, fg_color=("gray75", "gray35"),
-                 ).grid(row=1, column=0, columnspan=5, sticky="ew", padx=16, pady=(0, 8))
+                 ).grid(row=1, column=0, columnspan=6, sticky="ew", padx=16, pady=(0, 8))
 
     ctk.CTkLabel(thresh_card, text="Matched up to (₹):", font=("Arial", 12),
                  ).grid(row=2, column=0, sticky="w", padx=(16, 8), pady=(4, 14))
@@ -725,16 +734,34 @@ def launch_gui(embedded=False):
     run_btn = ctk.CTkButton(
         thresh_card,
         text="▶   Run Reconciliation",
-        font=("Arial", 14, "bold"),
-        height=36, width=230, corner_radius=10,
-        fg_color="#2E7D32", hover_color="#1B5E20",
-        text_color="#FFFFFF",
+        font=("Arial", 12, "bold"),
+        height=36, width=200, corner_radius=10,
+        fg_color="#059669", hover_color="#047857",
+        text_color="#FFFFFF"
     )
     run_btn.grid(row=2, column=4, sticky="e", padx=(8, 16), pady=(4, 14))
 
+    def _open_out_folder():
+        d = os.path.join(os.getcwd(), "GST Downloaded", "GST Reco")
+        if os.path.exists(d):
+            os.startfile(d)
+        else:
+            messagebox.showinfo("Info", "Output folder not found.")
+
+    open_folder_btn = ctk.CTkButton(
+        thresh_card,
+        text="📂 Open Output Folder",
+        font=("Arial", 12, "bold"),
+        height=36, width=180, corner_radius=10,
+        fg_color="#3B82F6", hover_color="#2563EB",
+        text_color="#FFFFFF",
+        command=_open_out_folder
+    )
+    open_folder_btn.grid(row=2, column=5, sticky="e", padx=(0, 16), pady=(4, 14))
+
     progress_bar = ctk.CTkProgressBar(thresh_card, mode="indeterminate",
                                       height=8, corner_radius=4)
-    progress_bar.grid(row=3, column=0, columnspan=5, sticky="ew", padx=16, pady=(0, 10))
+    progress_bar.grid(row=3, column=0, columnspan=6, sticky="ew", padx=16, pady=(0, 10))
     progress_bar.grid_remove()   # hidden until processing starts
 
     # ═══════════════════════════════════════════════════
@@ -819,8 +846,12 @@ def launch_gui(embedded=False):
             messagebox.showerror("Error", "Please select a valid Tally / Our Data file.")
             return
 
-        base, ext = os.path.splitext(g)
-        o = base + "_output" + (ext if ext else ".xlsx")
+        base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Reco")
+        if not os.path.exists(base_dir): os.makedirs(base_dir, exist_ok=True)
+        
+        filename = os.path.basename(g)
+        name_only, ext = os.path.splitext(filename)
+        o = os.path.join(base_dir, name_only + "_reco_report" + (ext if ext else ".xlsx"))
         try:
             matched_thr = float(matched_var.get())
             nominal_thr = float(nominal_var.get())
@@ -858,7 +889,9 @@ def launch_gui(embedded=False):
                     wb_out.close()
                 except Exception:
                     pass
-                messagebox.showinfo("Done", f"Reconciliation complete!\n\nSaved to:\n{o}")
+                ans = messagebox.askyesno("Done", f"Reconciliation complete!\n\nSaved to:\n{o}\n\nWould you like to open the output folder?")
+                if ans:
+                    os.startfile(os.path.dirname(o))
             except Exception as e:
                 messagebox.showerror("Error", f"An error occurred:\n{e}")
                 append_log(f"ERROR: {e}")

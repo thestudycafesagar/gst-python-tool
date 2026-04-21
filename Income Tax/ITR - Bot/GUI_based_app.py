@@ -140,8 +140,8 @@ class IncomeTaxWorker:
 
                 # --- FOLDER ROOT (actual folder created after login with name) ---
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Downloads")
-                if not os.path.exists(download_root): os.makedirs(download_root)
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "ITR Bot")
+                if not os.path.exists(download_root): os.makedirs(download_root, exist_ok=True)
 
                 # START BROWSER
                 status, reason, final_path = self.process_single_user(user_id, password, download_root)
@@ -173,8 +173,12 @@ class IncomeTaxWorker:
             if not self.report_data: return
             
             df_report = pd.DataFrame(self.report_data)
-            filename = f"Processing_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            df_report.to_excel(filename, index=False)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"Processing_Report_{timestamp}.xlsx"
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "ITR Bot")
+            if not os.path.exists(report_dir): os.makedirs(report_dir, exist_ok=True)
+            report_path = os.path.join(report_dir, filename)
+            df_report.to_excel(report_path, index=False)
             self.log(f"📄 Summary Report saved as: {filename}")
         except Exception as e:
             self.log(f"⚠️ Failed to save report: {e}")
@@ -750,9 +754,9 @@ class App(ctk.CTk):
 
     def open_output_folder(self):
         try:
-            target = os.path.join(os.getcwd(), "Downloads")
+            target = os.path.join(os.getcwd(), "Income Tax Downloaded", "ITR Bot")
             if not os.path.exists(target):
-                target = os.getcwd()
+                target = os.path.join(os.getcwd(), "Income Tax Downloaded")
             os.startfile(target)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open folder: {e}")

@@ -300,84 +300,54 @@ class GSTWorker:
                 self.driver.quit()
 
     def perform_login(self, username, password, wait):
-        self.log("   🌐 Opening GST Portal...")
+        self.log("   🚀 MANUAL LOGIN MODE.")
+        self.log("   👉 Please LOGIN manually in the Chrome window.")
+        self.driver.maximize_window()
         self.driver.get("https://services.gst.gov.in/services/login")
-
-        while True:
-            if not self.keep_running: return False, "Stopped"
-
+        
+        while self.keep_running:
             try:
-                wait.until(EC.visibility_of_element_located((By.ID, "username"))).clear()
-                self.driver.find_element(By.ID, "username").send_keys(username)
-                
-                self.driver.find_element(By.ID, "user_pass").clear()
-                self.driver.find_element(By.ID, "user_pass").send_keys(password)
+                src = self.driver.page_source.lower()
+                url = self.driver.current_url.lower()
+                if "dashboard" in url or "dashboard" in src or "welcome" in src or "services/auth/home" in url:
+                    self.log("   ✅ Login detected!")
+                    break
+            except Exception:
+                pass
+            time.sleep(2)
+        
+        if not self.keep_running: 
+            return False, "Stopped"
+        
+        time.sleep(2)
+        # Handle popups
+        try:
+            aadhaar_skip = self.driver.find_elements(By.XPATH, "//a[contains(text(),'Remind me later')]")
+            if aadhaar_skip and aadhaar_skip[0].is_displayed():
+                aadhaar_skip[0].click()
+        except: pass
 
-                captcha_img = wait.until(EC.visibility_of_element_located((By.ID, "imgCaptcha")))
-                captcha_img.screenshot("temp_captcha.png")
-                
-                self.log("   ⌨️ Waiting for Captcha...")
-                self.captcha_response = None
-                self.captcha_event.clear()
-                self.app.request_captcha_safe("temp_captcha.png")
-                self.captcha_event.wait() 
+        try:
+            generic_skip = self.driver.find_elements(By.XPATH, "//button[contains(text(),'Remind Me Later')]")
+            if generic_skip and generic_skip[0].is_displayed():
+                generic_skip[0].click()
+        except: pass
 
-                if not self.captcha_response: return False, "Captcha Cancelled"
-
-                self.driver.find_element(By.ID, "captcha").clear()
-                self.driver.find_element(By.ID, "captcha").send_keys(self.captcha_response)
-                self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
-                
-                time.sleep(3)
-
-                src = self.driver.page_source
-                if "Invalid Username or Password" in src:
-                    self.log("   ❌ Bad Credentials.")
-                    return False, "Invalid Credentials"
-                
-                if "Enter valid Letters" in src or "Invalid Captcha" in src:
-                    self.log("   ⚠️ Invalid Captcha. Retrying...")
-                    time.sleep(1)
-                    continue 
-
-                if "Dashboard" in self.driver.title or "Return Dashboard" in src:
-                    self.log("   ✅ Login Successful!")
-                    self.app.close_captcha_safe()
-                    
-                    # --- MODAL HANDLER ---
-                    time.sleep(3)
-                    try:
-                        aadhaar_skip = self.driver.find_elements(By.XPATH, "//a[contains(text(),'Remind me later')]")
-                        if aadhaar_skip and aadhaar_skip[0].is_displayed():
-                            self.log("   ℹ️ Closing Aadhaar Popup...")
-                            aadhaar_skip[0].click()
-                            time.sleep(1.5)
-                    except: pass
-
-                    try:
-                        generic_skip = self.driver.find_elements(By.XPATH, "//button[contains(text(),'Remind Me Later')]")
-                        if generic_skip and generic_skip[0].is_displayed():
-                            self.log("   ℹ️ Closing Generic Popup...")
-                            generic_skip[0].click()
-                            time.sleep(1.5)
-                    except: pass
-                    
-                    try:
-                        dash_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Return Dashboard')]")))
-                        dash_btn.click()
-                        return True, "Success"
-                    except:
-                        try:
-                            btn = self.driver.find_element(By.XPATH, "//button[contains(., 'Return Dashboard')]")
-                            self.driver.execute_script("arguments[0].click();", btn)
-                            return True, "Success (JS Click)"
-                        except:
-                            self.log("   ⚠️ Dashboard Nav Error.")
-                            return False, "Dashboard Nav Failed"
-
-            except Exception as e:
-                self.log(f"   ⚠️ Login Exception: {e}")
-                return False, f"Login Error: {str(e)[:20]}"
+        # Navigate to Return Dashboard if not already there
+        try:
+            dash_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Return Dashboard')]")))
+            self.driver.execute_script("arguments[0].click();", dash_btn)
+            return True, "Success"
+        except Exception:
+            try:
+                btn = self.driver.find_element(By.XPATH, "//button[contains(., 'Return Dashboard')]")
+                self.driver.execute_script("arguments[0].click();", btn)
+                return True, "Success (JS Click)"
+            except Exception:
+                if "dashboard" in self.driver.current_url.lower():
+                    return True, "Success (Manual/Detected)"
+                self.log("   ⚠️ Dashboard Nav Error.")
+                return False, "Dashboard Nav Failed"
 
     def download_gstr2b(self, wait, download_path):
         """ Returns (Bool, Message) """
@@ -504,20 +474,19 @@ class App(ctk.CTk):
                         fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], height=35)
         self.btn_browse.pack(fill="x", padx=15, pady=(0, 15))
 
+
+
         # Period Settings Card
         self.card_period = ctk.CTkFrame(self.settings_container, fg_color=COLORS["bg_card"], border_color=COLORS["border"], border_width=1)
         self.card_period.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
         ctk.CTkLabel(self.card_period, text="📅 Period Selection", font=("Segoe UI", 14, "bold"), text_color=COLORS["text_primary"]).pack(anchor="w", padx=15, pady=(15, 5))
 
-        # Dynamic Year
-        cur_year = datetime.now().year
-        start_year = cur_year - 1 if datetime.now().month < 4 else cur_year
-        year_list = [f"{y}-{str(y+1)[-2:]}" for y in range(start_year - 2, start_year + 2)]
-        year_list.sort(reverse=True)
+        # Static Year List
+        year_list = ["2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]
 
         self.frm_year = ctk.CTkFrame(self.card_period, fg_color="transparent")
         self.frm_year.pack(fill="x", padx=15, pady=2)
-        ctk.CTkLabel(self.frm_year, text="Financial Year:", width=100, anchor="w", text_color=COLORS["text_secondary"]).pack(side="left")
+        ctk.CTkLabel(self.frm_year, text="Financial Year:", width=140, anchor="w", text_color=COLORS["text_secondary"]).pack(side="left")
         self.cb_year = ctk.CTkComboBox(self.frm_year, values=year_list, width=150,
                            fg_color=COLORS["bg_input"], button_color=COLORS["accent"],
                            button_hover_color=COLORS["accent_hover"], border_color=COLORS["border"])
@@ -534,7 +503,7 @@ class App(ctk.CTk):
         # Quarter & Month
         self.frm_qtr = ctk.CTkFrame(self.card_period, fg_color="transparent")
         self.frm_qtr.pack(fill="x", padx=15, pady=2)
-        ctk.CTkLabel(self.frm_qtr, text="Quarter:", width=100, anchor="w", text_color=COLORS["text_secondary"]).pack(side="left")
+        ctk.CTkLabel(self.frm_qtr, text="Quarter:", width=140, anchor="w", text_color=COLORS["text_secondary"]).pack(side="left")
         self.cb_qtr = ctk.CTkComboBox(self.frm_qtr, 
                                       values=["Quarter 1 (Apr - Jun)", "Quarter 2 (Jul - Sep)", 
                                               "Quarter 3 (Oct - Dec)", "Quarter 4 (Jan - Mar)"],
@@ -547,7 +516,7 @@ class App(ctk.CTk):
         # Month
         self.frm_mon = ctk.CTkFrame(self.card_period, fg_color="transparent")
         self.frm_mon.pack(fill="x", padx=15, pady=(2, 15))
-        ctk.CTkLabel(self.frm_mon, text="Month:", width=100, anchor="w", text_color=COLORS["text_secondary"]).pack(side="left")
+        ctk.CTkLabel(self.frm_mon, text="Month:", width=140, anchor="w", text_color=COLORS["text_secondary"]).pack(side="left")
         self.cb_month = ctk.CTkComboBox(self.frm_mon, values=["Whole Quarter", "April", "May", "June"], width=150,
                         fg_color=COLORS["bg_input"], button_color=COLORS["accent"],
                         button_hover_color=COLORS["accent_hover"], border_color=COLORS["border"])
@@ -564,21 +533,7 @@ class App(ctk.CTk):
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         self.log_box.configure(state="disabled")
 
-        # CAPTCHA (Hidden)
-        self.cap_frame = ctk.CTkFrame(self, border_color=COLORS["warning"], border_width=2, fg_color=COLORS["warning_bg"])
-        self.cap_inner = ctk.CTkFrame(self.cap_frame, fg_color="transparent")
-        self.cap_inner.pack(fill="both", padx=20, pady=10)
-        ctk.CTkLabel(self.cap_inner, text="⚠️ CAPTCHA ACTION REQUIRED", text_color=COLORS["warning"], font=("Segoe UI", 14, "bold")).pack()
-        self.cap_lbl_img = ctk.CTkLabel(self.cap_inner, text="")
-        self.cap_lbl_img.pack(pady=10)
-        self.cap_ent = ctk.CTkEntry(self.cap_inner, placeholder_text="Type Captcha Here...", 
-                        font=("Consolas", 20), justify="center", height=45, width=250,
-                        fg_color=COLORS["bg_card"], border_color=COLORS["border"], text_color=COLORS["text_primary"])
-        self.cap_ent.pack(pady=5)
-        self.cap_ent.bind("<Return>", self.submit_captcha) 
-        self.cap_btn = ctk.CTkButton(self.cap_inner, text="SUBMIT CAPTCHA", fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], 
-                         height=40, width=250, font=("Segoe UI", 12, "bold"), command=self.submit_captcha)
-        self.cap_btn.pack(pady=(10, 0))
+
 
         # FOOTER
         self.footer = ctk.CTkFrame(self, fg_color="transparent")
@@ -627,29 +582,7 @@ class App(ctk.CTk):
         self.after(0, lambda: messagebox.showinfo("Info", msg))
         self.after(0, lambda: self.btn_start.configure(state="normal", text="START BATCH PROCESS"))
 
-    def request_captcha_safe(self, img_path):
-        def show():
-            pil_img = Image.open(img_path)
-            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(160, 60))
-            self.cap_lbl_img.configure(image=ctk_img)
-            self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color=COLORS["accent"])
-            self.cap_frame.grid(row=3, column=0, sticky="ew", padx=20, pady=10)
-            self.cap_ent.delete(0, "end")
-            self.cap_ent.focus_set()
-            self.lift()
-            self.attributes('-topmost',True)
-            self.after_idle(self.attributes,'-topmost',False)
-        self.after(0, show)
 
-    def submit_captcha(self, event=None):
-        txt = self.cap_ent.get()
-        if not txt: return
-        self.cap_btn.configure(state="disabled", text="VERIFYING...", fg_color="gray")
-        self.worker.captcha_response = txt
-        self.worker.captcha_event.set()
-
-    def close_captcha_safe(self):
-        self.after(0, lambda: self.cap_frame.grid_forget())
 
     def start_process(self):
         if not self.excel_file:
