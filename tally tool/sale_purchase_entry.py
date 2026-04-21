@@ -421,6 +421,8 @@ def _collect_party_context(row: dict, party_ledger: str) -> dict:
         ],
     ).upper()
 
+    # Party's own state — look only at direct state columns, NOT PlaceOfSupply
+    # (PlaceOfSupply is a delivery/billing concept for the sales side).
     state_raw = _row_text_any(
         row,
         [
@@ -428,17 +430,16 @@ def _collect_party_context(row: dict, party_ledger: str) -> dict:
             "State",
             "StateName",
             "State Name",
-            "StateOfSupply",
-            "PlaceOfSupply",
-            "Place Of Supply",
-            "Place of Supply",
-            "POS",
         ],
     )
     state_raw = _normalize_state_for_ledger(state_raw)
     if not state_raw and gstin_raw:
         state_raw = _state_name_from_gstin(gstin_raw)
 
+    # PlaceOfSupply: for sales = delivery/buyer state (may be in Excel column);
+    # for purchases = supplier state derived from their GSTIN.
+    # We always prefer GSTIN-derived state for the party's own place, and
+    # fall back to the Excel PlaceOfSupply column only for sales context.
     place_raw = _row_text_any(
         row,
         [
@@ -580,7 +581,6 @@ def _append_invoice_party_context_xml(add_line, party_context: dict, include_bas
         add_line(f'     <GSTREGISTRATIONTYPE>{reg_type}</GSTREGISTRATIONTYPE>')
         if reg_type.casefold() == "regular":
             add_line('     <VATDEALERTYPE>Regular</VATDEALERTYPE>')
-            add_line('     <CMPGSTREGISTRATIONTYPE>Regular</CMPGSTREGISTRATIONTYPE>')
 
     if party_state:
         add_line(f'     <STATENAME>{party_state}</STATENAME>')
@@ -687,6 +687,30 @@ def _append_tax_object_allocation_xml(add_line, tax_classification: str) -> None
     add_line(f'        <TAXCLASSIFICATIONNAME>{tax_class}</TAXCLASSIFICATIONNAME>')
     add_line('       </TAXOBJECTALLOCATIONS>')
     add_line('      </TAXOBJECTALLOCATIONS.LIST>')
+
+
+def _gst_transaction_type(reg_type: str, gstin: str = "") -> str:
+    """Return the GSTTRANSACTIONTYPE value Tally needs to avoid 'Uncertain' in GSTR.
+    Rules:
+      - Regular registered party with GSTIN  -> 'Tax Invoice' (B2B)
+      - Composition/Consumer/Unregistered    -> 'Unregistered'
+      - Overseas / non-India                 -> 'Overseas'
+      - SEZ                                  -> 'SEZ exports with payment'
+      - Empty / unknown                      -> 'Unregistered'
+    """
+    key = str(reg_type or "").strip().casefold()
+    if key in {"regular", "registered"} and gstin:
+        return "Tax Invoice"
+    if key in {"composition", "consumer", "unregistered", ""}:
+        return "Unregistered"
+    if key in {"overseas"}:
+        return "Overseas"
+    if key in {"sez", "sez unit", "sez developer"}:
+        return "SEZ exports with payment"
+    # fallback
+    if gstin:
+        return "Tax Invoice"
+    return "Unregistered"
 
 
 def _pick_tax_ledger_name(row: dict, ledger_keys: list, rate_value: float, default_name: str) -> str:
@@ -828,6 +852,69 @@ def _fetch_tally_companies(tally_url: str, timeout: float = 15.0) -> dict:
 
     err = "; ".join(errors) if errors else "No companies returned by Tally."
     return {"success": False, "error": err, "companies": []}
+
+
+def _extract_ledger_names(response_text: str) -> set:
+    names = set()
+
+    try:
+        root = ET.fromstring(response_text)
+        for node in root.iter():
+            tag = str(node.tag or "").upper()
+            if tag == "LEDGER":
+                attr_name = _normalize_company_name(node.attrib.get("NAME") or "")
+                if attr_name:
+                    names.add(attr_name)
+                for child in list(node):
+                    child_tag = str(child.tag or "").upper()
+                    child_text = _normalize_company_name(child.text)
+                    if child_tag == "NAME" and child_text:
+                        names.add(child_text)
+    except ET.ParseError:
+        pass
+
+    for match in re.findall(r"<LEDGER\b[^>]*\bNAME=\"([^\"]+)\"", response_text, flags=re.IGNORECASE):
+        value = _normalize_company_name(match)
+        if value:
+            names.add(value)
+
+    return names
+
+
+def _fetch_existing_ledger_names(tally_url: str, company_name: str = "", timeout: float = 15.0) -> dict:
+    selected_company = _normalize_company_name(company_name)
+    static_vars = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
+    if selected_company:
+        static_vars += f"<SVCURRENTCOMPANY>{xml_escape(selected_company)}</SVCURRENTCOMPANY>"
+    static_vars += "</STATICVARIABLES>"
+
+    request_xml = (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+        "<TYPE>Collection</TYPE><ID>Ledger Name Lookup</ID></HEADER>"
+        f"<BODY><DESC>{static_vars}<TDL><TDLMESSAGE>"
+        "<COLLECTION NAME='Ledger Name Lookup'><TYPE>Ledger</TYPE>"
+        "<FETCH>Name,Parent</FETCH><NATIVEMETHOD>Name</NATIVEMETHOD></COLLECTION>"
+        "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+    )
+
+    try:
+        response_text = _post_tally_xml(tally_url, request_xml, timeout=timeout)
+    except HTTPError as exc:
+        return {"success": False, "error": f"HTTP {exc.code}", "ledgers": set()}
+    except URLError:
+        return {"success": False, "error": "ConnectionError", "ledgers": set()}
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "ledgers": set()}
+
+    ledgers = _extract_ledger_names(response_text)
+    if ledgers:
+        return {"success": True, "ledgers": ledgers}
+
+    return {
+        "success": False,
+        "error": "No ledgers returned for selected company.",
+        "ledgers": set(),
+    }
 
 
 def _extract_company_gst_registrations(response_text: str) -> list:
@@ -983,6 +1070,150 @@ def _parse_tally_response_details(response_text: str) -> dict:
 
 def _ledger_name_key(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+
+def _filter_out_existing_ledgers(ledger_defs: list, existing_ledger_names) -> list:
+    existing_keys = {
+        _ledger_name_key(name)
+        for name in (existing_ledger_names or set())
+        if str(name or "").strip()
+    }
+    filtered = []
+    seen = set()
+
+    for entry in ledger_defs or []:
+        name = str((entry or {}).get("Name", "") or "").strip()
+        key = _ledger_name_key(name)
+        if not key or key in seen or key in existing_keys:
+            continue
+        seen.add(key)
+        filtered.append(entry)
+
+    return filtered
+
+
+def _extract_stock_item_balances(response_text: str) -> dict:
+    balances = {}
+
+    try:
+        root = ET.fromstring(response_text)
+    except ET.ParseError:
+        return balances
+
+    for stock_item in root.findall(".//STOCKITEM"):
+        name = str(
+            stock_item.attrib.get("NAME")
+            or stock_item.findtext("NAME")
+            or ""
+        ).strip()
+        if not name:
+            continue
+        base_unit = str(stock_item.findtext("BASEUNITS") or "").strip()
+        closing_balance = str(stock_item.findtext("CLOSINGBALANCE") or "").strip()
+        qty_match = re.search(r"-?\d+(?:\.\d+)?", closing_balance)
+        balances[_ledger_name_key(name)] = {
+            "name": name,
+            "base_unit": base_unit,
+            "closing_balance": closing_balance,
+            "quantity": float(qty_match.group(0)) if qty_match else 0.0,
+        }
+
+    return balances
+
+
+def _fetch_stock_item_balances(tally_url: str, company_name: str = "", timeout: float = 15.0) -> dict:
+    selected_company = _normalize_company_name(company_name)
+    static_vars = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
+    if selected_company:
+        static_vars += f"<SVCURRENTCOMPANY>{xml_escape(selected_company)}</SVCURRENTCOMPANY>"
+    static_vars += "</STATICVARIABLES>"
+
+    request_xml = (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+        "<TYPE>Collection</TYPE><ID>Stock Item Balance Lookup</ID></HEADER>"
+        f"<BODY><DESC>{static_vars}<TDL><TDLMESSAGE>"
+        "<COLLECTION NAME='Stock Item Balance Lookup'><TYPE>StockItem</TYPE>"
+        "<FETCH>Name,BaseUnits,ClosingBalance</FETCH><NATIVEMETHOD>Name</NATIVEMETHOD></COLLECTION>"
+        "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+    )
+
+    try:
+        response_text = _post_tally_xml(tally_url, request_xml, timeout=timeout)
+    except HTTPError as exc:
+        return {"success": False, "error": f"HTTP {exc.code}", "items": {}}
+    except URLError:
+        return {"success": False, "error": "ConnectionError", "items": {}}
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "items": {}}
+
+    items = _extract_stock_item_balances(response_text)
+    if items:
+        return {"success": True, "items": items}
+
+    return {"success": False, "error": "No stock items returned for selected company.", "items": {}}
+
+
+def _find_conflicting_row_voucher_numbers(rows: list, existing_numbers) -> list:
+    existing_keys = {
+        _normalize_voucher_number_text(value)
+        for value in (existing_numbers or set())
+        if _normalize_voucher_number_text(value)
+    }
+    conflicts = []
+    seen = set()
+
+    for idx, row in enumerate(rows or []):
+        voucher_no = _normalize_voucher_number_text(_row_voucher_number(row))
+        if not voucher_no or voucher_no not in existing_keys or voucher_no in seen:
+            continue
+        seen.add(voucher_no)
+        conflicts.append(f"row {idx + 1} voucher '{voucher_no}' already exists")
+
+    return conflicts
+
+
+def _diagnose_item_stock_issues(rows: list, stock_items: dict) -> list:
+    issues = []
+
+    for idx, row in enumerate(rows or []):
+        item_name_raw = (
+            _row_text(row, "ItemName")
+            or _row_text(row, "Item")
+            or _row_text(row, "StockItem")
+            or _row_text(row, "ProductName")
+            or _row_text(row, "SalesLedger")
+        )
+        if not item_name_raw:
+            continue
+
+        requested_qty = _row_float(row, "Quantity", 0.0)
+        if requested_qty <= 0:
+            requested_qty = _row_float(row, "Qty", 0.0)
+        if requested_qty <= 0:
+            requested_qty = _row_float(row, "Unit", 0.0)
+
+        item = (stock_items or {}).get(_ledger_name_key(item_name_raw))
+        if item is None:
+            issues.append(f"row {idx + 1} stock item '{item_name_raw}' does not exist in Tally")
+            continue
+
+        if requested_qty > float(item.get("quantity", 0.0) or 0.0) + 1e-9:
+            requested_unit = (
+                _row_text(row, "Per", "")
+                or _row_text(row, "UOM", "")
+                or _row_text(row, "Unit", "")
+                or item.get("base_unit", "")
+            )
+            requested_unit = _normalize_stock_unit_name(requested_unit) or str(item.get("base_unit", "") or "").strip()
+            available_text = str(item.get("closing_balance", "") or "").strip()
+            if not available_text:
+                available_text = f"{fmt_amt(float(item.get('quantity', 0.0) or 0.0))} {item.get('base_unit', '')}".strip()
+            issues.append(
+                f"row {idx + 1} item '{item.get('name', item_name_raw)}' needs {fmt_amt(requested_qty)} {requested_unit} "
+                f"but Tally stock is {available_text}"
+            )
+
+    return issues
 
 
 def _infer_tax_type_from_ledger_name(ledger_name: str) -> str:
@@ -1416,14 +1647,84 @@ def _build_missing_ledger_defs(line_errors: list, rows: list, mode: str) -> list
 
 
 def _extract_numeric_voucher_no(value):
-    text = str(value or "").strip()
-    if not text:
-        return None
-    if text.endswith(".0") and text[:-2].isdigit():
-        text = text[:-2]
+    text = _normalize_voucher_number_text(value)
     if text.isdigit():
         return int(text)
     return None
+
+
+def _normalize_voucher_number_text(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.endswith(".0") and text[:-2].isdigit():
+        text = text[:-2]
+    return text
+
+
+def _increment_voucher_number_text(value: str):
+    text = _normalize_voucher_number_text(value)
+    if not text:
+        return None
+    if text.isdigit():
+        return str(int(text) + 1)
+
+    match = re.search(r"(\d+)(?!.*\d)", text)
+    if not match:
+        return None
+
+    digits = match.group(1)
+    start, end = match.span(1)
+    return f"{text[:start]}{str(int(digits) + 1).zfill(len(digits))}{text[end:]}"
+
+
+def _voucher_number_with_offset(start_value, offset: int) -> str:
+    text = _normalize_voucher_number_text(start_value)
+    if not text:
+        return ""
+    if offset <= 0:
+        return text
+    if text.isdigit():
+        return str(int(text) + offset)
+
+    current = text
+    for idx in range(offset):
+        next_value = _increment_voucher_number_text(current)
+        if not next_value:
+            return f"{text}-{idx + 2}"
+        current = next_value
+    return current
+
+
+def _extract_voucher_records(response_text: str) -> list:
+    records = []
+
+    try:
+        root = ET.fromstring(response_text)
+    except ET.ParseError:
+        return records
+
+    for voucher in root.findall(".//VOUCHER"):
+        voucher_type_name = str(
+            voucher.findtext("VOUCHERTYPENAME")
+            or voucher.attrib.get("VCHTYPE")
+            or ""
+        ).strip()
+        voucher_number = _normalize_voucher_number_text(voucher.findtext("VOUCHERNUMBER"))
+        voucher_date = str(voucher.findtext("DATE") or "").strip()
+        master_id = str(voucher.findtext("MASTERID") or "").strip()
+        if not voucher_type_name and not voucher_number:
+            continue
+        records.append(
+            {
+                "voucher_type": voucher_type_name,
+                "voucher_number": voucher_number,
+                "date": voucher_date,
+                "master_id": master_id,
+            }
+        )
+
+    return records
 
 
 def _extract_voucher_numbers(response_text: str) -> list:
@@ -1457,7 +1758,8 @@ def _extract_voucher_numbers(response_text: str) -> list:
 
 def _fetch_next_voucher_number(tally_url: str, company_name: str = "", voucher_type: str = "Sales", timeout: float = 15.0) -> dict:
     selected_company = _normalize_company_name(company_name)
-    escaped_voucher_type = xml_escape(voucher_type or "Sales")
+    voucher_type_text = str(voucher_type or "Sales").strip() or "Sales"
+    escaped_voucher_type = xml_escape(voucher_type_text)
 
     static_vars = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
     static_vars += f"<SVVOUCHERTYPENAME>{escaped_voucher_type}</SVVOUCHERTYPENAME>"
@@ -1465,62 +1767,83 @@ def _fetch_next_voucher_number(tally_url: str, company_name: str = "", voucher_t
         static_vars += f"<SVCURRENTCOMPANY>{xml_escape(selected_company)}</SVCURRENTCOMPANY>"
     static_vars += "</STATICVARIABLES>"
 
-    request_variants = [
-        (
-            "report-list-vouchers",
-            "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>"
-            "<BODY><EXPORTDATA><REQUESTDESC><REPORTNAME>List of Vouchers</REPORTNAME>"
-            f"{static_vars}</REQUESTDESC></EXPORTDATA></BODY></ENVELOPE>",
-        ),
-        (
-            "collection-vouchers",
-            "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
-            "<TYPE>Collection</TYPE><ID>Voucher Number Collection</ID></HEADER><BODY><DESC>"
-            f"{static_vars}"
-            "<TDL><TDLMESSAGE><COLLECTION NAME='Voucher Number Collection'>"
-            "<TYPE>Voucher</TYPE><FETCH>VoucherNumber,VoucherTypeName,Date</FETCH>"
-            "<FILTERS>OnlySales</FILTERS>"
-            "</COLLECTION>"
-            "<SYSTEM TYPE='Formulae' NAME='OnlySales'>$$IsSales:$VoucherTypeName</SYSTEM>"
-            "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>",
-        ),
+    request_xml = (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+        "<TYPE>Collection</TYPE><ID>Voucher Number Collection</ID></HEADER><BODY><DESC>"
+        f"{static_vars}"
+        "<TDL><TDLMESSAGE><COLLECTION NAME='Voucher Number Collection'>"
+        "<TYPE>Voucher</TYPE><FETCH>VoucherNumber,VoucherTypeName,Date,MasterID</FETCH>"
+        "<FILTERS>ExactVoucherType</FILTERS>"
+        "</COLLECTION>"
+        f"<SYSTEM TYPE='Formulae' NAME='ExactVoucherType'>$VoucherTypeName = &quot;{escaped_voucher_type}&quot;</SYSTEM>"
+        "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+    )
+
+    try:
+        response_text = _post_tally_xml(tally_url, request_xml, timeout=timeout)
+    except Exception as exc:
+        return {
+            "success": False,
+            "last_number": "",
+            "next_number": "",
+            "existing_numbers": set(),
+            "error": str(exc) or "Could not fetch voucher number from Tally.",
+        }
+
+    records = [
+        record
+        for record in _extract_voucher_records(response_text)
+        if _ledger_name_key(record.get("voucher_type", "")) == _ledger_name_key(voucher_type_text)
     ]
+    existing_numbers = {
+        _normalize_voucher_number_text(record.get("voucher_number", ""))
+        for record in records
+        if _normalize_voucher_number_text(record.get("voucher_number", ""))
+    }
 
-    all_numbers = []
-    had_response = False
-    errors = []
-
-    for label, xml_payload in request_variants:
-        try:
-            response_text = _post_tally_xml(tally_url, xml_payload, timeout=timeout)
-            had_response = True
-            all_numbers.extend(_extract_voucher_numbers(response_text))
-        except Exception as exc:
-            errors.append(f"{label}: {exc}")
-
-    if all_numbers:
-        last_no = max(all_numbers)
+    if records:
+        latest_record = max(
+            records,
+            key=lambda record: (
+                _safe_int(record.get("date", 0), 0),
+                _safe_int(record.get("master_id", 0), 0),
+            ),
+        )
+        last_number = _normalize_voucher_number_text(latest_record.get("voucher_number", ""))
+        next_number = _increment_voucher_number_text(last_number)
+        if not next_number:
+            numeric_numbers = [
+                _extract_numeric_voucher_no(record.get("voucher_number", ""))
+                for record in records
+            ]
+            numeric_numbers = [num for num in numeric_numbers if num is not None]
+            if numeric_numbers:
+                next_number = str(max(numeric_numbers) + 1)
+        if not next_number:
+            next_number = "1"
         return {
             "success": True,
-            "last_number": last_no,
-            "next_number": last_no + 1,
+            "last_number": last_number,
+            "next_number": next_number,
+            "existing_numbers": existing_numbers,
             "error": "",
         }
 
-    if had_response:
-        # No existing numeric vouchers found in selected type/company.
+    if response_text.strip():
         return {
             "success": True,
-            "last_number": 0,
-            "next_number": 1,
+            "last_number": "",
+            "next_number": "1",
+            "existing_numbers": existing_numbers,
             "error": "",
         }
 
     return {
         "success": False,
-        "last_number": 0,
-        "next_number": 0,
-        "error": "; ".join(errors) if errors else "Could not fetch voucher number from Tally.",
+        "last_number": "",
+        "next_number": "",
+        "existing_numbers": set(),
+        "error": "Could not fetch voucher number from Tally.",
     }
 
 
@@ -1621,6 +1944,12 @@ def generate_accounting_xml(
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>')
         a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
+        # GSTTRANSACTIONTYPE is required to avoid 'Uncertain' in GSTR-1
+        _gst_txn_type = _gst_transaction_type(
+            party_context.get("registration_type", ""),
+            party_context.get("gstin", ""),
+        )
+        a(f'     <GSTTRANSACTIONTYPE>{xml_escape(_gst_txn_type)}</GSTTRANSACTIONTYPE>')
         if narr:
             a(f'     <NARRATION>{narr}</NARRATION>')
 
@@ -1690,6 +2019,7 @@ def generate_item_xml(
     start_voucher_number=None,
     fallback_sales_ledger: str = SUSPENSE_LEDGER,
     company_gst_registrations: list = None,
+    legacy_invoice_context: bool = False,
 ) -> str:
     """
     Item-mode sales voucher. Each row needs additional columns:
@@ -1793,12 +2123,27 @@ def generate_item_xml(
             )
         sales = xml_escape(sales_ledger_raw)
 
-        cgst_led = xml_escape(_ledger_or_suspense(_row_text(r, "CGSTLedger")))
         cgst_r   = _row_float(r, "CGSTRate", 0.0)
-        sgst_led = xml_escape(_ledger_or_suspense(_row_text(r, "SGSTLedger")))
+        cgst_led = xml_escape(_pick_tax_ledger_name(
+            r,
+            ["CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax"],
+            cgst_r,
+            "CGST",
+        ))
         sgst_r   = _row_float(r, "SGSTRate", 0.0)
-        igst_led = xml_escape(_ledger_or_suspense(_row_text(r, "IGSTLedger")))
+        sgst_led = xml_escape(_pick_tax_ledger_name(
+            r,
+            ["SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax", "UTGSTLedger", "UTGST Ledger"],
+            sgst_r,
+            "SGST",
+        ))
         igst_r   = _row_float(r, "IGSTRate", 0.0)
+        igst_led = xml_escape(_pick_tax_ledger_name(
+            r,
+            ["IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax"],
+            igst_r,
+            "IGST",
+        ))
         narr     = xml_escape(_row_text(r, "Narration"))
         hsn_code = xml_escape(_row_text(r, "HSNCode"))
 
@@ -1814,12 +2159,28 @@ def generate_item_xml(
         a('     <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>')
         a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
         a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
-        _append_invoice_party_context_xml(a, party_context, include_basic_buyer=True)
-        _append_company_gst_context_xml(a, party_context, company_gst_registrations)
+        if legacy_invoice_context:
+            party_gstin = xml_escape(party_context.get("gstin", ""))
+            place_of_supply = xml_escape(party_context.get("place_of_supply", ""))
+            if party_gstin:
+                a(f'     <PARTYGSTIN>{party_gstin}</PARTYGSTIN>')
+            if place_of_supply:
+                a(f'     <PLACEOFSUPPLY>{place_of_supply}</PLACEOFSUPPLY>')
+        else:
+            _append_invoice_party_context_xml(a, party_context, include_basic_buyer=True)
+            _append_company_gst_context_xml(a, party_context, company_gst_registrations)
         a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
         a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>')
+        if not legacy_invoice_context:
+            a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
+            # GSTTRANSACTIONTYPE is required to avoid 'Uncertain' in GSTR-1
+            _gst_txn_type = _gst_transaction_type(
+                party_context.get("registration_type", ""),
+                party_context.get("gstin", ""),
+            )
+            a(f'     <GSTTRANSACTIONTYPE>{xml_escape(_gst_txn_type)}</GSTTRANSACTIONTYPE>')
         if narr:
             a(f'     <NARRATION>{narr}</NARRATION>')
 
@@ -1984,6 +2345,12 @@ def generate_purchase_accounting_xml(
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>')
         a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
+        # GSTTRANSACTIONTYPE required to avoid 'Uncertain' in GSTR-3B
+        _gst_txn_type = _gst_transaction_type(
+            party_context.get("registration_type", ""),
+            party_context.get("gstin", ""),
+        )
+        a(f'     <GSTTRANSACTIONTYPE>{xml_escape(_gst_txn_type)}</GSTTRANSACTIONTYPE>')
         if supplier_invoice:
             a(f'     <REFERENCE>{supplier_invoice}</REFERENCE>')
         if narr:
@@ -2153,12 +2520,27 @@ def generate_purchase_item_xml(
             )
         purchase_ledger = xml_escape(purchase_ledger_raw)
 
-        cgst_led = xml_escape(_ledger_or_suspense(_row_text(r, "CGSTLedger")))
         cgst_r = _row_float(r, "CGSTRate", 0.0)
-        sgst_led = xml_escape(_ledger_or_suspense(_row_text(r, "SGSTLedger")))
+        cgst_led = xml_escape(_pick_tax_ledger_name(
+            r,
+            ["CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax"],
+            cgst_r,
+            "CGST",
+        ))
         sgst_r = _row_float(r, "SGSTRate", 0.0)
-        igst_led = xml_escape(_ledger_or_suspense(_row_text(r, "IGSTLedger")))
+        sgst_led = xml_escape(_pick_tax_ledger_name(
+            r,
+            ["SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax", "UTGSTLedger", "UTGST Ledger"],
+            sgst_r,
+            "SGST",
+        ))
         igst_r = _row_float(r, "IGSTRate", 0.0)
+        igst_led = xml_escape(_pick_tax_ledger_name(
+            r,
+            ["IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax"],
+            igst_r,
+            "IGST",
+        ))
         narr = xml_escape(_row_text(r, "Narration"))
 
         item_amt = round(qty * rate, 2) if qty and rate else taxable
@@ -2180,6 +2562,12 @@ def generate_purchase_item_xml(
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>')
         a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
+        # GSTTRANSACTIONTYPE required to avoid 'Uncertain' in GSTR-3B
+        _gst_txn_type = _gst_transaction_type(
+            party_context.get("registration_type", ""),
+            party_context.get("gstin", ""),
+        )
+        a(f'     <GSTTRANSACTIONTYPE>{xml_escape(_gst_txn_type)}</GSTTRANSACTIONTYPE>')
         if supplier_invoice:
             a(f'     <REFERENCE>{supplier_invoice}</REFERENCE>')
         if narr:
@@ -2205,7 +2593,7 @@ def generate_purchase_item_xml(
         a('      </ACCOUNTINGALLOCATIONS.LIST>')
         a('     </ALLINVENTORYENTRIES.LIST>')
 
-        # Party - Credit
+        # Party - Credit (supplier owes us goods; positive amount = credit in Tally)
         a('     <LEDGERENTRIES.LIST>')
         a(f'      <LEDGERNAME>{party}</LEDGERNAME>')
         a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
@@ -2217,24 +2605,27 @@ def generate_purchase_item_xml(
         a('      </BILLALLOCATIONS.LIST>')
         a('     </LEDGERENTRIES.LIST>')
 
-        # Taxes - Debit
+        # Taxes - Debit (ITC claim; ISDEEMEDPOSITIVE=Yes, negative amount = debit)
         if cgst_amt:
             a('     <LEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{cgst_led}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(cgst_amt)}</AMOUNT>')
+            _append_tax_object_allocation_xml(a, "CGST")
             a('     </LEDGERENTRIES.LIST>')
         if sgst_amt:
             a('     <LEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{sgst_led}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(sgst_amt)}</AMOUNT>')
+            _append_tax_object_allocation_xml(a, "SGST")
             a('     </LEDGERENTRIES.LIST>')
         if igst_amt:
             a('     <LEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{igst_led}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(igst_amt)}</AMOUNT>')
+            _append_tax_object_allocation_xml(a, "IGST")
             a('     </LEDGERENTRIES.LIST>')
 
         a('    </VOUCHER>')
@@ -2250,7 +2641,7 @@ def generate_purchase_item_xml(
 #  GENERATE LEDGER MASTER XML
 # ═══════════════════════════════════════════════════════════════════════════
 
-def generate_ledger_xml(ledgers: list, company: str) -> str:
+def generate_ledger_xml(ledgers: list, company: str, alter_existing: bool = False) -> str:
     lines = []
     a = lines.append
     company_static = _company_static_block(company)
@@ -2348,7 +2739,7 @@ def generate_ledger_xml(ledgers: list, company: str) -> str:
         tax_type = xml_escape(tax_type_raw)
         gst_rate = str(led.get("GSTRate", "") or "").strip()
         applicable_from = _current_fy_start()
-        ledger_action = "Create Alter"
+        ledger_action = "Create Alter" if alter_existing else "Create"
 
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
         a(f'    <LEDGER NAME="{name}" RESERVEDNAME="" ACTION="{ledger_action}">')
@@ -3687,6 +4078,7 @@ class TallySalesApp(ctk.CTk):
             voucher_start,
             rows_data,
             company_gst_registrations=None,
+            legacy_item_invoice_context: bool = False,
         ):
             if selected_mode == "accounting":
                 return generate_accounting_xml(
@@ -3705,6 +4097,7 @@ class TallySalesApp(ctk.CTk):
                     custom_tally_date=selected_custom_date,
                     start_voucher_number=voucher_start,
                     company_gst_registrations=company_gst_registrations,
+                    legacy_invoice_context=legacy_item_invoice_context,
                 )
             if selected_mode == "purchase_accounting":
                 return generate_purchase_accounting_xml(
@@ -3766,6 +4159,7 @@ class TallySalesApp(ctk.CTk):
                         effective_date_mode = date_mode
                         effective_custom_tally_date = custom_tally_date
                         company_gst_registrations = []
+                        existing_ledger_names = set()
 
                         self.after(0, lambda: self._push_message_var.set("Fetching company GST registrations..."))
                         gst_reg_result = _fetch_company_gst_registrations(
@@ -3776,10 +4170,23 @@ class TallySalesApp(ctk.CTk):
                         if gst_reg_result.get("success"):
                             company_gst_registrations = gst_reg_result.get("registrations", [])
 
+                        self.after(0, lambda: self._push_message_var.set("Checking existing ledgers in Tally..."))
+                        existing_ledger_result = _fetch_existing_ledger_names(
+                            tally_url,
+                            company_name=company,
+                            timeout=15,
+                        )
+                        if existing_ledger_result.get("success"):
+                            existing_ledger_names = set(existing_ledger_result.get("ledgers") or set())
+
                         auto_ledger_defs = _collect_auto_voucher_ledgers(rows_snapshot, mode)
-                        if auto_ledger_defs:
+                        auto_ledger_defs_to_create = _filter_out_existing_ledgers(
+                            auto_ledger_defs,
+                            existing_ledger_names,
+                        )
+                        if auto_ledger_defs_to_create:
                             self.after(0, lambda: self._push_message_var.set("Creating required ledgers in Tally..."))
-                            auto_ledger_xml = generate_ledger_xml(auto_ledger_defs, company)
+                            auto_ledger_xml = generate_ledger_xml(auto_ledger_defs_to_create, company)
                             auto_ledger_resp = push_to_tally(auto_ledger_xml, host, port_value)
                             auto_ledger_parsed = _parse_tally_response_details(auto_ledger_resp)
                             self._append_debug_log(
@@ -3788,7 +4195,15 @@ class TallySalesApp(ctk.CTk):
                                 auto_ledger_xml,
                                 auto_ledger_resp,
                                 auto_ledger_parsed,
-                                note=f"mode={mode}, ledgers={len(auto_ledger_defs)}",
+                                note=(
+                                    f"mode={mode}, ledgers_total={len(auto_ledger_defs)}, "
+                                    f"new_ledgers={len(auto_ledger_defs_to_create)}"
+                                ),
+                            )
+                            existing_ledger_names.update(
+                                str(entry.get("Name", "") or "").strip()
+                                for entry in auto_ledger_defs_to_create
+                                if str(entry.get("Name", "") or "").strip()
                             )
 
                         self.after(0, lambda: self._push_message_var.set("Fetching next voucher number from Tally..."))
@@ -3892,6 +4307,10 @@ class TallySalesApp(ctk.CTk):
                                     rows_snapshot,
                                     mode,
                                 )
+                                missing_ledger_defs = _filter_out_existing_ledgers(
+                                    missing_ledger_defs,
+                                    existing_ledger_names,
+                                )
                                 if missing_ledger_defs:
                                     self.after(0, lambda: self._push_message_var.set("Creating missing ledgers and retrying..."))
                                     missing_ledger_xml = generate_ledger_xml(missing_ledger_defs, company)
@@ -3914,6 +4333,11 @@ class TallySalesApp(ctk.CTk):
                                         blockers.append(err)
 
                                     if not blockers:
+                                        existing_ledger_names.update(
+                                            str(entry.get("Name", "") or "").strip()
+                                            for entry in missing_ledger_defs
+                                            if str(entry.get("Name", "") or "").strip()
+                                        )
                                         self.after(0, lambda: self._push_message_var.set("Retrying voucher post after ledger creation..."))
                                         post_ledger_retry_xml = build_voucher_xml(
                                             mode,
@@ -3950,6 +4374,58 @@ class TallySalesApp(ctk.CTk):
                                             }
                                         else:
                                             parsed = post_ledger_retry_parsed
+
+                            if (
+                                not result.get("ok")
+                                and mode == "item"
+                                and voucher_type == "Sales"
+                                and parsed.get("exceptions", 0) > 0
+                                and not (parsed.get("line_errors") or [])
+                            ):
+                                self.after(
+                                    0,
+                                    lambda: self._push_message_var.set(
+                                        "Retrying sales item invoice with compatibility header..."
+                                    ),
+                                )
+                                compatibility_xml = build_voucher_xml(
+                                    mode,
+                                    effective_date_mode,
+                                    effective_custom_tally_date,
+                                    next_voucher,
+                                    rows_snapshot,
+                                    company_gst_registrations,
+                                    legacy_item_invoice_context=True,
+                                )
+                                compatibility_resp = push_to_tally(compatibility_xml, host, port_value)
+                                compatibility_parsed = _parse_tally_response_details(compatibility_resp)
+                                self._append_debug_log(
+                                    mode,
+                                    target_company,
+                                    compatibility_xml,
+                                    compatibility_resp,
+                                    compatibility_parsed,
+                                    note=(
+                                        f"voucher_type={voucher_type}, compatibility_retry_legacy_item_header, "
+                                        f"{voucher_note}, date_mode={effective_date_mode}"
+                                    ),
+                                )
+                                if compatibility_parsed.get("success"):
+                                    result = {
+                                        "ok": True,
+                                        "target_company": target_company,
+                                        "parsed": compatibility_parsed,
+                                        "message": (
+                                            "Posted to Tally successfully after retrying the sales item invoice "
+                                            "with the compatibility header.\n\n"
+                                            f"Target Company: {target_company}\n"
+                                            f"Created: {compatibility_parsed.get('created', 0)}\n"
+                                            f"Altered: {compatibility_parsed.get('altered', 0)}\n"
+                                            f"Ignored: {compatibility_parsed.get('ignored', 0)}"
+                                        ),
+                                    }
+                                else:
+                                    parsed = compatibility_parsed
 
                             if not result.get("ok"):
                                 detail = parsed.get("error") or "Unknown Tally exception"
@@ -4301,8 +4777,8 @@ class TallySalesApp(ctk.CTk):
             if not self._ledger_list:
                 messagebox.showwarning("Empty","Add at least one ledger.")
                 return
-            xml = generate_ledger_xml(self._ledger_list, company)
             if action == "save":
+                xml = generate_ledger_xml(self._ledger_list, company)
                 out = filedialog.asksaveasfilename(defaultextension=".xml",
                         initialfile="Tally_Ledgers.xml", filetypes=[("XML","*.xml")])
                 if out:
@@ -4314,6 +4790,26 @@ class TallySalesApp(ctk.CTk):
                     host, port_text = tally_url.rsplit(":", 1)
                     host = host.replace("http://", "", 1)
                     target_company = company or "Loaded company in Tally"
+                    ledgers_to_push = list(self._ledger_list)
+                    existing_ledger_result = _fetch_existing_ledger_names(
+                        tally_url,
+                        company_name=company,
+                        timeout=15,
+                    )
+                    if existing_ledger_result.get("success"):
+                        ledgers_to_push = _filter_out_existing_ledgers(
+                            ledgers_to_push,
+                            existing_ledger_result.get("ledgers") or set(),
+                        )
+                    if not ledgers_to_push:
+                        self.status_var.set(f"No new ledgers to create in Tally ({target_company})")
+                        messagebox.showinfo(
+                            "Nothing To Create",
+                            "All queued ledgers already exist in Tally, so nothing was changed.",
+                        )
+                        return
+
+                    xml = generate_ledger_xml(ledgers_to_push, company)
                     self.status_var.set(f"Posting ledgers to Tally ({target_company})...")
                     resp = push_to_tally(xml, host, int(port_text))
                     self.status_var.set(f"Ledgers posted to Tally ({target_company})")
