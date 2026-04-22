@@ -374,7 +374,7 @@ def _normalize_ledger_name(value) -> str:
     text = html.unescape(str(value or ""))
     text = text.replace("\x00", "")
     text = re.sub(r"[\x01-\x1F\x7F]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"[\s]+", " ", text).strip()
     while len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"', "`"}:
         text = text[1:-1].strip()
     return text
@@ -402,6 +402,78 @@ def _state_name_from_gstin(gstin: str) -> str:
         "37": "Andhra Pradesh", "38": "Ladakh", "97": "Other Territory", "99": "Centre Jurisdiction",
     }
     return state_map.get(gstin_text[:2], "")
+
+
+def _is_gstin_like(value: str) -> bool:
+    text = str(value or "").strip().upper()
+    return bool(re.fullmatch(r"\d{2}[A-Z0-9]{13}", text))
+
+
+def _extract_company_gst_registrations(response_text: str) -> list:
+    """Parse TaxUnit collection response and return list of company GST registrations."""
+    registrations = []
+    seen = set()
+    try:
+        root = ET.fromstring(response_text)
+        for tax_unit in root.findall(".//TAXUNIT"):
+            tax_type = str(tax_unit.attrib.get("TAXTYPE") or tax_unit.findtext("TAXTYPE") or "").strip().upper()
+            if tax_type and tax_type != "GST":
+                continue
+            name_raw = str(tax_unit.attrib.get("NAME") or tax_unit.findtext("NAME") or "").strip()
+            gstin_raw = str(
+                tax_unit.attrib.get("TAXREGISTRATION")
+                or tax_unit.findtext("GSTREGNUMBER")
+                or tax_unit.findtext("GSTIN")
+                or ""
+            ).strip().upper()
+            state_raw = str(tax_unit.findtext("STATENAME") or "").strip()
+            if not gstin_raw and _is_gstin_like(name_raw):
+                gstin_raw = name_raw.upper()
+            if not state_raw and gstin_raw:
+                state_raw = _state_name_from_gstin(gstin_raw)
+            if not gstin_raw:
+                continue
+            name = _normalize_company_name(name_raw or gstin_raw)
+            if not name:
+                continue
+            key = (name.casefold(), gstin_raw)
+            if key in seen:
+                continue
+            seen.add(key)
+            registrations.append({"name": name, "gstin": gstin_raw, "state": state_raw})
+    except ET.ParseError:
+        pass
+    return registrations
+
+
+def _fetch_company_gst_registrations(tally_url: str, company_name: str = "", timeout: float = 15.0) -> dict:
+    """Fetch the company's GST registration details from Tally (TaxUnit collection)."""
+    selected_company = _normalize_company_name(company_name)
+    static_vars = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
+    if selected_company:
+        static_vars += f"<SVCURRENTCOMPANY>{xml_escape(selected_company)}</SVCURRENTCOMPANY>"
+    static_vars += "</STATICVARIABLES>"
+    request_xml = (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+        "<TYPE>Collection</TYPE><ID>Tax Unit Lookup</ID></HEADER>"
+        f"<BODY><DESC>{static_vars}<TDL><TDLMESSAGE>"
+        "<COLLECTION NAME='Tax Unit Lookup'><TYPE>TaxUnit</TYPE>"
+        "<FETCH>Name,TaxType,TaxRegistration,GSTRegNumber,StateName,UseFor</FETCH>"
+        "<NATIVEMETHOD>Name</NATIVEMETHOD></COLLECTION>"
+        "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+    )
+    try:
+        response_text = _post_tally_xml(tally_url, request_xml, timeout=timeout)
+    except HTTPError as exc:
+        return {"success": False, "error": f"HTTP {exc.code}", "registrations": []}
+    except URLError:
+        return {"success": False, "error": "ConnectionError", "registrations": []}
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "registrations": []}
+    registrations = _extract_company_gst_registrations(response_text)
+    if registrations:
+        return {"success": True, "registrations": registrations}
+    return {"success": False, "error": "No GST registrations returned.", "registrations": []}
 
 
 def _fetch_tally_ledgers(tally_url: str, timeout: float = 15.0, company_name: str = "") -> dict:
@@ -772,6 +844,7 @@ def generate_note_xml(
     date_mode: str = "",
     custom_tally_date: str = "",
     voucher_type: str = "Credit Note",
+    company_gst_registrations: list = None,
 ) -> tuple:
     """
     Note accounting logic:
@@ -844,7 +917,13 @@ def generate_note_xml(
         party = xml_escape(party_raw)
         particular = xml_escape(particular_raw)
         narration = xml_escape(_row_text(r, "Narration"))
-        gstin = xml_escape(_row_text(r, "GSTIN") or _row_text(r, "PartyGSTIN"))
+        
+        gstin_raw = _row_text(r, "GSTIN") or _row_text(r, "PartyGSTIN")
+        gstin = xml_escape(gstin_raw)
+
+        # Extract state from GSTIN
+        state_name_raw = _state_name_from_gstin(gstin_raw)
+        state_xml = xml_escape(state_name_raw)
 
         party_is_deemed_positive = "Yes" if is_debit_note else "No"
         party_amount = -total if is_debit_note else total
@@ -860,50 +939,113 @@ def generate_note_xml(
         a(f"     <DATE>{dt}</DATE>")
         a(f"     <VOUCHERTYPENAME>{normalized_type}</VOUCHERTYPENAME>")
         a(f"     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>")
+        
+        # --- FIX: Handle Place of Supply correctly for Credit vs Debit Note ---
         a(f"     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>")
+        a(f"     <PARTYNAME>{party}</PARTYNAME>")
+        
+        if not is_debit_note:
+            # Credit Note (Sales Return) - Party is Buyer
+            a(f"     <BASICBUYERNAME>{party}</BASICBUYERNAME>")
+            if state_xml:
+                a(f"     <STATENAME>{state_xml}</STATENAME>")
+                a(f"     <PLACEOFSUPPLY>{state_xml}</PLACEOFSUPPLY>")
+        else:
+            # Debit Note (Purchase Return) - Party is Supplier.
+            # Tally requires GSTREGISTRATIONTYPE, PLACEOFSUPPLY (= company state),
+            # ISGSTOVERRIDDEN and GSTTRANSACTIONTYPE for inward-supply vouchers, otherwise
+            # the voucher shows as "Uncertain" in GSTR-3B reports.
+            # Mirror what purchase_accounting / purchase_item do in sale_purchase_entry.py:
+            #   PLACEOFSUPPLY = place_of_supply_override = purchase_company_state (company state)
+            #   (NOT the supplier's state — that caused master-alteration popup earlier)
+            _cmp_regs = list(company_gst_registrations or [])
+            _cmp_state = ""
+            _cmp_gstin = ""
+            _cmp_name = ""
+            if _cmp_regs:
+                _cmp_reg = _cmp_regs[0]
+                _cmp_gstin = xml_escape(str(_cmp_reg.get("gstin", "") or "").strip())
+                _cmp_state = xml_escape(str(_cmp_reg.get("state", "") or "").strip())
+                _cmp_name = xml_escape(str(_cmp_reg.get("name", "") or "").strip())
+
+            if state_xml:
+                # STATENAME = the supplier's (party's) state.
+                a(f"     <STATENAME>{state_xml}</STATENAME>")
+
+            # PLACEOFSUPPLY for inward supply = company's state (buyer's state).
+            # This is what resolves the GSTR-3B "Uncertain" status and suppresses the
+            # "GST Registration Details" acceptance popup.  Do NOT use the supplier's
+            # state here — that caused the "Mismatch / master alteration" issue.
+            if _cmp_state:
+                a(f"     <PLACEOFSUPPLY>{_cmp_state}</PLACEOFSUPPLY>")
+
+            # Party GST registration type — mandatory for Tally to resolve company GST context.
+            _dn_reg_type = "Regular" if gstin_raw else "Unregistered"
+            a(f"     <GSTREGISTRATIONTYPE>{_dn_reg_type}</GSTREGISTRATIONTYPE>")
+            if gstin_raw:
+                a("     <VATDEALERTYPE>Regular</VATDEALERTYPE>")
+
+            # Embed company GST context (CMPGSTIN / CMPGSTSTATE) to fully suppress
+            # Tally's "GST Registration Details" acceptance popup.
+            if _cmp_gstin and _cmp_name:
+                a(f'     <GSTREGISTRATION TAXTYPE="GST" TAXREGISTRATION="{_cmp_gstin}">{_cmp_name}</GSTREGISTRATION>')
+                a(f'     <CMPGSTIN>{_cmp_gstin}</CMPGSTIN>')
+                a('     <CMPGSTREGISTRATIONTYPE>Regular</CMPGSTREGISTRATIONTYPE>')
+            if _cmp_state:
+                a(f'     <CMPGSTSTATE>{_cmp_state}</CMPGSTSTATE>')
+
+        a("      <COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>")
+        # ----------------------------------------------------------------
+
         a(f"     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>")
-        a("     <ISINVOICE>Yes</ISINVOICE>")
-        a("     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>")
-        a("     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>")
+        a("      <ISINVOICE>Yes</ISINVOICE>")
+        a("      <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>")
+        a("      <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>")
+        if is_debit_note:
+            # Required for Tally to accept the debit note without "company details not
+            # specified" error and without showing an Accept Confirmation popup.
+            a("      <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>")
+            _dn_gst_txn = "Tax Invoice" if gstin_raw else "Unregistered"
+            a(f"     <GSTTRANSACTIONTYPE>{_dn_gst_txn}</GSTTRANSACTIONTYPE>")
         if gstin:
             a(f"     <PARTYGSTIN>{gstin}</PARTYGSTIN>")
         if narration:
             a(f"     <NARRATION>{narration}</NARRATION>")
 
         # Party ledger line
-        a("     <LEDGERENTRIES.LIST>")
-        a(f"      <LEDGERNAME>{party}</LEDGERNAME>")
-        a(f"      <ISDEEMEDPOSITIVE>{party_is_deemed_positive}</ISDEEMEDPOSITIVE>")
-        a(f"      <AMOUNT>{fmt_amt(party_amount)}</AMOUNT>")
-        a("     </LEDGERENTRIES.LIST>")
+        a("      <LEDGERENTRIES.LIST>")
+        a(f"       <LEDGERNAME>{party}</LEDGERNAME>")
+        a(f"       <ISDEEMEDPOSITIVE>{party_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+        a(f"       <AMOUNT>{fmt_amt(party_amount)}</AMOUNT>")
+        a("      </LEDGERENTRIES.LIST>")
 
         # Particular ledger line
-        a("     <LEDGERENTRIES.LIST>")
-        a(f"      <LEDGERNAME>{particular}</LEDGERNAME>")
-        a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
-        a(f"      <AMOUNT>{fmt_amt(taxable_amount)}</AMOUNT>")
-        a("     </LEDGERENTRIES.LIST>")
+        a("      <LEDGERENTRIES.LIST>")
+        a(f"       <LEDGERNAME>{particular}</LEDGERNAME>")
+        a(f"       <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+        a(f"       <AMOUNT>{fmt_amt(taxable_amount)}</AMOUNT>")
+        a("      </LEDGERENTRIES.LIST>")
 
         if cgst_amt > 0 and cgst_ledger_raw:
-            a("     <LEDGERENTRIES.LIST>")
-            a(f"      <LEDGERNAME>{xml_escape(cgst_ledger_raw)}</LEDGERNAME>")
-            a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
-            a(f"      <AMOUNT>{fmt_amt(cgst_amount)}</AMOUNT>")
-            a("     </LEDGERENTRIES.LIST>")
+            a("      <LEDGERENTRIES.LIST>")
+            a(f"       <LEDGERNAME>{xml_escape(cgst_ledger_raw)}</LEDGERNAME>")
+            a(f"       <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+            a(f"       <AMOUNT>{fmt_amt(cgst_amount)}</AMOUNT>")
+            a("      </LEDGERENTRIES.LIST>")
 
         if sgst_amt > 0 and sgst_ledger_raw:
-            a("     <LEDGERENTRIES.LIST>")
-            a(f"      <LEDGERNAME>{xml_escape(sgst_ledger_raw)}</LEDGERNAME>")
-            a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
-            a(f"      <AMOUNT>{fmt_amt(sgst_amount)}</AMOUNT>")
-            a("     </LEDGERENTRIES.LIST>")
+            a("      <LEDGERENTRIES.LIST>")
+            a(f"       <LEDGERNAME>{xml_escape(sgst_ledger_raw)}</LEDGERNAME>")
+            a(f"       <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+            a(f"       <AMOUNT>{fmt_amt(sgst_amount)}</AMOUNT>")
+            a("      </LEDGERENTRIES.LIST>")
 
         if igst_amt > 0 and igst_ledger_raw:
-            a("     <LEDGERENTRIES.LIST>")
-            a(f"      <LEDGERNAME>{xml_escape(igst_ledger_raw)}</LEDGERNAME>")
-            a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
-            a(f"      <AMOUNT>{fmt_amt(igst_amount)}</AMOUNT>")
-            a("     </LEDGERENTRIES.LIST>")
+            a("      <LEDGERENTRIES.LIST>")
+            a(f"       <LEDGERNAME>{xml_escape(igst_ledger_raw)}</LEDGERNAME>")
+            a(f"       <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+            a(f"       <AMOUNT>{fmt_amt(igst_amount)}</AMOUNT>")
+            a("      </LEDGERENTRIES.LIST>")
 
         a("    </VOUCHER>")
         a("   </TALLYMESSAGE>")
@@ -983,6 +1125,7 @@ class TallyNoteEntryApp(ctk.CTk):
         self.create_party_status_var = ctk.StringVar(value="Ready to create party ledger")
 
         self.fetched_companies = []
+        self.company_gst_registrations = []
         self.fetched_party_ledgers = []
         self._company_fetch_running = False
         self._ledger_fetch_running = False
@@ -1833,6 +1976,34 @@ class TallyNoteEntryApp(ctk.CTk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _fetch_company_gst_regs_thread(self, silent=False):
+        """Fetch company GST registration details from Tally and store them.
+        Used to embed CMPGSTIN/CMPGSTSTATE in debit note XML (avoids the
+        'GST Registration Details' acceptance popup in TallyPrime).
+        """
+        try:
+            tally_url = self._get_tally_url()
+        except ValueError:
+            return
+        selected_company = self._get_selected_company()
+
+        def worker():
+            result = _fetch_company_gst_registrations(
+                tally_url,
+                company_name=selected_company,
+                timeout=15,
+            )
+
+            def done():
+                if result.get("success"):
+                    self.company_gst_registrations = result.get("registrations", [])
+                else:
+                    self.company_gst_registrations = []
+
+            self.after(0, done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _build_create_party_tab(self, parent):
         wrapper = ctk.CTkScrollableFrame(parent, fg_color="transparent")
         wrapper.pack(fill="both", expand=True, padx=10, pady=8)
@@ -2326,6 +2497,8 @@ class TallyNoteEntryApp(ctk.CTk):
                     self._set_company_dropdown(companies, keep_selection=True)
                     self.status_var.set(f"Fetched {len(companies)} company(s) from Tally")
                     self._fetch_party_ledgers_thread(silent=True)
+                    # Also fetch company GST registrations (needed for debit note XML).
+                    self._fetch_company_gst_regs_thread(silent=True)
                 else:
                     err = str(result.get("error") or "Unknown error")
                     self.company_status_var.set("Companies: Fetch failed")
@@ -2746,12 +2919,32 @@ class TallyNoteEntryApp(ctk.CTk):
 
         try:
             date_mode, custom_tally_date = self._get_voucher_date_selection()
+
+            # For Debit Notes, company GST registration context (CMPGSTIN, CMPGSTSTATE)
+            # must be embedded in the XML so Tally does not show the "GST Registration
+            # Details of the Company are invalid or not specified" uncertainty.
+            # The async fetch may not have completed yet, so we do a synchronous fetch
+            # here if registrations are not already cached.
+            _cmp_gst_regs = list(self.company_gst_registrations or [])
+            if _normalize_note_type(note_type) == "Debit Note" and not _cmp_gst_regs:
+                try:
+                    _tally_url = self._get_tally_url()
+                    _gst_fetch = _fetch_company_gst_registrations(
+                        _tally_url, company_name=company, timeout=10
+                    )
+                    if _gst_fetch.get("success"):
+                        _cmp_gst_regs = _gst_fetch.get("registrations", [])
+                        self.company_gst_registrations = _cmp_gst_regs
+                except Exception:
+                    pass  # Proceed without; debit note will still import, may be uncertain
+
             xml_payload, voucher_count = generate_note_xml(
                 rows,
                 company=company,
                 date_mode=date_mode,
                 custom_tally_date=custom_tally_date,
                 voucher_type=note_type,
+                company_gst_registrations=_cmp_gst_regs,
             )
             if voucher_count <= 0:
                 messagebox.showwarning("No Vouchers", "No valid rows found (TaxableValue must be greater than zero).")
@@ -2833,4 +3026,3 @@ class TallyNoteEntryApp(ctk.CTk):
 if __name__ == "__main__":
     app = TallyNoteEntryApp()
     app.mainloop()
-
