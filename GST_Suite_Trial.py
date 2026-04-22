@@ -192,7 +192,7 @@ GST_TOOLS = [
 ]
 
 IT_TOOLS = [
-    {"tab": "📄  26/AIS/TIS",          "module": os.path.join(_IT_BASE, "26 AS Downlaoder",  "main.py"),                  "class": "App",              "desc": "Download 26AS / AIS / TIS reports in bulk."},
+    {"tab": "📄  26AS/AIS & TIS",       "module": os.path.join(_IT_BASE, "26 AS Downlaoder",  "main.py"),                  "class": "App",              "desc": "Download 26AS / AIS / TIS reports in bulk."},
     {"tab": "💰  Challan Downloader", "module": os.path.join(_IT_BASE, "Challan Downloader","main.py"),                  "class": "App",              "desc": "Download Income Tax Challan PDFs in bulk."},
     {"tab": "🤖  ITR Bot",            "module": os.path.join(_IT_BASE, "ITR - Bot",         "GUI_based_app.py"),         "class": "App",              "desc": "Automate ITR filing workflows with the ITR bot."},
     {"tab": "🔍  Demand Checker",     "module": os.path.join(_IT_BASE, "Challan Downloader","demand_checker_app.py"),    "class": "DemandCheckerApp", "desc": "Check pending worklist and outstanding demands in bulk from the Income Tax portal."},

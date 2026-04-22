@@ -29,14 +29,19 @@ from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException
 from webdriver_manager.chrome import ChromeDriverManager
 
+
 # --- UI CONFIGURATION ---
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
-YEAR_MODE_OPTIONS = [
-    "Current Year",
-    "Current and Last Year",
-    "Current and Last 2 Years",
+# Assessment Year options (update as needed)
+ASSESSMENT_YEAR_OPTIONS = [
+    "2027-2028",
+    "2026-2027",
+    "2025-2026",
+    "2024-2025",
+    "2023-2024",
+    "2022-2023",
     "Manual Selection (Popup)",
 ]
 
@@ -791,1014 +796,6 @@ class Tax26ASWorker:
 
 
 # ============================================================
-#  WORKER 2: AIS THREAD CLASS
-# ============================================================
-class AISWorker:
-    def __init__(self, app_instance, excel_path, year_mode):
-        self.app = app_instance
-        self.excel_path = excel_path
-        self.year_mode = year_mode
-        self.keep_running = True
-        self.report_data = []
-        self.user_selection_event = threading.Event()
-        self.current_user_selected_years = None
-
-    def log(self, message):
-        self.app.update_log_safe_ais(message)
-
-    def set_years_and_resume(self, selected_list):
-        self.current_user_selected_years = selected_list
-        self.user_selection_event.set()
-
-    def run(self):
-        self.log("🚀 INITIALIZING AIS ENGINE...")
-        self.log(f"📂 Reading Credentials: {os.path.basename(self.excel_path)}")
-        
-        try:
-            df = pd.read_excel(self.excel_path)
-            user_col, pass_col, dob_col = normalize_columns(df)
-            
-            if not user_col or not pass_col:
-                self.log(f"❌ ERROR: Headers missing.")
-                self.app.process_finished_safe_ais("Failed: Column Header Error")
-                return
-
-            total_users = len(df)
-            
-            for index, row in df.iterrows():
-                if not self.keep_running: break
-                
-                user_id = str(row[user_col]).strip()
-                password = str(row[pass_col]).strip()
-                dob = row[dob_col] if dob_col and pd.notna(row[dob_col]) else None
-                
-                self.app.update_progress_safe_ais((index) / total_users)
-                self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
-
-                base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded", "AIS")
-
-                status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
-                
-                self.report_data.append({
-                    "PAN": user_id, "Status": status, "Details": reason,
-                    "Folder Saved": os.path.basename(final_path) if final_path else user_id,
-                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                })
-                self.log("-" * 40)
-            
-            self.generate_report()
-            self.app.update_progress_safe_ais(1.0)
-            self.log("\n✅ BATCH COMPLETED!")
-            self.app.process_finished_safe_ais("All Tasks Completed.")
-
-        except Exception as e:
-            self.log(f"❌ CRITICAL ERROR: {str(e)}")
-            self.app.process_finished_safe_ais("Critical Error Occurred")
-
-    def generate_report(self):
-        try:
-            if not self.report_data: return
-            df_report = pd.DataFrame(self.report_data)
-            filename = f"AIS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            df_report.to_excel(filename, index=False)
-            self.log(f"📄 Report saved: {filename}")
-        except: pass
-
-    def process_single_user(self, user_id, password, dob, download_root):
-        driver = None
-        download_folder = create_unique_folder(download_root, user_id)  # temp fallback folder
-        try:
-            options = webdriver.ChromeOptions()
-            options.add_argument("--start-maximized")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            prefs = {
-                "download.default_directory": download_folder,
-                "download.prompt_for_download": False,
-                "download.directory_upgrade": True,
-                "plugins.always_open_pdf_externally": True,
-                "profile.default_content_setting_values.automatic_downloads": 1,
-                "download_restrictions": 0,
-                "safebrowsing.enabled": True,
-                "safebrowsing.disable_download_protection": True
-            }
-            options.add_experimental_option("prefs", prefs)
-
-            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            
-            # Set aggressive timeouts to prevent hanging
-            driver.set_page_load_timeout(30)  # 30 seconds for page load
-            driver.set_script_timeout(30)     # 30 seconds for script execution
-            driver.implicitly_wait(10)        # 10 seconds for element search
-            
-            wait = WebDriverWait(driver, 20)
-            
-            # 1. LOGIN WITH COMPREHENSIVE RETRY (AIS)
-            login_success = False
-            for login_attempt in range(1, 4):
-                if login_success: break
-                if login_attempt > 1:
-                    self.log(f"   ⚠️ Login Retry {login_attempt}/3...")
-                    try:
-                        driver.delete_all_cookies()
-                        driver.refresh()
-                    except: pass
-                    time.sleep(3)
-
-                try:
-                    self.log("   🌐 Opening Portal...")
-                    try:
-                        driver.get("https://eportal.incometax.gov.in/iec/foservices/#/login")
-                        time.sleep(2)
-                    except TimeoutException:
-                        self.log("   ⚠️ Page load timeout. Retrying...")
-                        continue
-                    except Exception as e:
-                        self.log(f"   ⚠️ Page load error: {str(e)[:30]}. Retrying...")
-                        continue
-                    
-                    try: driver.switch_to.alert.accept(); time.sleep(1)
-                    except: pass
-
-                    # Step 1: Enter PAN with retry
-                    pan_entered = False
-                    for pan_retry in range(3):
-                        try:
-                            pan_field = wait.until(EC.visibility_of_element_located((By.ID, "panAdhaarUserId")))
-                            pan_field.clear()
-                            pan_field.send_keys(user_id)
-                            pan_entered = True
-                            break
-                        except Exception as e:
-                            if pan_retry == 2:
-                                self.log(f"   ⚠️ Failed to enter PAN after 3 tries")
-                                raise
-                            time.sleep(1)
-                    
-                    if not pan_entered:
-                        continue
-                    
-                    time.sleep(0.5)
-                    
-                    # Step 2: Click Continue button with retry
-                    continue_success = False
-                    for cont_retry in range(3):
-                        try:
-                            continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.large-button-primary")))
-                            driver.execute_script("arguments[0].click();", continue_btn)
-                            time.sleep(1)
-                            
-                            # Check for ITD-EXEC2002 error
-                            if "ITD-EXEC2002" in driver.page_source or "Something seems to have gone wrong" in driver.page_source:
-                                self.log(f"   ⚠️ ITD-EXEC2002 error detected, retrying Continue button...")
-                                if cont_retry < 2:
-                                    continue
-                                else:
-                                    raise Exception("ITD-EXEC2002 error persists after retries")
-                            
-                            continue_success = True
-                            break
-                        except Exception as e:
-                            if cont_retry == 2:
-                                self.log(f"   ⚠️ Failed to click Continue after 3 tries")
-                                raise
-                            time.sleep(1)
-                    
-                    if not continue_success:
-                        continue
-                    
-                    time.sleep(1.5)
-                    if "does not exist" in driver.page_source: return "Failed", "Invalid PAN"
-
-                    # Step 3: Enter Password with retry
-                    for pwd_retry in range(3):
-                        try:
-                            pwd_field = wait.until(EC.visibility_of_element_located((By.ID, "loginPasswordField")))
-                            pwd_field.clear()
-                            pwd_field.send_keys(password)
-                            break
-                        except Exception as e:
-                            if pwd_retry == 2:
-                                self.log(f"   ⚠️ Failed to enter password after 3 tries")
-                                raise
-                            time.sleep(1)
-                    
-                    # Show password checkbox
-                    try: 
-                        driver.execute_script("document.getElementById('passwordCheckBox-input').click();")
-                        time.sleep(0.3)
-                    except: pass
-                    
-                    self.log("   ⏳ Waiting for security check (3s)...")
-                    time.sleep(3.5)
-                    
-                    # Step 4: Submit login with retry
-                    submit_success = False
-                    for submit_retry in range(3):
-                        try:
-                            driver.execute_script("document.querySelector('button.large-button-primary').click();")
-                            time.sleep(1)
-                            
-                            # Check for ITD-EXEC2002 error
-                            if "ITD-EXEC2002" in driver.page_source or "Something seems to have gone wrong" in driver.page_source:
-                                self.log(f"   ⚠️ ITD-EXEC2002 error detected, retrying Login button...")
-                                if submit_retry < 2:
-                                    continue
-                                else:
-                                    raise Exception("ITD-EXEC2002 error persists after retries")
-                            
-                            submit_success = True
-                            break
-                        except Exception as e:
-                            if submit_retry == 2:
-                                self.log(f"   ⚠️ Failed to submit login after 3 tries")
-                                raise
-                            time.sleep(1)
-                    
-                    if not submit_success:
-                        continue
-
-                    # Step 5: Wait for successful login
-                    for _ in range(20):
-                        time.sleep(1)
-                        try:
-                            if driver.find_elements(By.ID, "e-File"):
-                                self.log("   ✅ Login Successful!")
-                                login_success = True; break
-                        except: pass
-                        
-                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password", download_folder
-                        
-                        try:
-                            dual = driver.find_elements(By.XPATH, "//button[contains(text(), 'Login Here')]")
-                            if dual and dual[0].is_displayed():
-                                driver.execute_script("arguments[0].click();", dual[0])
-                                time.sleep(2)
-                        except: pass
-                    if login_success: break
-                except Exception as e:
-                    self.log(f"   ⚠️ Login Error: {str(e)[:50]}")
-                    if login_attempt < 3:
-                        time.sleep(2)
-
-            if not login_success: return "Failed", "Login Timeout", download_folder
-
-            # Extract taxpayer name from dashboard header and create NAME_PAN folder
-            name_from_header = get_taxpayer_name(driver, fallback=user_id)
-            if name_from_header != user_id:
-                self.log(f"   👤 Taxpayer Name: {name_from_header}")
-            else:
-                self.log("   ⚠️ Name not found in header; using PAN as folder name.")
-
-            # Create the proper NAME_PAN folder and redirect Chrome downloads via CDP
-            folder_name = f"{name_from_header}_{user_id}"
-            download_folder = create_unique_folder(download_root, folder_name)
-            self.log(f"   📁 Download folder: {os.path.basename(download_folder)}")
-            try:
-                driver.execute_cdp_cmd('Page.setDownloadBehavior', {
-                    'behavior': 'allow',
-                    'downloadPath': download_folder
-                })
-            except Exception as cdp_e:
-                self.log(f"   ⚠️ CDP redirect failed ({str(cdp_e)[:30]}); folder still created.")
-
-            # 2. NAVIGATE TO AIS (with retry logic)
-            self.log("   🚀 Navigating to AIS...")
-            ais_nav_success = False
-            for ais_nav_attempt in range(1, 4):
-                try:
-                    if ais_nav_attempt > 1:
-                        self.log(f"   ⚠️ AIS Navigation Retry {ais_nav_attempt}/3...")
-                        driver.get("https://eportal.incometax.gov.in/iec/foservices/#/dashboard")
-                        time.sleep(2)
-                    
-                    ais_span = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(@class, 'mdc-button__label') and contains(text(), 'AIS')]")))
-                    driver.execute_script("arguments[0].click();", ais_span)
-                    try:
-                        proceed_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Proceed')]")))
-                        driver.execute_script("arguments[0].click();", proceed_btn)
-                    except: pass
-                    time.sleep(2)
-                    ais_nav_success = True
-                    break
-                except Exception as e:
-                    self.log(f"   ⚠️ AIS Nav Attempt {ais_nav_attempt} Failed: {str(e)[:40]}")
-                    if ais_nav_attempt == 3:
-                        return "Failed", "Dashboard AIS Menu Not Found"
-            
-            if not ais_nav_success: return "Failed", "Dashboard AIS Menu Not Found"
-
-            # Switch to AIS tab with retry
-            ais_tab_found = False
-            for tab_attempt in range(1, 4):
-                try:
-                    time.sleep(1)
-                    if len(driver.window_handles) > 1:
-                        driver.switch_to.window(driver.window_handles[-1])
-                        ais_tab_found = True
-                        break
-                    else:
-                        if tab_attempt < 3:
-                            self.log(f"   ⚠️ Waiting for AIS tab... Attempt {tab_attempt}/3")
-                            time.sleep(2)
-                except Exception as e:
-                    if tab_attempt == 3:
-                        return "Failed", "AIS Tab did not open"
-            
-            if not ais_tab_found: return "Failed", "AIS Tab did not open"
-
-            # 4. AIS INTERNAL LOGIC (with retry)
-            ais_internal_success = False
-            for ais_internal_attempt in range(1, 4):
-                try:
-                    if ais_internal_attempt > 1:
-                        self.log(f"   ⚠️ AIS Internal Menu Retry {ais_internal_attempt}/3...")
-                        driver.refresh()
-                        time.sleep(2)
-                    
-                    ais_internal_menu = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'AIS') and contains(@class, 'opacity-6')]")))
-                    driver.execute_script("arguments[0].click();", ais_internal_menu)
-                    time.sleep(2)
-                    ais_internal_success = True
-                    break
-                except Exception as e:
-                    self.log(f"   ⚠️ AIS Internal Attempt {ais_internal_attempt} Failed: {str(e)[:40]}")
-                    if ais_internal_attempt == 3:
-                        return "Failed", "AIS Internal Menu Failed"
-            
-            if not ais_internal_success: return "Failed", "AIS Internal Menu Failed"
-            
-            try:
-                self.log("   📥 Fetching Available Years...")
-                try:
-                    dropdown_toggle = wait.until(EC.presence_of_element_located((By.ID, "dropdownMenuButton")))
-                    driver.execute_script("arguments[0].click();", dropdown_toggle)
-                    time.sleep(0.5)
-                except: pass
-
-                year_buttons = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//button[contains(@class, 'dropdown-item') and contains(text(), 'F.Y.')]")))
-                available_years = []
-                for btn in year_buttons:
-                    txt = btn.get_attribute("textContent").strip()
-                    if txt and txt not in available_years:
-                        available_years.append(txt)
-
-                try: driver.execute_script("arguments[0].click();", dropdown_toggle)
-                except: pass
-
-                if not available_years: return "Failed", "No years found in AIS"
-
-                if self.year_mode == "Current Year": self.current_user_selected_years = available_years[:1]
-                elif self.year_mode == "Current and Last Year": self.current_user_selected_years = available_years[:2]
-                elif self.year_mode == "Current and Last 2 Years": self.current_user_selected_years = available_years[:3]
-                else:
-                    self.log(f"   🛑 PAUSED: Found {len(available_years)} years. Waiting for you...")
-                    self.user_selection_event.clear()
-                    self.current_user_selected_years = None
-                    self.app.trigger_year_selection(available_years, user_id, self.set_years_and_resume)
-                    self.user_selection_event.wait()
-
-                years_to_download = [y for y in self.current_user_selected_years if y in available_years]
-                if not years_to_download: return "Warning", "No valid years selected"
-
-                self.log(f"   ⬇️ Downloading {len(years_to_download)} Years...")
-                count = 0
-                for year in years_to_download:
-                    year_success = False
-                    for year_attempt in range(1, 4):
-                        try:
-                            if year_attempt > 1:
-                                self.log(f"     -> Retry {year_attempt}/3 for {year}...")
-                                driver.refresh()
-                                time.sleep(2)
-                                # Re-click AIS menu
-                                ais_internal_menu = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'AIS') and contains(@class, 'opacity-6')]")))
-                                driver.execute_script("arguments[0].click();", ais_internal_menu)
-                                time.sleep(2)
-                            else:
-                                self.log(f"     -> Processing {year}...")
-                            
-                            # Open dropdown and select year
-                            try:
-                                dropdown_toggle = driver.find_element(By.ID, "dropdownMenuButton")
-                                driver.execute_script("arguments[0].click();", dropdown_toggle)
-                                time.sleep(0.5)
-                            except: pass
-
-                            year_xpath = f"//button[contains(@class, 'dropdown-item') and contains(text(), '{year}')]"
-                            target_yr_btn = wait.until(EC.presence_of_element_located((By.XPATH, year_xpath)))
-                            driver.execute_script("arguments[0].click();", target_yr_btn)
-                            time.sleep(2)
-                            
-                            # Click download icon
-                            dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "//img[@title='Download AIS related documents']")))
-                            driver.execute_script("arguments[0].click();", dl_icon)
-                            time.sleep(1)
-                            year_success = True
-                            break
-                        except Exception as e:
-                            if year_attempt == 3:
-                                self.log(f"        ⚠️ Failed to process {year} after 3 attempts")
-                    
-                    if not year_success:
-                        continue
-                    
-                    # PDF Download with retry
-                    pdf_download_success = False
-                    for pdf_attempt in range(1, 4):
-                        try:
-                            if pdf_attempt > 1:
-                                self.log(f"        ⚠️ PDF Download Retry {pdf_attempt}/3...")
-                                time.sleep(2)
-                            
-                            clean_temp_files(download_folder, prefixes=("AIS_",))
-
-                            modal_dl_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Download' and contains(@class, 'btn-outline-primary')]")))
-                            modal_click_time = time.time()
-                            driver.execute_script("arguments[0].click();", modal_dl_btn)
-                            self.log("        Generating Document...")
-                            
-                            # --- INDIVIDUAL VS COMPANY LOGIC ---
-                            direct_download = False
-                            prefix = "AIS_"
-                            for _ in range(8): # Monitor folder for 8 seconds
-                                time.sleep(1)
-                                for f in os.listdir(download_folder):
-                                    f_path = os.path.join(download_folder, f)
-                                    if os.path.isfile(f_path) and os.path.getmtime(f_path) >= modal_click_time - 2:
-                                        if f.endswith(".crdownload") or f.endswith(".pdf"):
-                                            direct_download = True
-                                            break
-                                if direct_download: break
-
-                            if direct_download:
-                                self.log("        ✅ Direct download detected.")
-                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=modal_click_time-2, taxpayer_name=name_from_header)
-                                if saved_path:
-                                    count += 1
-                                    unlock_pdf(saved_path, user_id, dob, self.log)
-                                    pdf_download_success = True
-                                    break
-                                else:
-                                    self.log("        ❌ File capture failed.")
-                                try:
-                                    close_btn = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'CLOSE', 'close'), 'close')]")
-                                    driver.execute_script("arguments[0].click();", close_btn)
-                                except: pass
-                            else:
-                                self.log("        ℹ️ No direct download. Checking Activity History...")
-                                try:
-                                    close_btn = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'CLOSE', 'close'), 'close')]")
-                                    driver.execute_script("arguments[0].click();", close_btn)
-                                    time.sleep(0.5)
-                                except: pass
-
-                                history_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Go To Activity History']")))
-                                driver.execute_script("arguments[0].click();", history_btn)
-                                time.sleep(3)
-
-                                clean_temp_files(download_folder, prefixes=("AIS_",))
-                                
-                                hist_click_time = time.time()
-                                final_dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "(//img[@alt='Download'])[1]")))
-                                driver.execute_script("arguments[0].click();", final_dl_icon)
-                                self.log("        ✅ Export Triggered from History.")
-                                
-                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=hist_click_time-2, taxpayer_name=name_from_header)
-                                if saved_path:
-                                    count += 1
-                                    unlock_pdf(saved_path, user_id, dob, self.log)
-                                    pdf_download_success = True
-                                    break
-                                else:
-                                    self.log("        ❌ File capture failed.")
-                                    
-                        except Exception as e:
-                            self.log(f"       ⚠️ Download Attempt {pdf_attempt} Failed: {str(e)[:30]}")
-                            if pdf_attempt == 3:
-                                self.log("       ❌ PDF Export failed after 3 attempts.")
-
-                    # Return to AIS tab for the next year
-                    try:
-                        ais_internal_menu = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'AIS') and contains(@class, 'opacity-6')]")))
-                        driver.execute_script("arguments[0].click();", ais_internal_menu)
-                        time.sleep(2)
-                    except: pass
-
-                return "Success", f"Downloaded {count} files", download_folder
-
-            except Exception as e: return "Failed", f"AIS Portal Error: {str(e)[:20]}", download_folder
-
-        except Exception as e: return "Failed", "Browser Crash", download_folder
-        finally:
-            if driver: driver.quit()
-
-
-# ============================================================
-#  WORKER 3: TIS THREAD CLASS
-# ============================================================
-class TISWorker:
-    def __init__(self, app_instance, excel_path, year_mode):
-        self.app = app_instance
-        self.excel_path = excel_path
-        self.year_mode = year_mode
-        self.keep_running = True
-        self.report_data = []
-        self.user_selection_event = threading.Event()
-        self.current_user_selected_years = None
-
-    def log(self, message):
-        self.app.update_log_safe_tis(message)
-
-    def set_years_and_resume(self, selected_list):
-        self.current_user_selected_years = selected_list
-        self.user_selection_event.set()
-
-    def run(self):
-        self.log("🚀 INITIALIZING TIS ENGINE...")
-        self.log(f"📂 Reading Credentials: {os.path.basename(self.excel_path)}")
-        try:
-            df = pd.read_excel(self.excel_path)
-            user_col, pass_col, dob_col = normalize_columns(df)
-            if not user_col or not pass_col:
-                self.log(f"❌ ERROR: Headers missing.")
-                self.app.process_finished_safe_tis("Failed: Column Header Error")
-                return
-
-            total_users = len(df)
-            for index, row in df.iterrows():
-                if not self.keep_running: break
-                user_id = str(row[user_col]).strip()
-                password = str(row[pass_col]).strip()
-                dob = row[dob_col] if dob_col and pd.notna(row[dob_col]) else None
-                
-                self.app.update_progress_safe_tis((index) / total_users)
-                self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
-
-                base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded", "TIS")
-
-                status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
-                self.report_data.append({
-                    "PAN": user_id, "Status": status, "Details": reason,
-                    "Folder Saved": os.path.basename(final_path) if final_path else user_id,
-                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                })
-                self.log("-" * 40)
-
-            self.generate_report()
-            self.app.update_progress_safe_tis(1.0)
-            self.log("\n✅ BATCH COMPLETED!")
-            self.app.process_finished_safe_tis("All Tasks Completed.")
-
-        except Exception as e:
-            self.log(f"❌ CRITICAL ERROR: {str(e)}")
-            self.app.process_finished_safe_tis("Critical Error Occurred")
-
-    def generate_report(self):
-        try:
-            if not self.report_data: return
-            df_report = pd.DataFrame(self.report_data)
-            filename = f"TIS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            df_report.to_excel(filename, index=False)
-            self.log(f"📄 Report saved: {filename}")
-        except: pass
-
-    def process_single_user(self, user_id, password, dob, download_root):
-        driver = None
-        download_folder = create_unique_folder(download_root, user_id)  # temp fallback folder
-        try:
-            options = webdriver.ChromeOptions()
-            options.add_argument("--start-maximized")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            prefs = {
-                "download.default_directory": download_folder,
-                "download.prompt_for_download": False,
-                "download.directory_upgrade": True,
-                "plugins.always_open_pdf_externally": True,
-                "profile.default_content_setting_values.automatic_downloads": 1,
-                "download_restrictions": 0,
-                "safebrowsing.enabled": True,
-                "safebrowsing.disable_download_protection": True
-            }
-            options.add_experimental_option("prefs", prefs)
-
-            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-            
-            # Set aggressive timeouts to prevent hanging
-            driver.set_page_load_timeout(30)  # 30 seconds for page load
-            driver.set_script_timeout(30)     # 30 seconds for script execution
-            driver.implicitly_wait(10)        # 10 seconds for element search
-            
-            wait = WebDriverWait(driver, 20)
-
-            # 1. LOGIN
-            login_success = False
-            for login_attempt in range(1, 4):
-                if login_success: break
-                if login_attempt > 1:
-                    try:
-                        driver.delete_all_cookies()
-                        driver.refresh()
-                    except: pass
-                    time.sleep(3)
-
-                try:
-                    self.log("   🌐 Opening Portal...")
-                    try:
-                        driver.get("https://eportal.incometax.gov.in/iec/foservices/#/login")
-                    except TimeoutException:
-                        self.log("   ⚠️ Page load timeout. Retrying...")
-                        continue
-                    except Exception as e:
-                        self.log(f"   ⚠️ Page load error: {str(e)[:30]}. Retrying...")
-                        continue
-                    
-                    time.sleep(2)
-                    try: driver.switch_to.alert.accept(); time.sleep(1)
-                    except: pass
-
-                    # Step 1: Enter PAN with retry
-                    pan_entered = False
-                    for pan_retry in range(3):
-                        try:
-                            pan_field = wait.until(EC.visibility_of_element_located((By.ID, "panAdhaarUserId")))
-                            pan_field.clear()
-                            pan_field.send_keys(user_id)
-                            pan_entered = True
-                            break
-                        except Exception as e:
-                            if pan_retry == 2:
-                                self.log(f"   ⚠️ Failed to enter PAN after 3 tries")
-                                raise
-                            time.sleep(1)
-                    
-                    if not pan_entered:
-                        continue
-                    
-                    time.sleep(0.5)
-                    
-                    # Step 2: Click Continue button with retry
-                    continue_success = False
-                    for cont_retry in range(3):
-                        try:
-                            continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.large-button-primary")))
-                            driver.execute_script("arguments[0].click();", continue_btn)
-                            time.sleep(1)
-                            
-                            # Check for ITD-EXEC2002 error
-                            if "ITD-EXEC2002" in driver.page_source or "Something seems to have gone wrong" in driver.page_source:
-                                self.log(f"   ⚠️ ITD-EXEC2002 error detected, retrying Continue button...")
-                                if cont_retry < 2:
-                                    continue
-                                else:
-                                    raise Exception("ITD-EXEC2002 error persists after retries")
-                            
-                            continue_success = True
-                            break
-                        except Exception as e:
-                            if cont_retry == 2:
-                                self.log(f"   ⚠️ Failed to click Continue after 3 tries")
-                                raise
-                            time.sleep(1)
-                    
-                    if not continue_success:
-                        continue
-                    
-                    time.sleep(1.5)
-                    if "does not exist" in driver.page_source: return "Failed", "Invalid PAN"
-
-                    # Step 3: Enter Password with retry
-                    for pwd_retry in range(3):
-                        try:
-                            pwd_field = wait.until(EC.visibility_of_element_located((By.ID, "loginPasswordField")))
-                            pwd_field.clear()
-                            pwd_field.send_keys(password)
-                            break
-                        except Exception as e:
-                            if pwd_retry == 2:
-                                self.log(f"   ⚠️ Failed to enter password after 3 tries")
-                                raise
-                            time.sleep(1)
-                    
-                    # Show password checkbox
-                    try: 
-                        driver.execute_script("document.getElementById('passwordCheckBox-input').click();")
-                        time.sleep(0.3)
-                    except: pass
-                    
-                    self.log("   ⏳ Waiting for security check (3s)...")
-                    time.sleep(3.5)
-                    
-                    # Step 4: Submit login with retry
-                    submit_success = False
-                    for submit_retry in range(3):
-                        try:
-                            driver.execute_script("document.querySelector('button.large-button-primary').click();")
-                            time.sleep(1)
-                            
-                            # Check for ITD-EXEC2002 error
-                            if "ITD-EXEC2002" in driver.page_source or "Something seems to have gone wrong" in driver.page_source:
-                                self.log(f"   ⚠️ ITD-EXEC2002 error detected, retrying Login button...")
-                                if submit_retry < 2:
-                                    continue
-                                else:
-                                    raise Exception("ITD-EXEC2002 error persists after retries")
-                            
-                            submit_success = True
-                            break
-                        except Exception as e:
-                            if submit_retry == 2:
-                                self.log(f"   ⚠️ Failed to submit login after 3 tries")
-                                raise
-                            time.sleep(1)
-                    
-                    if not submit_success:
-                        continue
-
-                    # Step 5: Wait for successful login
-                    for _ in range(20):
-                        time.sleep(1)
-                        try:
-                            if driver.find_elements(By.ID, "e-File"):
-                                self.log("   ✅ Login Successful!")
-                                login_success = True; break
-                        except: pass
-                        
-                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password", download_folder
-                        
-                        try:
-                            dual = driver.find_elements(By.XPATH, "//button[contains(text(), 'Login Here')]")
-                            if dual and dual[0].is_displayed():
-                                driver.execute_script("arguments[0].click();", dual[0])
-                                time.sleep(2)
-                        except: pass
-                    if login_success: break
-                except Exception as e:
-                    self.log(f"   ⚠️ Login Error: {str(e)[:50]}")
-                    if login_attempt < 3:
-                        time.sleep(2)
-
-            if not login_success: return "Failed", "Login Timeout", download_folder
-
-            # Extract taxpayer name from dashboard header and create NAME_PAN folder
-            name_from_header = get_taxpayer_name(driver, fallback=user_id)
-            if name_from_header != user_id:
-                self.log(f"   👤 Taxpayer Name: {name_from_header}")
-            else:
-                self.log("   ⚠️ Name not found in header; using PAN as folder name.")
-
-            # Create the proper NAME_PAN folder and redirect Chrome downloads via CDP
-            folder_name = f"{name_from_header}_{user_id}"
-            download_folder = create_unique_folder(download_root, folder_name)
-            self.log(f"   📁 Download folder: {os.path.basename(download_folder)}")
-            try:
-                driver.execute_cdp_cmd('Page.setDownloadBehavior', {
-                    'behavior': 'allow',
-                    'downloadPath': download_folder
-                })
-            except Exception as cdp_e:
-                self.log(f"   ⚠️ CDP redirect failed ({str(cdp_e)[:30]}); folder still created.")
-
-            # 2. NAVIGATE TO AIS (with retry logic)
-            self.log("   🚀 Navigating to AIS (for TIS)...")
-            tis_nav_success = False
-            for tis_nav_attempt in range(1, 4):
-                try:
-                    if tis_nav_attempt > 1:
-                        self.log(f"   ⚠️ TIS Navigation Retry {tis_nav_attempt}/3...")
-                        driver.get("https://eportal.incometax.gov.in/iec/foservices/#/dashboard")
-                        time.sleep(2)
-                    
-                    ais_span = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(@class, 'mdc-button__label') and contains(text(), 'AIS')]") ))
-                    driver.execute_script("arguments[0].click();", ais_span)
-                    try:
-                        proceed_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Proceed')]") ))
-                        driver.execute_script("arguments[0].click();", proceed_btn)
-                    except: pass
-                    time.sleep(2)
-                    tis_nav_success = True
-                    break
-                except Exception as e:
-                    self.log(f"   ⚠️ TIS Nav Attempt {tis_nav_attempt} Failed: {str(e)[:40]}")
-                    if tis_nav_attempt == 3:
-                        return "Failed", "Dashboard AIS Menu Not Found"
-            
-            if not tis_nav_success: return "Failed", "Dashboard AIS Menu Not Found"
-
-            # Switch to TIS tab with retry
-            tis_tab_found = False
-            for tab_attempt in range(1, 4):
-                try:
-                    time.sleep(1)
-                    if len(driver.window_handles) > 1:
-                        driver.switch_to.window(driver.window_handles[-1])
-                        tis_tab_found = True
-                        break
-                    else:
-                        if tab_attempt < 3:
-                            self.log(f"   ⚠️ Waiting for TIS tab... Attempt {tab_attempt}/3")
-                            time.sleep(2)
-                except Exception as e:
-                    if tab_attempt == 3:
-                        return "Failed", "AIS Tab did not open"
-            
-            if not tis_tab_found: return "Failed", "AIS Tab did not open"
-
-            # 3. TIS INTERNAL LOGIC (with retry)
-            tis_internal_success = False
-            for tis_internal_attempt in range(1, 4):
-                try:
-                    if tis_internal_attempt > 1:
-                        self.log(f"   ⚠️ TIS Internal Menu Retry {tis_internal_attempt}/3...")
-                        driver.refresh()
-                        time.sleep(2)
-                    
-                    ais_internal_menu = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'AIS') and contains(@class, 'opacity-6')]") ))
-                    driver.execute_script("arguments[0].click();", ais_internal_menu)
-                    time.sleep(2)
-                    tis_internal_success = True
-                    break
-                except Exception as e:
-                    self.log(f"   ⚠️ TIS Internal Attempt {tis_internal_attempt} Failed: {str(e)[:40]}")
-                    if tis_internal_attempt == 3:
-                        return "Failed", "TIS Internal Menu Failed"
-            
-            if not tis_internal_success: return "Failed", "TIS Internal Menu Failed"
-            
-            try:
-                self.log("   📥 Fetching Available Years...")
-                try:
-                    dropdown_toggle = wait.until(EC.presence_of_element_located((By.ID, "dropdownMenuButton")))
-                    driver.execute_script("arguments[0].click();", dropdown_toggle)
-                    time.sleep(0.5)
-                except: pass
-
-                year_buttons = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//button[contains(@class, 'dropdown-item') and contains(text(), 'F.Y.')]") ))
-                available_years = []
-                for btn in year_buttons:
-                    txt = btn.get_attribute("textContent").strip()
-                    if txt and txt not in available_years:
-                        available_years.append(txt)
-                try: driver.execute_script("arguments[0].click();", dropdown_toggle)
-                except: pass
-
-                if not available_years: return "Failed", "No years found in AIS"
-
-                if self.year_mode == "Current Year": self.current_user_selected_years = available_years[:1]
-                elif self.year_mode == "Current and Last Year": self.current_user_selected_years = available_years[:2]
-                elif self.year_mode == "Current and Last 2 Years": self.current_user_selected_years = available_years[:3]
-                else:
-                    self.log(f"   🛑 PAUSED: Found {len(available_years)} years. Waiting for you...")
-                    self.user_selection_event.clear()
-                    self.current_user_selected_years = None
-                    self.app.trigger_year_selection(available_years, user_id, self.set_years_and_resume)
-                    self.user_selection_event.wait()
-
-                years_to_download = [y for y in self.current_user_selected_years if y in available_years]
-                if not years_to_download: return "Warning", "No valid years selected", download_folder
-
-                self.log(f"   ⬇️ Downloading {len(years_to_download)} Years (TIS)...")
-                count = 0
-                for year in years_to_download:
-                    year_success = False
-                    for year_attempt in range(1, 4):
-                        try:
-                            if year_attempt > 1:
-                                self.log(f"     -> Retry {year_attempt}/3 for {year}...")
-                                driver.refresh()
-                                time.sleep(2)
-                                ais_internal_menu = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'AIS') and contains(@class, 'opacity-6')]") ))
-                                driver.execute_script("arguments[0].click();", ais_internal_menu)
-                                time.sleep(2)
-                            else:
-                                self.log(f"     -> Processing {year}...")
-                            
-                            
-                            try:
-                                dropdown_toggle = driver.find_element(By.ID, "dropdownMenuButton")
-                                driver.execute_script("arguments[0].click();", dropdown_toggle)
-                                time.sleep(0.5)
-                            except: pass
-
-                            year_xpath = f"//button[contains(@class, 'dropdown-item') and contains(text(), '{year}')]"
-                            target_yr_btn = wait.until(EC.presence_of_element_located((By.XPATH, year_xpath)))
-                            driver.execute_script("arguments[0].click();", target_yr_btn)
-                            time.sleep(2)
-
-                            tis_dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "//img[contains(@title, 'Download TIS related documents') or contains(@alt, 'Download TIS related documents')]") ))
-                            driver.execute_script("arguments[0].click();", tis_dl_icon)
-                            time.sleep(1)
-                            year_success = True
-                            break
-                        except Exception as e:
-                            if year_attempt == 3:
-                                self.log(f"        ⚠️ Failed to process {year} after 3 attempts")
-                    
-                    if not year_success:
-                        continue
-                    
-                    # PDF Download with retry
-                    pdf_download_success = False
-                    for pdf_attempt in range(1, 4):
-                        try:
-                            if pdf_attempt > 1:
-                                self.log(f"        ⚠️ PDF Download Retry {pdf_attempt}/3...")
-                                time.sleep(2)
-                            
-                            clean_temp_files(download_folder, prefixes=("TIS_",))
-                            modal_dl_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Download' and contains(@class, 'btn-outline-primary')]") ))
-                            
-                            modal_click_time = time.time()
-                            driver.execute_script("arguments[0].click();", modal_dl_btn)
-                            self.log("        Generating Document...")
-                        
-                            # --- INDIVIDUAL VS COMPANY LOGIC ---
-                            direct_download = False
-                            prefix = "TIS_"
-                            for _ in range(8):
-                                time.sleep(1)
-                                for f in os.listdir(download_folder):
-                                    f_path = os.path.join(download_folder, f)
-                                    if os.path.isfile(f_path) and os.path.getmtime(f_path) >= modal_click_time - 2:
-                                        if f.endswith(".crdownload") or f.endswith(".pdf"):
-                                            direct_download = True
-                                            break
-                                if direct_download: break
-
-                            if direct_download:
-                                self.log("        ✅ Direct download detected.")
-                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=modal_click_time-2, taxpayer_name=name_from_header)
-                                if saved_path:
-                                    count += 1
-                                    unlock_pdf(saved_path, user_id, dob, self.log)
-                                    pdf_download_success = True
-                                    break
-                                else:
-                                    self.log("        ❌ File capture failed.")
-                                try:
-                                    close_btn = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'CLOSE', 'close'), 'close')]")
-                                    driver.execute_script("arguments[0].click();", close_btn)
-                                except: pass
-                            else:
-                                self.log("        ℹ️ No direct download. Checking Activity History...")
-                                try:
-                                    close_btn = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'CLOSE', 'close'), 'close')]")
-                                    driver.execute_script("arguments[0].click();", close_btn)
-                                    time.sleep(0.5)
-                                except: pass
-
-                                history_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Go To Activity History']")))
-                                driver.execute_script("arguments[0].click();", history_btn)
-                                time.sleep(3)
-                                
-                                clean_temp_files(download_folder, prefixes=("TIS_",))
-                                hist_click_time = time.time()
-                                final_dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "(//img[@alt='Download'])[1]")))
-                                driver.execute_script("arguments[0].click();", final_dl_icon)
-                                self.log("        ✅ Export Triggered from History.")
-                                
-                                saved_path = wait_and_rename_file(download_folder, year, self.log, prefix=prefix, start_time=hist_click_time-2, taxpayer_name=name_from_header)
-                                if saved_path:
-                                    count += 1
-                                    unlock_pdf(saved_path, user_id, dob, self.log)
-                                    pdf_download_success = True
-                                    break
-                                else:
-                                    self.log("        ❌ File capture failed.")
-                                    
-                        except Exception as e:
-                            self.log(f"       ⚠️ Download Attempt {pdf_attempt} Failed: {str(e)[:30]}")
-                            if pdf_attempt == 3:
-                                self.log("       ❌ PDF Export failed after 3 attempts.")
-
-                    # Return to AIS tab for next year
-                    try:
-                        ais_internal_menu = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'AIS') and contains(@class, 'opacity-6')]") ))
-                        driver.execute_script("arguments[0].click();", ais_internal_menu)
-                        time.sleep(2)
-                    except: pass
-
-                return "Success", f"Downloaded {count} files", download_folder
-
-            except Exception as e:
-                return "Failed", f"TIS Portal Error: {str(e)[:20]}", download_folder
-
-        except Exception as e:
-            return "Failed", "Browser Crash", download_folder
-        finally:
-            if driver: driver.quit()
-
-
-# ============================================================
 #  WORKER 4: FILED RETURN REPORT WORKER
 # ============================================================
 class FiledReturnWorker:
@@ -2260,145 +1257,463 @@ class FiledReturnWorker:
 
 
 # ============================================================
-#  WORKER 5: COMBINED WORKER (26AS + AIS + TIS per PAN)
+#  WORKER: AIS & TIS COMBINED (single login, both files)
 # ============================================================
-class CombinedWorker:
+class AISTISWorker:
     def __init__(self, app_instance, excel_path, year_mode):
         self.app = app_instance
         self.excel_path = excel_path
         self.year_mode = year_mode
         self.keep_running = True
         self.report_data = []
+        self.user_selection_event = threading.Event()
+        self.current_user_selected_years = None
 
     def log(self, message):
-        try: self.app.update_log_safe_26as(message)
-        except: pass
-        try: self.app.update_log_safe_ais(message)
-        except: pass
-        try: self.app.update_log_safe_tis(message)
-        except: pass
+        self.app.update_log_safe_aistis(message)
+
+    def set_years_and_resume(self, selected_list):
+        self.current_user_selected_years = selected_list
+        self.user_selection_event.set()
 
     def run(self):
-        self.log("🚀 INITIALIZING COMBINED ENGINE (26AS + AIS + TIS)...")
+        self.log("🚀 INITIALIZING AIS & TIS ENGINE (single login)...")
         self.log(f"📂 Reading Credentials: {os.path.basename(self.excel_path)}")
         try:
             df = pd.read_excel(self.excel_path)
             user_col, pass_col, dob_col = normalize_columns(df)
             if not user_col or not pass_col:
                 self.log("❌ ERROR: Headers missing.")
-                def _reset_err():
-                    self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#2563EB")
-                    self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#2563EB")
-                    self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#2563EB")
-                    try: self.app.btn_stop_26as.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_26as.pack_forget()
-                    except: pass
-                    try: self.app.btn_stop_ais.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_ais.pack_forget()
-                    except: pass
-                    try: self.app.btn_stop_tis.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_tis.pack_forget()
-                    except: pass
-                self.app.after(0, _reset_err)
+                self.app.process_finished_safe_aistis("Failed: Column Header Error")
                 return
-
             total_users = len(df)
             for index, row in df.iterrows():
                 if not self.keep_running: break
-                
                 user_id = str(row[user_col]).strip()
                 password = str(row[pass_col]).strip()
                 dob = row[dob_col] if dob_col and pd.notna(row[dob_col]) else None
-                
-                self.app.update_progress_safe_26as((index) / total_users)
+                self.app.update_progress_safe_aistis(index / total_users)
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
-
                 base_dir = os.getcwd()
-                combined_root = os.path.join(base_dir, "Income Tax Downloaded", "Combined 26-AIS-TIS")
-                if not os.path.exists(combined_root): os.makedirs(combined_root, exist_ok=True)
-                
-                user_folder = create_unique_folder(combined_root, user_id)
-
-                folder_26as = os.path.join(user_folder, "1) 26AS")
-                folder_ais = os.path.join(user_folder, "2) AIS")
-                folder_tis = os.path.join(user_folder, "3) TIS")
-                for p in (folder_26as, folder_ais, folder_tis):
-                    if not os.path.exists(p): os.makedirs(p, exist_ok=True)
-
-                w26 = Tax26ASWorker(self.app, self.excel_path, self.year_mode)
-                wais = AISWorker(self.app, self.excel_path, self.year_mode)
-                wtis = TISWorker(self.app, self.excel_path, self.year_mode)
-
-                try:
-                    status26, reason26 = w26.process_single_user(user_id, password, dob, folder_26as)
-                    self.log(f"   26AS -> {status26}: {reason26}")
-                except Exception as e:
-                    status26, reason26 = "Failed", str(e)
-                    self.log(f"   26AS -> Exception: {e}")
-
-                try:
-                    statusAIS, reasonAIS = wais.process_single_user(user_id, password, dob, folder_ais)
-                    self.log(f"   AIS -> {statusAIS}: {reasonAIS}")
-                except Exception as e:
-                    statusAIS, reasonAIS = "Failed", str(e)
-                    self.log(f"   AIS -> Exception: {e}")
-
-                try:
-                    statusTIS, reasonTIS = wtis.process_single_user(user_id, password, dob, folder_tis)
-                    self.log(f"   TIS -> {statusTIS}: {reasonTIS}")
-                except Exception as e:
-                    statusTIS, reasonTIS = "Failed", str(e)
-                    self.log(f"   TIS -> Exception: {e}")
-
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "AIS-TIS")
+                status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 self.report_data.append({
-                    "PAN": user_id,
-                    "26AS Status": status26, "26AS Details": reason26,
-                    "AIS Status": statusAIS, "AIS Details": reasonAIS,
-                    "TIS Status": statusTIS, "TIS Details": reasonTIS,
-                    "Folder Saved": os.path.basename(user_folder),
-                    "Timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    "PAN": user_id, "Status": status, "Details": reason,
+                    "Folder Saved": os.path.basename(final_path) if final_path else user_id,
+                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
                 self.log("-" * 40)
+            self.generate_report()
+            self.app.update_progress_safe_aistis(1.0)
+            self.log("\n✅ BATCH COMPLETED!")
+            self.app.process_finished_safe_aistis("All Tasks Completed.")
+        except Exception as e:
+            self.log(f"❌ CRITICAL ERROR: {str(e)}")
+            self.app.process_finished_safe_aistis("Critical Error Occurred")
+
+    def generate_report(self):
+        try:
+            if not self.report_data: return
+            df_report = pd.DataFrame(self.report_data)
+            filename = f"AISTIS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            df_report.to_excel(filename, index=False)
+            self.log(f"📄 Report saved: {filename}")
+        except: pass
+
+    def process_single_user(self, user_id, password, dob, download_root):
+        driver = None
+        download_folder = create_unique_folder(download_root, user_id)
+        try:
+            options = webdriver.ChromeOptions()
+            options.add_argument("--start-maximized")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            prefs = {
+                "download.default_directory": download_folder,
+                "download.prompt_for_download": False,
+                "download.directory_upgrade": True,
+                "plugins.always_open_pdf_externally": True,
+                "profile.default_content_setting_values.automatic_downloads": 1,
+                "download_restrictions": 0,
+                "safebrowsing.enabled": True,
+                "safebrowsing.disable_download_protection": True
+            }
+            options.add_experimental_option("prefs", prefs)
+            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.set_page_load_timeout(30)
+            driver.set_script_timeout(30)
+            driver.implicitly_wait(10)
+            wait = WebDriverWait(driver, 20)
+
+            # 1. LOGIN
+            login_success = False
+            for login_attempt in range(1, 4):
+                if login_success: break
+                if login_attempt > 1:
+                    try: driver.delete_all_cookies(); driver.refresh()
+                    except: pass
+                    time.sleep(3)
+                try:
+                    self.log("   🌐 Opening Portal...")
+                    try:
+                        driver.get("https://eportal.incometax.gov.in/iec/foservices/#/login")
+                    except TimeoutException:
+                        self.log("   ⚠️ Page load timeout. Retrying..."); continue
+                    except Exception as e:
+                        self.log(f"   ⚠️ Page load error: {str(e)[:30]}. Retrying..."); continue
+                    time.sleep(2)
+                    try: driver.switch_to.alert.accept(); time.sleep(1)
+                    except: pass
+                    pan_entered = False
+                    for pan_retry in range(3):
+                        try:
+                            pan_field = wait.until(EC.visibility_of_element_located((By.ID, "panAdhaarUserId")))
+                            pan_field.clear(); pan_field.send_keys(user_id)
+                            pan_entered = True; break
+                        except:
+                            if pan_retry == 2: raise
+                            time.sleep(1)
+                    if not pan_entered: continue
+                    time.sleep(0.5)
+                    continue_success = False
+                    for cont_retry in range(3):
+                        try:
+                            continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.large-button-primary")))
+                            driver.execute_script("arguments[0].click();", continue_btn); time.sleep(1)
+                            if "ITD-EXEC2002" in driver.page_source or "Something seems to have gone wrong" in driver.page_source:
+                                if cont_retry < 2: continue
+                                else: raise Exception("ITD-EXEC2002 persists")
+                            continue_success = True; break
+                        except:
+                            if cont_retry == 2: raise
+                            time.sleep(1)
+                    if not continue_success: continue
+                    time.sleep(1.5)
+                    if "does not exist" in driver.page_source: return "Failed", "Invalid PAN", download_folder
+                    for pwd_retry in range(3):
+                        try:
+                            pwd_field = wait.until(EC.visibility_of_element_located((By.ID, "loginPasswordField")))
+                            pwd_field.clear(); pwd_field.send_keys(password); break
+                        except:
+                            if pwd_retry == 2: raise
+                            time.sleep(1)
+                    try:
+                        driver.execute_script("document.getElementById('passwordCheckBox-input').click();")
+                        time.sleep(0.3)
+                    except: pass
+                    self.log("   ⏳ Waiting for security check (3s)...")
+                    time.sleep(3.5)
+                    submit_success = False
+                    for submit_retry in range(3):
+                        try:
+                            driver.execute_script("document.querySelector('button.large-button-primary').click();")
+                            time.sleep(1)
+                            if "ITD-EXEC2002" in driver.page_source or "Something seems to have gone wrong" in driver.page_source:
+                                if submit_retry < 2: continue
+                                else: raise Exception("ITD-EXEC2002 persists")
+                            submit_success = True; break
+                        except:
+                            if submit_retry == 2: raise
+                            time.sleep(1)
+                    if not submit_success: continue
+                    for _ in range(20):
+                        time.sleep(1)
+                        try:
+                            if driver.find_elements(By.ID, "e-File"):
+                                self.log("   ✅ Login Successful!")
+                                login_success = True; break
+                        except: pass
+                        if "Invalid Password" in driver.page_source: return "Failed", "Invalid Password", download_folder
+                        try:
+                            dual = driver.find_elements(By.XPATH, "//button[contains(text(), 'Login Here')]")
+                            if dual and dual[0].is_displayed():
+                                driver.execute_script("arguments[0].click();", dual[0]); time.sleep(2)
+                        except: pass
+                    if login_success: break
+                except Exception as e:
+                    self.log(f"   ⚠️ Login Error: {str(e)[:50]}")
+                    if login_attempt < 3: time.sleep(2)
+
+            if not login_success: return "Failed", "Login Timeout", download_folder
+
+            name_from_header = get_taxpayer_name(driver, fallback=user_id)
+            if name_from_header != user_id:
+                self.log(f"   👤 Taxpayer: {name_from_header}")
+            else:
+                self.log("   ⚠️ Name not found; using PAN as folder name.")
+            folder_name = f"{name_from_header}_{user_id}"
+            download_folder = create_unique_folder(download_root, folder_name)
+            self.log(f"   📁 Folder: {os.path.basename(download_folder)}")
+            try:
+                driver.execute_cdp_cmd('Page.setDownloadBehavior', {'behavior': 'allow', 'downloadPath': download_folder})
+            except Exception as cdp_e:
+                self.log(f"   ⚠️ CDP redirect failed ({str(cdp_e)[:30]}); folder still created.")
+
+            # 2. NAVIGATE TO AIS PORTAL (same entry point for both AIS and TIS)
+            self.log("   🚀 Navigating to AIS Portal...")
+            nav_success = False
+            for nav_attempt in range(1, 4):
+                try:
+                    if nav_attempt > 1:
+                        self.log(f"   ⚠️ Navigation Retry {nav_attempt}/3...")
+                        driver.get("https://eportal.incometax.gov.in/iec/foservices/#/dashboard")
+                        time.sleep(2)
+                    ais_span = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(@class, 'mdc-button__label') and contains(text(), 'AIS')]")))
+                    driver.execute_script("arguments[0].click();", ais_span)
+                    try:
+                        proceed_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Proceed')]")))
+                        driver.execute_script("arguments[0].click();", proceed_btn)
+                    except: pass
+                    time.sleep(2)
+                    nav_success = True; break
+                except Exception as e:
+                    self.log(f"   ⚠️ Nav Attempt {nav_attempt} Failed: {str(e)[:40]}")
+                    if nav_attempt == 3: return "Failed", "Dashboard AIS Menu Not Found", download_folder
+            if not nav_success: return "Failed", "Dashboard AIS Menu Not Found", download_folder
+
+            tab_found = False
+            for tab_attempt in range(1, 4):
+                try:
+                    time.sleep(1)
+                    if len(driver.window_handles) > 1:
+                        driver.switch_to.window(driver.window_handles[-1])
+                        tab_found = True; break
+                    else:
+                        if tab_attempt < 3:
+                            self.log(f"   ⚠️ Waiting for portal tab... Attempt {tab_attempt}/3")
+                            time.sleep(2)
+                except:
+                    if tab_attempt == 3: return "Failed", "AIS Tab did not open", download_folder
+            if not tab_found: return "Failed", "AIS Tab did not open", download_folder
+
+            internal_success = False
+            for internal_attempt in range(1, 4):
+                try:
+                    if internal_attempt > 1:
+                        self.log(f"   ⚠️ Internal Menu Retry {internal_attempt}/3...")
+                        driver.refresh(); time.sleep(2)
+                    ais_menu = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'AIS') and contains(@class, 'opacity-6')]")))
+                    driver.execute_script("arguments[0].click();", ais_menu); time.sleep(2)
+                    internal_success = True; break
+                except Exception as e:
+                    self.log(f"   ⚠️ Internal Menu Attempt {internal_attempt} Failed: {str(e)[:40]}")
+                    if internal_attempt == 3: return "Failed", "AIS Internal Menu Failed", download_folder
+            if not internal_success: return "Failed", "AIS Internal Menu Failed", download_folder
 
             try:
-                if self.report_data:
-                    df_report = pd.DataFrame(self.report_data)
-                    filename = f"Combined_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                    df_report.to_excel(filename, index=False)
-                    self.log(f"📄 Combined report saved: {filename}")
-            except Exception as e:
-                self.log(f"⚠️ Failed to save combined report: {e}")
+                self.log("   📥 Fetching Available Years...")
+                try:
+                    dropdown_toggle = wait.until(EC.presence_of_element_located((By.ID, "dropdownMenuButton")))
+                    driver.execute_script("arguments[0].click();", dropdown_toggle); time.sleep(0.5)
+                except: pass
+                year_buttons = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//button[contains(@class, 'dropdown-item') and contains(text(), 'F.Y.')]")))
+                available_years = []
+                for btn in year_buttons:
+                    txt = btn.get_attribute("textContent").strip()
+                    if txt and txt not in available_years: available_years.append(txt)
+                try: driver.execute_script("arguments[0].click();", dropdown_toggle)
+                except: pass
+                if not available_years: return "Failed", "No years found", download_folder
 
-            # Reset all button states
-            def _reset_done():
-                self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#2563EB")
-                self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#2563EB")
-                self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#2563EB")
-                try: self.app.btn_stop_26as.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_26as.pack_forget()
-                except: pass
-                try: self.app.btn_stop_ais.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_ais.pack_forget()
-                except: pass
-                try: self.app.btn_stop_tis.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_tis.pack_forget()
-                except: pass
-                try: self.app.btn_open_folder_26as.pack(side="left", padx=(10, 0))
-                except: pass
-                try: self.app.btn_open_folder_ais.pack(side="left", padx=(10, 0))
-                except: pass
-                try: self.app.btn_open_folder_tis.pack(side="left", padx=(10, 0))
-                except: pass
-                messagebox.showinfo("Done", "Combined download finished")
-            self.app.after(0, _reset_done)
+                if self.year_mode == "Current Year": self.current_user_selected_years = available_years[:1]
+                elif self.year_mode == "Current and Last Year": self.current_user_selected_years = available_years[:2]
+                elif self.year_mode == "Current and Last 2 Years": self.current_user_selected_years = available_years[:3]
+                else:
+                    self.log(f"   🛑 PAUSED: Found {len(available_years)} years. Waiting for you...")
+                    self.user_selection_event.clear()
+                    self.current_user_selected_years = None
+                    self.app.trigger_year_selection(available_years, user_id, self.set_years_and_resume)
+                    self.user_selection_event.wait()
+
+                years_to_download = [y for y in self.current_user_selected_years if y in available_years]
+                if not years_to_download: return "Warning", "No valid years selected", download_folder
+
+                self.log(f"   ⬇️ Downloading {len(years_to_download)} Year(s) — AIS + TIS each...")
+                ais_count = 0
+                tis_count = 0
+                AIS_MENU_XPATH = "//span[contains(text(), 'AIS') and contains(@class, 'opacity-6')]"
+
+                for year in years_to_download:
+                    self.log(f"   📅 Year: {year}")
+
+                    # ── AIS download ────────────────────────────────────
+                    ais_year_ok = False
+                    for year_attempt in range(1, 4):
+                        try:
+                            if year_attempt > 1:
+                                self.log(f"     -> AIS Retry {year_attempt}/3 for {year}...")
+                                driver.refresh(); time.sleep(2)
+                                ais_m = wait.until(EC.element_to_be_clickable((By.XPATH, AIS_MENU_XPATH)))
+                                driver.execute_script("arguments[0].click();", ais_m); time.sleep(2)
+                            else:
+                                self.log(f"     -> AIS: {year}...")
+                            try:
+                                dt = driver.find_element(By.ID, "dropdownMenuButton")
+                                driver.execute_script("arguments[0].click();", dt); time.sleep(0.5)
+                            except: pass
+                            yr_btn = wait.until(EC.presence_of_element_located((By.XPATH, f"//button[contains(@class,'dropdown-item') and contains(text(),'{year}')]")))
+                            driver.execute_script("arguments[0].click();", yr_btn); time.sleep(2)
+                            dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "//img[@title='Download AIS related documents']")))
+                            driver.execute_script("arguments[0].click();", dl_icon); time.sleep(1)
+                            ais_year_ok = True; break
+                        except Exception as e:
+                            if year_attempt == 3:
+                                self.log(f"        ⚠️ AIS failed for {year} after 3 attempts")
+
+                    if ais_year_ok:
+                        for pdf_attempt in range(1, 4):
+                            try:
+                                if pdf_attempt > 1:
+                                    self.log(f"        ⚠️ AIS PDF Retry {pdf_attempt}/3..."); time.sleep(2)
+                                clean_temp_files(download_folder, prefixes=("AIS_",))
+                                modal_dl_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Download' and contains(@class, 'btn-outline-primary')]")))
+                                modal_click_time = time.time()
+                                driver.execute_script("arguments[0].click();", modal_dl_btn)
+                                self.log("        Generating AIS Document...")
+                                direct_download = False
+                                for _ in range(8):
+                                    time.sleep(1)
+                                    for f in os.listdir(download_folder):
+                                        fp = os.path.join(download_folder, f)
+                                        if os.path.isfile(fp) and os.path.getmtime(fp) >= modal_click_time - 2:
+                                            if f.endswith(".crdownload") or f.endswith(".pdf"):
+                                                direct_download = True; break
+                                    if direct_download: break
+                                if direct_download:
+                                    self.log("        ✅ AIS Direct download detected.")
+                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="AIS_", start_time=modal_click_time-2, taxpayer_name=name_from_header)
+                                    if saved_path:
+                                        ais_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
+                                    else:
+                                        self.log("        ❌ AIS file capture failed.")
+                                    try:
+                                        close_btn = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'CLOSE', 'close'), 'close')]")
+                                        driver.execute_script("arguments[0].click();", close_btn)
+                                    except: pass
+                                else:
+                                    self.log("        ℹ️ No AIS direct download. Checking Activity History...")
+                                    try:
+                                        close_btn = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'CLOSE', 'close'), 'close')]")
+                                        driver.execute_script("arguments[0].click();", close_btn); time.sleep(0.5)
+                                    except: pass
+                                    history_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Go To Activity History']")))
+                                    driver.execute_script("arguments[0].click();", history_btn); time.sleep(3)
+                                    clean_temp_files(download_folder, prefixes=("AIS_",))
+                                    hist_click_time = time.time()
+                                    final_dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "(//img[@alt='Download'])[1]")))
+                                    driver.execute_script("arguments[0].click();", final_dl_icon)
+                                    self.log("        ✅ AIS Export Triggered from History.")
+                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="AIS_", start_time=hist_click_time-2, taxpayer_name=name_from_header)
+                                    if saved_path:
+                                        ais_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
+                                    else:
+                                        self.log("        ❌ AIS file capture failed.")
+                            except Exception as e:
+                                self.log(f"       ⚠️ AIS Attempt {pdf_attempt} Failed: {str(e)[:30]}")
+                                if pdf_attempt == 3:
+                                    self.log("       ❌ AIS PDF Export failed after 3 attempts.")
+
+                    # Navigate back before TIS
+                    try:
+                        ais_m = wait.until(EC.element_to_be_clickable((By.XPATH, AIS_MENU_XPATH)))
+                        driver.execute_script("arguments[0].click();", ais_m); time.sleep(2)
+                    except: pass
+
+                    # ── TIS download ────────────────────────────────────
+                    tis_year_ok = False
+                    for year_attempt in range(1, 4):
+                        try:
+                            if year_attempt > 1:
+                                self.log(f"     -> TIS Retry {year_attempt}/3 for {year}...")
+                                driver.refresh(); time.sleep(2)
+                                ais_m = wait.until(EC.element_to_be_clickable((By.XPATH, AIS_MENU_XPATH)))
+                                driver.execute_script("arguments[0].click();", ais_m); time.sleep(2)
+                            else:
+                                self.log(f"     -> TIS: {year}...")
+                            try:
+                                dt = driver.find_element(By.ID, "dropdownMenuButton")
+                                driver.execute_script("arguments[0].click();", dt); time.sleep(0.5)
+                            except: pass
+                            yr_btn = wait.until(EC.presence_of_element_located((By.XPATH, f"//button[contains(@class,'dropdown-item') and contains(text(),'{year}')]")))
+                            driver.execute_script("arguments[0].click();", yr_btn); time.sleep(2)
+                            tis_dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "//img[contains(@title,'Download TIS related documents') or contains(@alt,'Download TIS related documents')]")))
+                            driver.execute_script("arguments[0].click();", tis_dl_icon); time.sleep(1)
+                            tis_year_ok = True; break
+                        except Exception as e:
+                            if year_attempt == 3:
+                                self.log(f"        ⚠️ TIS failed for {year} after 3 attempts")
+
+                    if tis_year_ok:
+                        for pdf_attempt in range(1, 4):
+                            try:
+                                if pdf_attempt > 1:
+                                    self.log(f"        ⚠️ TIS PDF Retry {pdf_attempt}/3..."); time.sleep(2)
+                                clean_temp_files(download_folder, prefixes=("TIS_",))
+                                modal_dl_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Download' and contains(@class, 'btn-outline-primary')]")))
+                                modal_click_time = time.time()
+                                driver.execute_script("arguments[0].click();", modal_dl_btn)
+                                self.log("        Generating TIS Document...")
+                                direct_download = False
+                                for _ in range(8):
+                                    time.sleep(1)
+                                    for f in os.listdir(download_folder):
+                                        fp = os.path.join(download_folder, f)
+                                        if os.path.isfile(fp) and os.path.getmtime(fp) >= modal_click_time - 2:
+                                            if f.endswith(".crdownload") or f.endswith(".pdf"):
+                                                direct_download = True; break
+                                    if direct_download: break
+                                if direct_download:
+                                    self.log("        ✅ TIS Direct download detected.")
+                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="TIS_", start_time=modal_click_time-2, taxpayer_name=name_from_header)
+                                    if saved_path:
+                                        tis_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
+                                    else:
+                                        self.log("        ❌ TIS file capture failed.")
+                                    try:
+                                        close_btn = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'CLOSE', 'close'), 'close')]")
+                                        driver.execute_script("arguments[0].click();", close_btn)
+                                    except: pass
+                                else:
+                                    self.log("        ℹ️ No TIS direct download. Checking Activity History...")
+                                    try:
+                                        close_btn = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'CLOSE', 'close'), 'close')]")
+                                        driver.execute_script("arguments[0].click();", close_btn); time.sleep(0.5)
+                                    except: pass
+                                    history_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Go To Activity History']")))
+                                    driver.execute_script("arguments[0].click();", history_btn); time.sleep(3)
+                                    clean_temp_files(download_folder, prefixes=("TIS_",))
+                                    hist_click_time = time.time()
+                                    final_dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "(//img[@alt='Download'])[1]")))
+                                    driver.execute_script("arguments[0].click();", final_dl_icon)
+                                    self.log("        ✅ TIS Export Triggered from History.")
+                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="TIS_", start_time=hist_click_time-2, taxpayer_name=name_from_header)
+                                    if saved_path:
+                                        tis_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
+                                    else:
+                                        self.log("        ❌ TIS file capture failed.")
+                            except Exception as e:
+                                self.log(f"       ⚠️ TIS Attempt {pdf_attempt} Failed: {str(e)[:30]}")
+                                if pdf_attempt == 3:
+                                    self.log("       ❌ TIS PDF Export failed after 3 attempts.")
+
+                    # Return to AIS menu for next year
+                    try:
+                        ais_m = wait.until(EC.element_to_be_clickable((By.XPATH, AIS_MENU_XPATH)))
+                        driver.execute_script("arguments[0].click();", ais_m); time.sleep(2)
+                    except: pass
+
+                return "Success", f"AIS: {ais_count} files, TIS: {tis_count} files", download_folder
+
+            except Exception as e:
+                return "Failed", f"Portal Error: {str(e)[:20]}", download_folder
 
         except Exception as e:
-            self.log(f"❌ CRITICAL ERROR: {e}")
-            def _reset_crit():
-                self.app.btn_start_26as.configure(state="normal", text="START 26AS DOWNLOAD", fg_color="#2563EB")
-                self.app.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#2563EB")
-                self.app.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#2563EB")
-                try: self.app.btn_stop_26as.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_26as.pack_forget()
-                except: pass
-                try: self.app.btn_stop_ais.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_ais.pack_forget()
-                except: pass
-                try: self.app.btn_stop_tis.configure(state="normal", text="⏹ STOP"); self.app.btn_stop_tis.pack_forget()
-                except: pass
-            self.app.after(0, _reset_crit)
+            return "Failed", "Browser Crash", download_folder
+        finally:
+            if driver: driver.quit()
 
 # ============================================================
 #  MAIN APP GUI
@@ -2421,31 +1736,23 @@ class App(ctk.CTk):
         # --- Main Tab View ---
         self.tabview = ctk.CTkTabview(self, width=860)
         self.tabview.add("26AS")
-        self.tabview.add("AIS")
-        self.tabview.add("TIS")
+        self.tabview.add("AIS & TIS")
         self.tabview.grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
 
-        # ==========================================
-        #  DIRECT TABS (26AS, AIS, TIS)
-        # ==========================================
         self.tab_26as = self.tabview.tab("26AS")
-        self.tab_ais = self.tabview.tab("AIS")
-        self.tab_tis = self.tabview.tab("TIS")
+        self.tab_aistis = self.tabview.tab("AIS & TIS")
 
-        self.chk_download_all_var = ctk.StringVar(value="off")
         self.manual_credentials = []
         self._build_26as_ui()
-        self._build_ais_ui()
-        self._build_tis_ui()
+        self._build_aistis_ui()
 
     # --- UI BUILDERS ---
     def _build_26as_ui(self):
         self.excel_file_path_26as = ""
         self.tab_26as.grid_columnconfigure(0, weight=1)
-        self.tab_26as.grid_rowconfigure(2, weight=1)
-        ctk.CTkCheckBox(self.tab_26as, text="Download all Three documents (26AS, AIS, TIS)", variable=self.chk_download_all_var, onvalue="on", offvalue="off").grid(row=0, column=0, sticky="w", padx=10, pady=(6,4))
+        self.tab_26as.grid_rowconfigure(1, weight=1)
         self.config_26as = ctk.CTkFrame(self.tab_26as)
-        self.config_26as.grid(row=1, column=0, sticky="ew", padx=10, pady=(2, 5))
+        self.config_26as.grid(row=0, column=0, sticky="ew", padx=10, pady=(2, 5))
 
         ctk.CTkLabel(self.config_26as, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
         f_frame = ctk.CTkFrame(self.config_26as, fg_color="transparent")
@@ -2468,13 +1775,13 @@ class App(ctk.CTk):
 
         pref_frame = ctk.CTkFrame(self.config_26as, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
-        ctk.CTkLabel(pref_frame, text="Download Return:", text_color="gray").pack(side="left", padx=(0, 10))
-        self.combo_years_26as = ctk.CTkComboBox(pref_frame, values=YEAR_MODE_OPTIONS, width=250, state="readonly")
-        self.combo_years_26as.set("Current Year")
+        ctk.CTkLabel(pref_frame, text="Assessment Year:", text_color="gray").pack(side="left", padx=(0, 10))
+        self.combo_years_26as = ctk.CTkComboBox(pref_frame, values=ASSESSMENT_YEAR_OPTIONS, width=250, state="readonly")
+        self.combo_years_26as.set(ASSESSMENT_YEAR_OPTIONS[0])
         self.combo_years_26as.pack(side="left")
 
         self.log_frame_26as = ctk.CTkFrame(self.tab_26as)
-        self.log_frame_26as.grid(row=2, column=0, sticky="nsew", padx=10, pady=(5, 5))
+        self.log_frame_26as.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 5))
         self.log_frame_26as.grid_rowconfigure(1, weight=1)
         self.log_frame_26as.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(self.log_frame_26as, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
@@ -2487,7 +1794,7 @@ class App(ctk.CTk):
         self.progress_26as.set(0)
 
         btn_footer_26as = ctk.CTkFrame(self.tab_26as, fg_color="transparent")
-        btn_footer_26as.grid(row=3, column=0, sticky="ew", padx=20, pady=(5, 10))
+        btn_footer_26as.grid(row=2, column=0, sticky="ew", padx=20, pady=(5, 10))
         self.btn_start_26as = ctk.CTkButton(btn_footer_26as, text="START 26AS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("26as"))
         self.btn_start_26as.pack(side="left", expand=True, fill="x")
         self.btn_stop_26as = ctk.CTkButton(btn_footer_26as, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("26as"), width=150)
@@ -2497,121 +1804,59 @@ class App(ctk.CTk):
         self.btn_open_folder_26as.pack(side="left", padx=(10, 0))
         self.btn_open_folder_26as.pack_forget()
 
-    def _build_ais_ui(self):
-        self.excel_file_path_ais = ""
-        self.tab_ais.grid_columnconfigure(0, weight=1)
-        self.tab_ais.grid_rowconfigure(2, weight=1)
-        ctk.CTkCheckBox(self.tab_ais, text="Download all Three documents (26AS, AIS, TIS)", variable=self.chk_download_all_var, onvalue="on", offvalue="off").grid(row=0, column=0, sticky="w", padx=10, pady=(6,4))
-        self.config_ais = ctk.CTkFrame(self.tab_ais)
-        self.config_ais.grid(row=1, column=0, sticky="ew", padx=10, pady=(2, 5))
+    def _build_aistis_ui(self):
+        self.excel_file_path_aistis = ""
+        self.tab_aistis.grid_columnconfigure(0, weight=1)
+        self.tab_aistis.grid_rowconfigure(1, weight=1)
+        self.config_aistis = ctk.CTkFrame(self.tab_aistis)
+        self.config_aistis.grid(row=0, column=0, sticky="ew", padx=10, pady=(2, 5))
 
-        ctk.CTkLabel(self.config_ais, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
-        f_frame = ctk.CTkFrame(self.config_ais, fg_color="transparent")
+        ctk.CTkLabel(self.config_aistis, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
+        f_frame = ctk.CTkFrame(self.config_aistis, fg_color="transparent")
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
-        self.entry_file_ais = ctk.CTkEntry(f_frame, placeholder_text="Add PAN, Password, DOB manually...")
-        self.entry_file_ais.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.entry_file_aistis = ctk.CTkEntry(f_frame, placeholder_text="Add PAN, Password, DOB manually...")
+        self.entry_file_aistis.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        # Add ID first
-        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("ais"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
-        # View and Delete next
-        self.btn_view_ais = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("ais"), width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
-        self.btn_view_ais.pack(side="left", padx=(5, 0))
-        self.btn_delete_ais = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("ais"), width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
-        self.btn_delete_ais.pack(side="left", padx=(5, 0))
-        # Demo last
+        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("aistis"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.btn_view_aistis = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("aistis"), width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
+        self.btn_view_aistis.pack(side="left", padx=(5, 0))
+        self.btn_delete_aistis = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("aistis"), width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
+        self.btn_delete_aistis.pack(side="left", padx=(5, 0))
         ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
-        self.btn_view_ais.configure(state="disabled")
-        self.btn_delete_ais.configure(state="disabled")
+        self.btn_view_aistis.configure(state="disabled")
+        self.btn_delete_aistis.configure(state="disabled")
 
-        pref_frame = ctk.CTkFrame(self.config_ais, fg_color="transparent")
+        pref_frame = ctk.CTkFrame(self.config_aistis, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
-        ctk.CTkLabel(pref_frame, text="Download Return:", text_color="gray").pack(side="left", padx=(0, 10))
-        self.combo_years_ais = ctk.CTkComboBox(pref_frame, values=YEAR_MODE_OPTIONS, width=250, state="readonly")
-        self.combo_years_ais.set("Current Year")
-        self.combo_years_ais.pack(side="left")
+        ctk.CTkLabel(pref_frame, text="Financial Year:", text_color="gray").pack(side="left", padx=(0, 10))
+        self.combo_years_aistis = ctk.CTkComboBox(pref_frame, values=ASSESSMENT_YEAR_OPTIONS, width=250, state="readonly")
+        self.combo_years_aistis.set(ASSESSMENT_YEAR_OPTIONS[0])
+        self.combo_years_aistis.pack(side="left")
 
-        self.log_frame_ais = ctk.CTkFrame(self.tab_ais)
-        self.log_frame_ais.grid(row=2, column=0, sticky="nsew", padx=10, pady=(5, 5))
-        self.log_frame_ais.grid_rowconfigure(1, weight=1)
-        self.log_frame_ais.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self.log_frame_ais, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
-        self.log_box_ais = ctk.CTkTextbox(self.log_frame_ais, font=("Consolas", 12), activate_scrollbars=True)
-        self.log_box_ais.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
-        self.log_box_ais.configure(state="disabled")
-        
-        self.progress_ais = ctk.CTkProgressBar(self.log_frame_ais, mode="determinate")
-        self.progress_ais.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
-        self.progress_ais.set(0)
+        self.log_frame_aistis = ctk.CTkFrame(self.tab_aistis)
+        self.log_frame_aistis.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 5))
+        self.log_frame_aistis.grid_rowconfigure(1, weight=1)
+        self.log_frame_aistis.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(self.log_frame_aistis, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
+        self.log_box_aistis = ctk.CTkTextbox(self.log_frame_aistis, font=("Consolas", 12), activate_scrollbars=True)
+        self.log_box_aistis.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
+        self.log_box_aistis.configure(state="disabled")
 
-        btn_footer_ais = ctk.CTkFrame(self.tab_ais, fg_color="transparent")
-        btn_footer_ais.grid(row=3, column=0, sticky="ew", padx=20, pady=(5, 10))
-        self.btn_start_ais = ctk.CTkButton(btn_footer_ais, text="START AIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("ais"))
-        self.btn_start_ais.pack(side="left", expand=True, fill="x")
-        self.btn_stop_ais = ctk.CTkButton(btn_footer_ais, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("ais"), width=150)
-        self.btn_stop_ais.pack(side="left", padx=(10, 0))
-        self.btn_stop_ais.pack_forget()
-        self.btn_open_folder_ais = ctk.CTkButton(btn_footer_ais, text="📂 OPEN FOLDER", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#2563EB", hover_color="#1D4ED8", command=lambda: self.open_download_folder("ais"), width=180)
-        self.btn_open_folder_ais.pack(side="left", padx=(10, 0))
-        self.btn_open_folder_ais.pack_forget()
+        self.progress_aistis = ctk.CTkProgressBar(self.log_frame_aistis, mode="determinate")
+        self.progress_aistis.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
+        self.progress_aistis.set(0)
 
-    def _build_tis_ui(self):
-        self.excel_file_path_tis = ""
-        self.tab_tis.grid_columnconfigure(0, weight=1)
-        self.tab_tis.grid_rowconfigure(2, weight=1)
-        ctk.CTkCheckBox(self.tab_tis, text="Download all Three documents (26AS, AIS, TIS)", variable=self.chk_download_all_var, onvalue="on", offvalue="off").grid(row=0, column=0, sticky="w", padx=10, pady=(6,4))
-        self.config_tis = ctk.CTkFrame(self.tab_tis)
-        self.config_tis.grid(row=1, column=0, sticky="ew", padx=10, pady=(2, 5))
-
-        ctk.CTkLabel(self.config_tis, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
-        f_frame = ctk.CTkFrame(self.config_tis, fg_color="transparent")
-        f_frame.pack(fill="x", padx=15, pady=(0, 5))
-        self.entry_file_tis = ctk.CTkEntry(f_frame, placeholder_text="Add PAN, Password, DOB manually...")
-        self.entry_file_tis.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
-        btn_actions.pack(side="right")
-        # Add ID first
-        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("tis"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
-        # View and Delete next
-        self.btn_view_tis = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("tis"), width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
-        self.btn_view_tis.pack(side="left", padx=(5, 0))
-        self.btn_delete_tis = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("tis"), width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
-        self.btn_delete_tis.pack(side="left", padx=(5, 0))
-        # Demo last
-        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
-        self.btn_view_tis.configure(state="disabled")
-        self.btn_delete_tis.configure(state="disabled")
-
-        pref_frame = ctk.CTkFrame(self.config_tis, fg_color="transparent")
-        pref_frame.pack(fill="x", padx=15, pady=(5, 10))
-        ctk.CTkLabel(pref_frame, text="Download Return:", text_color="gray").pack(side="left", padx=(0, 10))
-        self.combo_years_tis = ctk.CTkComboBox(pref_frame, values=YEAR_MODE_OPTIONS, width=250, state="readonly")
-        self.combo_years_tis.set("Current Year")
-        self.combo_years_tis.pack(side="left")
-
-        self.log_frame_tis = ctk.CTkFrame(self.tab_tis)
-        self.log_frame_tis.grid(row=2, column=0, sticky="nsew", padx=10, pady=(5, 5))
-        self.log_frame_tis.grid_rowconfigure(1, weight=1)
-        self.log_frame_tis.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self.log_frame_tis, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
-        self.log_box_tis = ctk.CTkTextbox(self.log_frame_tis, font=("Consolas", 12), activate_scrollbars=True)
-        self.log_box_tis.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
-        self.log_box_tis.configure(state="disabled")
-
-        self.progress_tis = ctk.CTkProgressBar(self.log_frame_tis, mode="determinate")
-        self.progress_tis.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
-        self.progress_tis.set(0)
-
-        btn_footer_tis = ctk.CTkFrame(self.tab_tis, fg_color="transparent")
-        btn_footer_tis.grid(row=3, column=0, sticky="ew", padx=20, pady=(5, 10))
-        self.btn_start_tis = ctk.CTkButton(btn_footer_tis, text="START TIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("tis"))
-        self.btn_start_tis.pack(side="left", expand=True, fill="x")
-        self.btn_stop_tis = ctk.CTkButton(btn_footer_tis, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("tis"), width=150)
-        self.btn_stop_tis.pack(side="left", padx=(10, 0))
-        self.btn_stop_tis.pack_forget()
-        self.btn_open_folder_tis = ctk.CTkButton(btn_footer_tis, text="📂 OPEN FOLDER", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#2563EB", hover_color="#1D4ED8", command=lambda: self.open_download_folder("tis"), width=180)
-        self.btn_open_folder_tis.pack(side="left", padx=(10, 0))
-        self.btn_open_folder_tis.pack_forget()
+        btn_footer_aistis = ctk.CTkFrame(self.tab_aistis, fg_color="transparent")
+        btn_footer_aistis.grid(row=2, column=0, sticky="ew", padx=20, pady=(5, 10))
+        self.btn_start_aistis = ctk.CTkButton(btn_footer_aistis, text="START AIS & TIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("aistis"))
+        self.btn_start_aistis.pack(side="left", expand=True, fill="x")
+        self.btn_stop_aistis = ctk.CTkButton(btn_footer_aistis, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("aistis"), width=150)
+        self.btn_stop_aistis.pack(side="left", padx=(10, 0))
+        self.btn_stop_aistis.pack_forget()
+        self.btn_open_folder_aistis = ctk.CTkButton(btn_footer_aistis, text="📂 OPEN FOLDER", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#2563EB", hover_color="#1D4ED8", command=lambda: self.open_download_folder("aistis"), width=180)
+        self.btn_open_folder_aistis.pack(side="left", padx=(10, 0))
+        self.btn_open_folder_aistis.pack_forget()
 
     # --- GUI Handlers ---
     def trigger_year_selection(self, years_list, user_id, callback):
@@ -2650,16 +1895,6 @@ class App(ctk.CTk):
                 self.entry_file_26as.delete(0, "end")
                 self.entry_file_26as.insert(0, filename)
                 self.log_to_gui_26as(f"File Loaded: {os.path.basename(filename)}")
-            elif mode == "ais":
-                self.excel_file_path_ais = filename
-                self.entry_file_ais.delete(0, "end")
-                self.entry_file_ais.insert(0, filename)
-                self.log_to_gui_ais(f"File Loaded: {os.path.basename(filename)}")
-            elif mode == "tis":
-                self.excel_file_path_tis = filename
-                self.entry_file_tis.delete(0, "end")
-                self.entry_file_tis.insert(0, filename)
-                self.log_to_gui_tis(f"File Loaded: {os.path.basename(filename)}")
 
     def _get_saved_user_id(self):
         if not self.manual_credentials:
@@ -2668,7 +1903,7 @@ class App(ctk.CTk):
 
     def _refresh_manual_controls(self):
         has_manual = bool(self.manual_credentials)
-        for btn_attr in ["btn_view_26as", "btn_delete_26as", "btn_view_ais", "btn_delete_ais", "btn_view_tis", "btn_delete_tis"]:
+        for btn_attr in ["btn_view_26as", "btn_delete_26as", "btn_view_aistis", "btn_delete_aistis"]:
             btn = getattr(self, btn_attr, None)
             if btn is not None:
                 btn.configure(state="normal" if has_manual else "disabled")
@@ -2676,7 +1911,7 @@ class App(ctk.CTk):
         if has_manual:
             user_id = self._get_saved_user_id()
             manual_text = f"Selected ID: {user_id}"
-            for entry_attr in ["entry_file_26as", "entry_file_ais", "entry_file_tis"]:
+            for entry_attr in ["entry_file_26as", "entry_file_aistis"]:
                 entry = getattr(self, entry_attr, None)
                 if entry is not None:
                     entry.delete(0, "end")
@@ -2697,7 +1932,7 @@ class App(ctk.CTk):
         if not messagebox.askyesno("Delete ID", f"Delete saved ID {user_id}?"):
             return
         self.manual_credentials = []
-        for entry_attr in ["entry_file_26as", "entry_file_ais", "entry_file_tis"]:
+        for entry_attr in ["entry_file_26as", "entry_file_aistis"]:
             entry = getattr(self, entry_attr, None)
             if entry is not None:
                 entry.delete(0, "end")
@@ -2763,8 +1998,7 @@ class App(ctk.CTk):
 
             self.manual_credentials = [{"PAN": user_id, "Password": password, "DOB": dob}]
             self.excel_file_path_26as = ""
-            self.excel_file_path_ais = ""
-            self.excel_file_path_tis = ""
+            self.excel_file_path_aistis = ""
 
             self._refresh_manual_controls()
 
@@ -2797,10 +2031,8 @@ class App(ctk.CTk):
     def _resolve_excel_path(self, mode):
         if mode == "26as":
             path = self.excel_file_path_26as
-        elif mode == "ais":
-            path = self.excel_file_path_ais
-        elif mode == "tis":
-            path = self.excel_file_path_tis
+        elif mode == "aistis":
+            path = self.excel_file_path_aistis
         else:
             path = ""
 
@@ -2815,8 +2047,7 @@ class App(ctk.CTk):
     def _get_selected_year_mode(self, mode):
         combo_map = {
             "26as": "combo_years_26as",
-            "ais": "combo_years_ais",
-            "tis": "combo_years_tis",
+            "aistis": "combo_years_aistis",
         }
         combo_attr = combo_map.get(mode)
         if not combo_attr:
@@ -2831,42 +2062,6 @@ class App(ctk.CTk):
         return selected if selected in YEAR_MODE_OPTIONS else "Current Year"
 
     def start_process(self, mode):
-        if getattr(self, 'chk_download_all_var', None) and self.chk_download_all_var.get() == "on":
-            excel_path = None
-            year_mode = self._get_selected_year_mode(mode)
-            if mode == "26as":
-                excel_path = self._resolve_excel_path("26as")
-                if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
-            elif mode == "ais":
-                excel_path = self._resolve_excel_path("ais")
-                if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
-            elif mode == "tis":
-                excel_path = self._resolve_excel_path("tis")
-                if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
-
-            try: self.btn_start_26as.configure(state="disabled", text="PROCESSING...", fg_color="gray")
-            except: pass
-            try: self.btn_start_ais.configure(state="disabled", text="PROCESSING...", fg_color="gray")
-            except: pass
-            try: self.btn_start_tis.configure(state="disabled", text="PROCESSING...", fg_color="gray")
-            except: pass
-            try: self.btn_stop_26as.pack(side="left", padx=(10, 0))
-            except: pass
-            try: self.btn_stop_ais.pack(side="left", padx=(10, 0))
-            except: pass
-            try: self.btn_stop_tis.pack(side="left", padx=(10, 0))
-            except: pass
-            try: self.btn_open_folder_26as.pack_forget()
-            except: pass
-            try: self.btn_open_folder_ais.pack_forget()
-            except: pass
-            try: self.btn_open_folder_tis.pack_forget()
-            except: pass
-
-            self.worker = CombinedWorker(self, excel_path, year_mode)
-            threading.Thread(target=self.worker.run, daemon=True).start()
-            return
-
         if mode == "26as":
             excel_path = self._resolve_excel_path("26as")
             if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
@@ -2877,25 +2072,15 @@ class App(ctk.CTk):
             self.progress_26as.set(0)
             self.worker = Tax26ASWorker(self, excel_path, year_mode)
             threading.Thread(target=self.worker.run, daemon=True).start()
-        elif mode == "ais":
-            excel_path = self._resolve_excel_path("ais")
+        elif mode == "aistis":
+            excel_path = self._resolve_excel_path("aistis")
             if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
-            year_mode = self._get_selected_year_mode("ais")
-            self.btn_start_ais.configure(state="disabled", text="PROCESSING...", fg_color="gray")
-            self.btn_stop_ais.pack(side="left", padx=(10, 0))
-            self.btn_open_folder_ais.pack_forget()
-            self.progress_ais.set(0)
-            self.worker = AISWorker(self, excel_path, year_mode)
-            threading.Thread(target=self.worker.run, daemon=True).start()
-        elif mode == "tis":
-            excel_path = self._resolve_excel_path("tis")
-            if not excel_path: return messagebox.showwarning("Error", "Select file or add ID/Password first")
-            year_mode = self._get_selected_year_mode("tis")
-            self.btn_start_tis.configure(state="disabled", text="PROCESSING...", fg_color="gray")
-            self.btn_stop_tis.pack(side="left", padx=(10, 0))
-            self.btn_open_folder_tis.pack_forget()
-            self.progress_tis.set(0)
-            self.worker = TISWorker(self, excel_path, year_mode)
+            year_mode = self._get_selected_year_mode("aistis")
+            self.btn_start_aistis.configure(state="disabled", text="PROCESSING...", fg_color="gray")
+            self.btn_stop_aistis.pack(side="left", padx=(10, 0))
+            self.btn_open_folder_aistis.pack_forget()
+            self.progress_aistis.set(0)
+            self.worker = AISTISWorker(self, excel_path, year_mode)
             threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self, mode=None):
@@ -2904,11 +2089,8 @@ class App(ctk.CTk):
         if mode == "26as" or mode is None:
             try: self.btn_stop_26as.configure(state="disabled", text="Stopping...")
             except: pass
-        if mode == "ais" or mode is None:
-            try: self.btn_stop_ais.configure(state="disabled", text="Stopping...")
-            except: pass
-        if mode == "tis" or mode is None:
-            try: self.btn_stop_tis.configure(state="disabled", text="Stopping...")
+        if mode == "aistis" or mode is None:
+            try: self.btn_stop_aistis.configure(state="disabled", text="Stopping...")
             except: pass
 
     # --- 26AS SAFE UPDATERS ---
@@ -2930,49 +2112,29 @@ class App(ctk.CTk):
             messagebox.showinfo("Done", msg)
         self.after(0, _finish)
 
-    # --- AIS SAFE UPDATERS ---
-    def log_to_gui_ais(self, msg):
-        self.log_box_ais.configure(state="normal")
-        self.log_box_ais.insert("end", f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
-        self.log_box_ais.see("end")
-        self.log_box_ais.configure(state="disabled")
+    # --- AIS & TIS SAFE UPDATERS ---
+    def log_to_gui_aistis(self, msg):
+        self.log_box_aistis.configure(state="normal")
+        self.log_box_aistis.insert("end", f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
+        self.log_box_aistis.see("end")
+        self.log_box_aistis.configure(state="disabled")
 
-    def update_log_safe_ais(self, msg): self.after(0, lambda: self.log_to_gui_ais(msg))
-    def update_progress_safe_ais(self, val): self.after(0, lambda: self.progress_ais.set(val))
-    def process_finished_safe_ais(self, msg):
+    def update_log_safe_aistis(self, msg): self.after(0, lambda: self.log_to_gui_aistis(msg))
+    def update_progress_safe_aistis(self, val): self.after(0, lambda: self.progress_aistis.set(val))
+    def process_finished_safe_aistis(self, msg):
         def _finish():
-            self.log_to_gui_ais(f"\nSTATUS: {msg}")
-            self.btn_start_ais.configure(state="normal", text="START AIS DOWNLOAD", fg_color="#2563EB")
-            self.btn_stop_ais.configure(state="normal", text="⏹ STOP")
-            self.btn_stop_ais.pack_forget()
-            self.btn_open_folder_ais.pack(side="left", padx=(10, 0))
-            messagebox.showinfo("Done", msg)
-        self.after(0, _finish)
-
-    # --- TIS SAFE UPDATERS ---
-    def log_to_gui_tis(self, msg):
-        self.log_box_tis.configure(state="normal")
-        self.log_box_tis.insert("end", f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
-        self.log_box_tis.see("end")
-        self.log_box_tis.configure(state="disabled")
-
-    def update_log_safe_tis(self, msg): self.after(0, lambda: self.log_to_gui_tis(msg))
-    def update_progress_safe_tis(self, val): self.after(0, lambda: self.progress_tis.set(val))
-    def process_finished_safe_tis(self, msg):
-        def _finish():
-            self.log_to_gui_tis(f"\nSTATUS: {msg}")
-            self.btn_start_tis.configure(state="normal", text="START TIS DOWNLOAD", fg_color="#2563EB")
-            self.btn_stop_tis.configure(state="normal", text="⏹ STOP")
-            self.btn_stop_tis.pack_forget()
-            self.btn_open_folder_tis.pack(side="left", padx=(10, 0))
+            self.log_to_gui_aistis(f"\nSTATUS: {msg}")
+            self.btn_start_aistis.configure(state="normal", text="START AIS & TIS DOWNLOAD", fg_color="#2563EB")
+            self.btn_stop_aistis.configure(state="normal", text="⏹ STOP")
+            self.btn_stop_aistis.pack_forget()
+            self.btn_open_folder_aistis.pack(side="left", padx=(10, 0))
             messagebox.showinfo("Done", msg)
         self.after(0, _finish)
 
     def open_download_folder(self, mode):
         folder_map = {
-            "26as": os.path.join("Income Tax Downloaded", "26 AS"),
-            "ais":  os.path.join("Income Tax Downloaded", "AIS"),
-            "tis":  os.path.join("Income Tax Downloaded", "TIS"),
+            "26as":   os.path.join("Income Tax Downloaded", "26 AS"),
+            "aistis": os.path.join("Income Tax Downloaded", "AIS-TIS"),
         }
         try:
             folder = folder_map.get(mode, os.path.join("Income Tax Downloaded", "26 AS"))

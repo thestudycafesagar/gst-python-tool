@@ -146,14 +146,16 @@ class ChallanWorker:
                 download_root = os.path.join(base_dir, "Income Tax Downloaded", "Challan Downloader")
 
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
-                
-                self.report_data.append({
+
+                entry = {
                     "PAN": user_id, "Status": status, "Details": reason,
                     "Folder Saved": os.path.basename(final_path) if final_path else user_id,
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                })
+                }
+                self.report_data.append(entry)
+                self._save_user_report(entry, final_path)
                 self.log("-" * 40)
-            
+
             self.generate_report()
             self.app.update_progress_safe(1.0)
             self.log("\n✅ BATCH COMPLETED!")
@@ -165,17 +167,28 @@ class ChallanWorker:
 
 
 
+    def _save_user_report(self, entry, folder_path):
+        try:
+            if not folder_path or not os.path.exists(folder_path):
+                return
+            pan = entry.get("PAN", "unknown")
+            report_path = os.path.join(folder_path, f"Report_{pan}.xlsx")
+            pd.DataFrame([entry]).to_excel(report_path, index=False)
+            self.log(f"   📄 Report saved: Report_{pan}.xlsx")
+        except Exception as e:
+            self.log(f"   ⚠️ Failed to save user report: {e}")
+
     def generate_report(self):
         try:
             if not self.report_data: return
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"Challan_Report_{timestamp}.xlsx"
-            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Challan Downloader", "reports")
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Challan Downloader")
             os.makedirs(report_dir, exist_ok=True)
             report_path = os.path.join(report_dir, filename)
             df_report = pd.DataFrame(self.report_data)
             df_report.to_excel(report_path, index=False)
-            self.log(f"📄 Report saved: {report_path}")
+            self.log(f"📄 Summary report saved: {report_path}")
         except Exception as e:
             self.log(f"❌ Failed to save report: {e}")
 
@@ -486,15 +499,43 @@ class ChallanWorker:
 
             # ==========================================================
             # STEP E: Filter years based on selected Download Filter
+            # Supports selecting a specific Financial Year (e.g. '2026-2027')
             # ==========================================================
-            if self.year_mode == "Current Year":
-                selected_years = all_years[:1]
-            elif self.year_mode == "Last 2 Years":
-                selected_years = all_years[:2]
-            else:  # "All History"
-                selected_years = all_years
+            selected_years = []
+            mode = (self.year_mode or "").strip()
 
-            self.log(f"   🎯 Selected Years to Download ({self.year_mode}): {', '.join(selected_years)}")
+            # If a specific FY like '2026-2027' or '2026-27' was chosen,
+            # match available entries by the starting year (left side of dash).
+            m = re.match(r'^(\d{4})\s*-\s*(\d{2,4})$', mode)
+            if m:
+                try:
+                    start_year = int(m.group(1))
+                    for y in all_years:
+                        try:
+                            if int(str(y).split("-")[0]) == start_year:
+                                selected_years.append(y)
+                        except:
+                            continue
+                except:
+                    selected_years = []
+            elif mode == "Current Year":
+                selected_years = all_years[:1]
+            elif mode == "Last 2 Years":
+                selected_years = all_years[:2]
+            elif mode == "All History":
+                selected_years = all_years
+            else:
+                # Unknown option — default to most recent year
+                selected_years = all_years[:1]
+
+            if not selected_years:
+                if re.match(r'^(\d{4})\s*-\s*(\d{2,4})$', mode):
+                    self.log(f"   ⚠️ No data found for Assessment Year: {mode}")
+                    self.log(f"   📋 Available Years: {', '.join(all_years)}")
+                    return "Success", f"No data found for Assessment Year {mode}", download_folder
+                selected_years = all_years[:1]
+
+            self.log(f"   🎯 Selected Years to Download ({mode}): {', '.join(selected_years)}")
 
             # ==========================================================
             # STEP F: For each selected year — click ⋮ (more_vert) → Download
@@ -1155,9 +1196,11 @@ class App(ctk.CTk):
 
         pref_frame = ctk.CTkFrame(self.config_frame, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
-        ctk.CTkLabel(pref_frame, text="Download Filter:", text_color="gray").pack(side="left", padx=(0, 10))
-        self.combo_filter = ctk.CTkComboBox(pref_frame, values=["Current Year", "Last 2 Years", "All History"], width=250, state="readonly")
-        self.combo_filter.set("Current Year")
+        ctk.CTkLabel(pref_frame, text="Assessment Year:", text_color="gray").pack(side="left", padx=(0, 10))
+        # Provide last 5 financial years (newest first). Change these values if you want a different range.
+        fy_values = ["2026-2027", "2025-2026", "2024-2025", "2023-2024", "2022-2023"]
+        self.combo_filter = ctk.CTkComboBox(pref_frame, values=fy_values, width=250, state="readonly")
+        self.combo_filter.set(fy_values[0])
         self.combo_filter.pack(side="left")
 
         # Log UI
