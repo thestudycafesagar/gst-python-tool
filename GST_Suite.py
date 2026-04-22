@@ -554,21 +554,25 @@ EMAIL_TOOLS = [
     {"key": "Email_GST_Request", "tab": "📋  GST Return Request", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Outlook. Auto-fills month, return type, deadlines and contact details."},
     {"key": "Email_Invoice",     "tab": "🧾  Invoice Sender",     "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Outlook. Supports per-row service, period, amount & PDF attachments."},
     {"key": "Email_Payment",     "tab": "💰  Payment Reminder",   "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Outlook. Includes interest clause, deadline and per-client amounts."},
+    {"key": "Email_Custom",      "tab": "✏  Custom Email",        "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Outlook. Define your own subject, body with {placeholders}, save multiple templates, and generate dynamic Excel recipient sheets."},
 ]
 
 GMAIL_TOOLS = [
     {"key": "Gmail_GST_Request", "tab": "📋  GST Return Request", "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Gmail. Auto-fills month, return type, deadlines and contact details."},
     {"key": "Gmail_Invoice",     "tab": "🧾  Invoice Sender",     "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Gmail. Supports per-row service, period, amount & PDF attachments."},
     {"key": "Gmail_Payment",     "tab": "💰  Payment Reminder",   "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Gmail. Includes interest clause, deadline and per-client amounts."},
+    {"key": "Gmail_Custom",      "tab": "✏  Custom Email",        "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Gmail. Define your own subject, body with {placeholders}, save multiple templates, and generate dynamic Excel recipient sheets."},
 ]
 
 COMBINED_EMAIL_TOOLS = [
     {"key": "Email_GST_Request", "tab": "📧  Outlook | GST Request",    "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Outlook. Auto-fills month, return type, deadlines and contact details."},
     {"key": "Email_Invoice",     "tab": "📧  Outlook | Invoice Sender",  "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Outlook. Supports per-row service, period, amount & PDF attachments."},
     {"key": "Email_Payment",     "tab": "📧  Outlook | Payment Reminder","module": os.path.join(_EMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Outlook. Includes interest clause, deadline and per-client amounts."},
+    {"key": "Email_Custom",      "tab": "📧  Outlook | Custom Email",    "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Outlook with {placeholder} templates and dynamic Excel sheets."},
     {"key": "Gmail_GST_Request", "tab": "✉  Gmail | GST Request",       "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Gmail. Auto-fills month, return type, deadlines and contact details."},
     {"key": "Gmail_Invoice",     "tab": "✉  Gmail | Invoice Sender",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Gmail. Supports per-row service, period, amount & PDF attachments."},
     {"key": "Gmail_Payment",     "tab": "✉  Gmail | Payment Reminder",  "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Gmail. Includes interest clause, deadline and per-client amounts."},
+    {"key": "Gmail_Custom",      "tab": "✉  Gmail | Custom Email",      "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Gmail with {placeholder} templates and dynamic Excel sheets."},
 ]
 
 MAIL_GROUP_TOOLS = [
@@ -1070,6 +1074,9 @@ class GSTSuite(_RealCTk):
         if self._theme_btn:
             self._theme_btn.set("☀️  Light" if mode == "Light" else "🌙  Dark")
 
+    # Tool keys that are always accessible regardless of plan
+    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom"}
+
     def _is_tool_allowed(self, tool_key: str) -> bool:
         if self._allowed is None:
             return True
@@ -1077,6 +1084,9 @@ class GSTSuite(_RealCTk):
         key = str(tool_key or "").strip()
         if not key:
             return False
+
+        if key in self._ALWAYS_FREE:
+            return True
 
         if key in self._allowed:
             return True
@@ -1101,6 +1111,14 @@ class GSTSuite(_RealCTk):
             "Gmail_Suite": {
                 "GMAIL", "GMAIL_TOOLS", "GMAIL TOOLS",
                 "GMAIL_GST_REQUEST", "GMAIL_INVOICE", "GMAIL_PAYMENT",
+            },
+            "Email_Custom": {
+                "EMAIL", "EMAIL_TOOLS", "OUTLOOK", "OUTLOOK TOOLS", "OUTLOOK EMAIL TOOLS",
+                "EMAIL_CUSTOM", "CUSTOM_EMAIL", "EMAIL_GST_REQUEST", "EMAIL_INVOICE", "EMAIL_PAYMENT",
+            },
+            "Gmail_Custom": {
+                "GMAIL", "GMAIL_TOOLS", "GMAIL TOOLS",
+                "GMAIL_CUSTOM", "CUSTOM_EMAIL", "GMAIL_GST_REQUEST", "GMAIL_INVOICE", "GMAIL_PAYMENT",
             },
         }
         if key in aliases and any(a in norm for a in aliases[key]):
@@ -2293,7 +2311,7 @@ def _relaunch_self():
 
 
 def run_app_lifecycle():
-    """Single top-level event-loop orchestration to avoid nested mainloops."""
+    """Single top-level event-loop orchestratfion to avoid nested mainloops."""
     while True:
         # ── Try silent auto-login with saved credentials ───────────────────
         user_info = None

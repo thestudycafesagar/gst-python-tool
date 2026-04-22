@@ -1,0 +1,12 @@
+{
+  "templates": [
+    {
+      "name": "Invoice Sender",
+      "subject": "Invoice Collection {Name}",
+      "body": "Dear Sir/Madam I want all invoices for {Invoice Type} Invoice Number: {Invoice Number}\n{Phone number}",
+      "cc": "",
+      "has_attachment": true,
+      "attachment_ext": "pdf"
+    }
+  ]
+}

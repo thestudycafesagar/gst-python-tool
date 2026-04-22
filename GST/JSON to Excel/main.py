@@ -155,14 +155,17 @@ class GstConversionWorker:
     def process_hsn(self, json_data, month):
         rows = []
         if 'hsn' in json_data:
-            for item in json_data['hsn'].get('data', []):
+            hsn_data = json_data['hsn']
+            # JSON uses 'hsn_b2b' and 'hsn_b2c' — NOT 'data'
+            all_items = hsn_data.get('hsn_b2b', []) + hsn_data.get('hsn_b2c', [])
+            for item in all_items:
                 rows.append({
                     "Month": month,
                     "HSN": item.get('hsn_sc', ''),
                     "Description": item.get('desc', ''),
+                    "User Description": item.get('user_desc', ''),
                     "UQC": item.get('uqc', ''),
                     "Total Quantity": item.get('qty', 0),
-                    "Total Value": item.get('val', 0),
                     "GST %": item.get('rt', 0),
                     "Total Taxable Value": item.get('txval', 0),
                     "IGST Amount": item.get('iamt', 0),
