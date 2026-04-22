@@ -382,7 +382,11 @@ def _company_static_block(company: str) -> str:
     return f"   <STATICVARIABLES><SVCURRENTCOMPANY>{xml_escape(selected)}</SVCURRENTCOMPANY></STATICVARIABLES>"
 
 
-def _collect_party_context(row: dict, party_ledger: str) -> dict:
+def _collect_party_context(
+    row: dict,
+    party_ledger: str,
+    allow_place_of_supply_column: bool = True,
+) -> dict:
     party_ledger_raw = _ledger_or_suspense(party_ledger)
     party_name_raw = _row_text_any(
         row,
@@ -436,21 +440,22 @@ def _collect_party_context(row: dict, party_ledger: str) -> dict:
     if not state_raw and gstin_raw:
         state_raw = _state_name_from_gstin(gstin_raw)
 
-    # PlaceOfSupply: for sales = delivery/buyer state (may be in Excel column);
-    # for purchases = supplier state derived from their GSTIN.
-    # We always prefer GSTIN-derived state for the party's own place, and
-    # fall back to the Excel PlaceOfSupply column only for sales context.
-    place_raw = _row_text_any(
-        row,
-        [
-            "PlaceOfSupply",
-            "Place Of Supply",
-            "Place of Supply",
-            "POS",
-            "StateOfSupply",
-        ],
-        default=state_raw,
-    )
+    # PlaceOfSupply is valid for sales delivery context. For purchases,
+    # do not let Excel POS override party state/GSTIN-derived state.
+    if allow_place_of_supply_column:
+        place_raw = _row_text_any(
+            row,
+            [
+                "PlaceOfSupply",
+                "Place Of Supply",
+                "Place of Supply",
+                "POS",
+                "StateOfSupply",
+            ],
+            default=state_raw,
+        )
+    else:
+        place_raw = state_raw
     place_raw = _normalize_state_for_ledger(place_raw)
     if not place_raw and gstin_raw:
         place_raw = _state_name_from_gstin(gstin_raw)
@@ -543,12 +548,23 @@ def _collect_party_context(row: dict, party_ledger: str) -> dict:
     }
 
 
-def _append_invoice_party_context_xml(add_line, party_context: dict, include_basic_buyer: bool = False) -> None:
+def _append_invoice_party_context_xml(
+    add_line,
+    party_context: dict,
+    include_basic_buyer: bool = False,
+    include_state: bool = True,
+    include_place_of_supply: bool = True,
+    place_of_supply_override=None,
+) -> None:
     party_name = xml_escape(party_context.get("party_name", ""))
     mailing_name = xml_escape(party_context.get("mailing_name", "") or party_context.get("party_name", ""))
     party_gstin = xml_escape(party_context.get("gstin", ""))
-    party_state = xml_escape(party_context.get("state", ""))
-    place_of_supply = xml_escape(party_context.get("place_of_supply", ""))
+    party_state = xml_escape(party_context.get("state", "")) if include_state else ""
+    if place_of_supply_override is None:
+        place_source = party_context.get("place_of_supply", "")
+    else:
+        place_source = place_of_supply_override
+    place_of_supply = xml_escape(place_source) if include_place_of_supply else ""
     country = xml_escape(party_context.get("country", "") or "India")
     pincode = xml_escape(party_context.get("pincode", ""))
     address1 = xml_escape(party_context.get("address1", ""))
@@ -584,6 +600,7 @@ def _append_invoice_party_context_xml(add_line, party_context: dict, include_bas
 
     if party_state:
         add_line(f'     <STATENAME>{party_state}</STATENAME>')
+        add_line(f'     <PARTYSTATENAME>{party_state}</PARTYSTATENAME>')
 
     add_line(f'     <COUNTRYOFRESIDENCE>{country}</COUNTRYOFRESIDENCE>')
 
@@ -636,15 +653,29 @@ def _pick_company_gst_registration(registrations: list, preferred_state: str = "
     return max(rows, key=score)
 
 
-def _append_company_gst_context_xml(add_line, party_context: dict, company_gst_registrations: list = None) -> None:
+def _resolve_company_gst_state(registrations: list, preferred_state: str = "") -> str:
+    selected = _pick_company_gst_registration(registrations, preferred_state=preferred_state)
+    if not selected:
+        return ""
+    return str(selected.get("state", "") or "").strip()
+
+
+def _append_company_gst_context_xml(
+    add_line,
+    party_context: dict,
+    company_gst_registrations: list = None,
+    prefer_party_state: bool = True,
+) -> None:
     registrations = list(company_gst_registrations or [])
     if not registrations:
         return
 
-    preferred_state = (
-        str(party_context.get("place_of_supply", "") or "").strip()
-        or str(party_context.get("state", "") or "").strip()
-    )
+    preferred_state = ""
+    if prefer_party_state:
+        preferred_state = (
+            str(party_context.get("place_of_supply", "") or "").strip()
+            or str(party_context.get("state", "") or "").strip()
+        )
     selected = _pick_company_gst_registration(registrations, preferred_state=preferred_state)
     if not selected:
         return
@@ -1267,7 +1298,11 @@ def _collect_party_ledger_definition(row: dict, is_purchase_mode: bool) -> dict:
     if not party_ledger_raw:
         return {}
 
-    party_context = _collect_party_context(row, party_ledger_raw)
+    party_context = _collect_party_context(
+        row,
+        party_ledger_raw,
+        allow_place_of_supply_column=not is_purchase_mode,
+    )
     party_name_raw = str(party_context.get("party_ledger", "") or party_ledger_raw).strip()
     if not party_name_raw:
         return {}
@@ -2273,6 +2308,7 @@ def generate_purchase_accounting_xml(
     if resolved_mode not in {"current", "excel", "custom"}:
         resolved_mode = "current" if use_today_date else "excel"
     resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
+    purchase_company_state = _resolve_company_gst_state(company_gst_registrations or [], preferred_state="")
 
     for idx, r in enumerate(rows):
         if resolved_mode == "current":
@@ -2291,7 +2327,11 @@ def generate_purchase_accounting_xml(
         supplier_invoice = xml_escape(supplier_invoice_raw)
 
         party_raw = _ledger_or_suspense(_row_text(r, "PartyLedger"))
-        party_context = _collect_party_context(r, party_raw)
+        party_context = _collect_party_context(
+            r,
+            party_raw,
+            allow_place_of_supply_column=False,
+        )
         party = xml_escape(party_raw)
         purchase_raw = (
             _row_text(r, "PurchaseLedger")
@@ -2338,8 +2378,19 @@ def generate_purchase_accounting_xml(
         a('     <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>')
         a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
         a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
-        _append_invoice_party_context_xml(a, party_context, include_basic_buyer=False)
-        _append_company_gst_context_xml(a, party_context, company_gst_registrations)
+        _append_invoice_party_context_xml(
+            a,
+            party_context,
+            include_basic_buyer=False,
+            include_place_of_supply=bool(purchase_company_state),
+            place_of_supply_override=purchase_company_state,
+        )
+        _append_company_gst_context_xml(
+            a,
+            party_context,
+            company_gst_registrations,
+            prefer_party_state=False,
+        )
         a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
         a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
@@ -2434,6 +2485,7 @@ def generate_purchase_item_xml(
     if resolved_mode not in {"current", "excel", "custom"}:
         resolved_mode = "current" if use_today_date else "excel"
     resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
+    purchase_company_state = _resolve_company_gst_state(company_gst_registrations or [], preferred_state="")
 
     def _name_key(value: str) -> str:
         return re.sub(r"\s+", " ", str(value or "")).strip().lower()
@@ -2455,7 +2507,11 @@ def generate_purchase_item_xml(
         supplier_invoice = xml_escape(supplier_invoice_raw)
 
         party_raw = _ledger_or_suspense(_row_text(r, "PartyLedger"))
-        party_context = _collect_party_context(r, party_raw)
+        party_context = _collect_party_context(
+            r,
+            party_raw,
+            allow_place_of_supply_column=False,
+        )
         party = xml_escape(party_raw)
         taxable = _row_float(r, "TaxableValue", 0.0)
 
@@ -2555,8 +2611,19 @@ def generate_purchase_item_xml(
         a('     <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>')
         a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
         a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
-        _append_invoice_party_context_xml(a, party_context, include_basic_buyer=False)
-        _append_company_gst_context_xml(a, party_context, company_gst_registrations)
+        _append_invoice_party_context_xml(
+            a,
+            party_context,
+            include_basic_buyer=False,
+            include_place_of_supply=bool(purchase_company_state),
+            place_of_supply_override=purchase_company_state,
+        )
+        _append_company_gst_context_xml(
+            a,
+            party_context,
+            company_gst_registrations,
+            prefer_party_state=False,
+        )
         a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
         a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
