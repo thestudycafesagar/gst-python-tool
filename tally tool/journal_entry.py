@@ -567,6 +567,48 @@ def _company_static_block(company: str) -> str:
     return f"   <STATICVARIABLES><SVCURRENTCOMPANY>{xml_escape(selected)}</SVCURRENTCOMPANY></STATICVARIABLES>"
 
 
+
+def _state_from_gstin(g):
+    M={'01':'Jammu and Kashmir','02':'Himachal Pradesh','03':'Punjab','04':'Chandigarh',
+       '05':'Uttarakhand','06':'Haryana','07':'Delhi','08':'Rajasthan','09':'Uttar Pradesh',
+       '10':'Bihar','11':'Sikkim','12':'Arunachal Pradesh','13':'Nagaland','14':'Manipur',
+       '15':'Mizoram','16':'Tripura','17':'Meghalaya','18':'Assam','19':'West Bengal',
+       '20':'Jharkhand','21':'Odisha','22':'Chattisgarh','23':'Madhya Pradesh','24':'Gujarat',
+       '26':'Dadra and Nagar Haveli and Daman and Diu','27':'Maharashtra',
+       '28':'Andhra Pradesh','29':'Karnataka','30':'Goa','31':'Lakshadweep','32':'Kerala',
+       '33':'Tamil Nadu','34':'Puducherry','35':'Andaman and Nicobar Islands',
+       '36':'Telangana','37':'Andhra Pradesh (New)','38':'Ladakh','97':'Other Territory'}
+    return M.get(str(g or '')[:2],'')
+
+def _parse_cmp_gst_regs(xml_text):
+    regs=[]
+    for m in re.finditer(r'<TAXUNIT[^>]*>(.*?)</TAXUNIT>',xml_text,re.DOTALL):
+        blk=m.group(1)
+        def _t(tag,b=blk):
+            x=re.search(fr'<{tag}[^>]*>(.*?)</{tag}>',b,re.DOTALL)
+            return x.group(1).strip() if x else ''
+        gstin=(_t('GSTREGNUMBER') or _t('TAXREGISTRATION') or '').upper()
+        state=_t('STATENAME') or ''
+        name=_t('NAME') or ''
+        if not gstin: continue
+        if not state: state=_state_from_gstin(gstin)
+        regs.append({'gstin':gstin,'state':state,'name':name})
+    return regs
+
+def _fetch_cmp_gst_regs(url, company='', timeout=15):
+    sc=f'<SVCURRENTCOMPANY>{xml_escape(company)}</SVCURRENTCOMPANY>' if company else ''
+    col="<COLLECTION NAME='TUL'><TYPE>TaxUnit</TYPE><FETCH>Name,TaxType,TaxRegistration,GSTRegNumber,StateName</FETCH></COLLECTION>"
+    rq=(f'<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>'
+        f'<TYPE>Collection</TYPE><ID>TUL</ID></HEADER>'
+        f'<BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>{sc}'
+        f'</STATICVARIABLES><TDL><TDLMESSAGE>{col}</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>')
+    try:
+        r=_post_tally_xml(url,rq,timeout=timeout)
+        regs=_parse_cmp_gst_regs(r)
+        return {'success':bool(regs),'registrations':regs}
+    except Exception as e:
+        return {'success':False,'registrations':[],'error':str(e)}
+
 def _clean_tax_ledger(value: str) -> str:
     text = str(value or "").strip()
     if not text:
@@ -592,9 +634,10 @@ def _row_reference_number(row: dict, default: str = "") -> str:
     )
 
 
-def _append_common_ledger_flags(add_line, is_party: bool) -> None:
+def _append_common_ledger_flags(add_line, is_party: bool, is_debit: bool = None) -> None:
+    if is_debit is None: is_debit = not is_party
     add_line("      <GSTCLASS>Not Applicable</GSTCLASS>")
-    add_line(f"      <ISDEEMEDPOSITIVE>{'No' if is_party else 'Yes'}</ISDEEMEDPOSITIVE>")
+    add_line(f"      <ISDEEMEDPOSITIVE>{'Yes' if is_debit else 'No'}</ISDEEMEDPOSITIVE>")
     add_line("      <LEDGERFROMITEM>No</LEDGERFROMITEM>")
     add_line("      <REMOVEZEROENTRIES>No</REMOVEZEROENTRIES>")
     add_line(f"      <ISPARTYLEDGER>{'Yes' if is_party else 'No'}</ISPARTYLEDGER>")
@@ -610,13 +653,15 @@ def generate_journal_xml(
     custom_tally_date: str = "",
     include_voucher_number: bool = True,
     include_bill_allocations: bool = True,
+    journal_type: str = "purchase",
+    company_gst_registrations: list = None,
 ) -> tuple:
     """
-    Journal entry logic (template-driven):
-    - Particular ledger is debited by taxable amount
-    - Tax ledgers are debited only if both ledger and rate are provided
-    - Party ledger is credited by total amount
+    Purchase: Expense Dr / Tax Dr / Party Cr
+    Sale:     Party Dr  / Sales Cr / Tax Cr
+    GST State/Country fetched by Tally from party ledger master via GSTREGISTRATIONTYPE=Regular.
     """
+    is_sale = str(journal_type or "purchase").strip().lower() == "sale"
     lines = []
     a = lines.append
     company_static = _company_static_block(company)
@@ -635,6 +680,14 @@ def generate_journal_xml(
     if resolved_mode not in {"current", "excel", "custom"}:
         resolved_mode = "current" if use_today_date else "excel"
     resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
+
+    _cmp_regs = list(company_gst_registrations or [])
+    _cmp_gstin = _cmp_state = _cmp_name = ""
+    if _cmp_regs:
+        _r = _cmp_regs[0]
+        _cmp_gstin = xml_escape(str(_r.get("gstin","")).strip())
+        _cmp_state = xml_escape(str(_r.get("state","")).strip())
+        _cmp_name  = xml_escape(str(_r.get("name","")).strip())
 
     voucher_count = 0
 
@@ -674,6 +727,7 @@ def generate_journal_xml(
         sgst_amt = round(taxable * sgst_rate / 100, 2) if sgst_rate > 0 and sgst_ledger_raw else 0.0
         igst_amt = round(taxable * igst_rate / 100, 2) if igst_rate > 0 and igst_ledger_raw else 0.0
         total = taxable + cgst_amt + sgst_amt + igst_amt
+        has_gst = (cgst_amt + sgst_amt + igst_amt) > 0
 
         bill_reference_raw = _row_reference_number(r, "")
         voucher_reference_raw = bill_reference_raw or (vno_raw if include_voucher_number else "")
@@ -683,6 +737,13 @@ def generate_journal_xml(
         party = xml_escape(party_raw)
         particular = xml_escape(particular_raw)
         narration = xml_escape(_row_text(r, "Narration"))
+
+        party_gstin_raw = str(_row_text(r,"PartyGSTIN") or _row_text(r,"GSTIN") or "").strip().upper()
+        pos_raw = str(_row_text(r,"PlaceOfSupply") or "").strip()
+        party_state_raw = pos_raw or (_state_from_gstin(party_gstin_raw) if party_gstin_raw else "")
+        place_of_supply = xml_escape(party_state_raw if is_sale else (pos_raw or _cmp_state))
+        party_gstin = xml_escape(party_gstin_raw)
+        party_state = xml_escape(party_state_raw)
 
         voucher_count += 1
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
@@ -694,6 +755,22 @@ def generate_journal_xml(
         a("     <ISINVOICE>No</ISINVOICE>")
         a(f"     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>")
         a("     <ISELIGIBLEFORITC>No</ISELIGIBLEFORITC>")
+
+        # GST context — prevents 'Company details invalid' and GSTR Uncertain status
+        if has_gst:
+            a("     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>")
+            a("     <GSTTRANSACTIONTYPE>Tax Invoice</GSTTRANSACTIONTYPE>")
+            a("     <GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>")
+            if party_gstin:
+                a(f'     <PARTYGSTIN>{party_gstin}</PARTYGSTIN>')
+            if _cmp_gstin and _cmp_name:
+                a(f'     <GSTREGISTRATION TAXTYPE="GST" TAXREGISTRATION="{_cmp_gstin}">{_cmp_name}</GSTREGISTRATION>')
+                a(f'     <CMPGSTIN>{_cmp_gstin}</CMPGSTIN>')
+                a('     <CMPGSTREGISTRATIONTYPE>Regular</CMPGSTREGISTRATIONTYPE>')
+            if _cmp_state:
+                a(f'     <CMPGSTSTATE>{_cmp_state}</CMPGSTSTATE>')
+            if place_of_supply:
+                a(f'     <PLACEOFSUPPLY>{place_of_supply}</PLACEOFSUPPLY>')
         if reference:
             a(f"     <REFERENCE>{reference}</REFERENCE>")
         if include_voucher_number and vno:
@@ -701,46 +778,93 @@ def generate_journal_xml(
         if narration:
             a(f"     <NARRATION>{narration}</NARRATION>")
 
-        # Particular ledger debit
-        a("     <LEDGERENTRIES.LIST>")
-        a(f"      <LEDGERNAME>{particular}</LEDGERNAME>")
-        _append_common_ledger_flags(a, is_party=False)
-        a(f"      <AMOUNT>-{fmt_amt(taxable)}</AMOUNT>")
-        a("     </LEDGERENTRIES.LIST>")
-
-        if cgst_amt > 0 and cgst_ledger_raw:
+        if is_sale:
+            # ---- Sale Journal: Party Dr / Income Cr / Output Tax Cr ----
+            # Party (Debtor) — Debit
             a("     <LEDGERENTRIES.LIST>")
-            a(f"      <LEDGERNAME>{xml_escape(cgst_ledger_raw)}</LEDGERNAME>")
-            _append_common_ledger_flags(a, is_party=False)
-            a(f"      <AMOUNT>-{fmt_amt(cgst_amt)}</AMOUNT>")
+            a(f"      <LEDGERNAME>{party}</LEDGERNAME>")
+            _append_common_ledger_flags(a, is_party=True, is_debit=True)
+            if has_gst:
+                a("      <GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>")
+                if party_gstin:
+                    a(f"      <GSTIN>{party_gstin}</GSTIN>")
+                if party_state:
+                    a(f"      <STATENAME>{party_state}</STATENAME>")
+                a("      <COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>")
+            a(f"      <AMOUNT>-{fmt_amt(total)}</AMOUNT>")
+            if include_bill_allocations and bill_reference:
+                a("      <BILLALLOCATIONS.LIST>")
+                a(f"       <NAME>{bill_reference}</NAME>")
+                a("       <BILLTYPE>New Ref</BILLTYPE>")
+                a(f"       <AMOUNT>-{fmt_amt(total)}</AMOUNT>")
+                a("      </BILLALLOCATIONS.LIST>")
             a("     </LEDGERENTRIES.LIST>")
 
-        if sgst_amt > 0 and sgst_ledger_raw:
+            # Particular (Income/Sales) — Credit
             a("     <LEDGERENTRIES.LIST>")
-            a(f"      <LEDGERNAME>{xml_escape(sgst_ledger_raw)}</LEDGERNAME>")
-            _append_common_ledger_flags(a, is_party=False)
-            a(f"      <AMOUNT>-{fmt_amt(sgst_amt)}</AMOUNT>")
+            a(f"      <LEDGERNAME>{particular}</LEDGERNAME>")
+            _append_common_ledger_flags(a, is_party=False, is_debit=False)
+            a(f"      <AMOUNT>{fmt_amt(taxable)}</AMOUNT>")
             a("     </LEDGERENTRIES.LIST>")
 
-        if igst_amt > 0 and igst_ledger_raw:
+            # Output Tax ledgers — Credit
+            for _ln, _la in [(cgst_ledger_raw, cgst_amt), (sgst_ledger_raw, sgst_amt), (igst_ledger_raw, igst_amt)]:
+                if _la > 0 and _ln:
+                    a("     <LEDGERENTRIES.LIST>")
+                    a(f"      <LEDGERNAME>{xml_escape(_ln)}</LEDGERNAME>")
+                    _append_common_ledger_flags(a, is_party=False, is_debit=False)
+                    a(f"      <AMOUNT>{fmt_amt(_la)}</AMOUNT>")
+                    a("     </LEDGERENTRIES.LIST>")
+
+        else:
+            # ---- Purchase Journal: Expense Dr / Input Tax Dr / Party Cr ----
+            # Particular (Expense/Purchase) — Debit
             a("     <LEDGERENTRIES.LIST>")
-            a(f"      <LEDGERNAME>{xml_escape(igst_ledger_raw)}</LEDGERNAME>")
+            a(f"      <LEDGERNAME>{particular}</LEDGERNAME>")
             _append_common_ledger_flags(a, is_party=False)
-            a(f"      <AMOUNT>-{fmt_amt(igst_amt)}</AMOUNT>")
+            a(f"      <AMOUNT>-{fmt_amt(taxable)}</AMOUNT>")
             a("     </LEDGERENTRIES.LIST>")
 
-        # Party ledger credit
-        a("     <LEDGERENTRIES.LIST>")
-        a(f"      <LEDGERNAME>{party}</LEDGERNAME>")
-        _append_common_ledger_flags(a, is_party=True)
-        a(f"      <AMOUNT>{fmt_amt(total)}</AMOUNT>")
-        if include_bill_allocations and bill_reference:
-            a("      <BILLALLOCATIONS.LIST>")
-            a(f"       <NAME>{bill_reference}</NAME>")
-            a("       <BILLTYPE>New Ref</BILLTYPE>")
-            a(f"       <AMOUNT>{fmt_amt(total)}</AMOUNT>")
-            a("      </BILLALLOCATIONS.LIST>")
-        a("     </LEDGERENTRIES.LIST>")
+            if cgst_amt > 0 and cgst_ledger_raw:
+                a("     <LEDGERENTRIES.LIST>")
+                a(f"      <LEDGERNAME>{xml_escape(cgst_ledger_raw)}</LEDGERNAME>")
+                _append_common_ledger_flags(a, is_party=False)
+                a(f"      <AMOUNT>-{fmt_amt(cgst_amt)}</AMOUNT>")
+                a("     </LEDGERENTRIES.LIST>")
+
+            if sgst_amt > 0 and sgst_ledger_raw:
+                a("     <LEDGERENTRIES.LIST>")
+                a(f"      <LEDGERNAME>{xml_escape(sgst_ledger_raw)}</LEDGERNAME>")
+                _append_common_ledger_flags(a, is_party=False)
+                a(f"      <AMOUNT>-{fmt_amt(sgst_amt)}</AMOUNT>")
+                a("     </LEDGERENTRIES.LIST>")
+
+            if igst_amt > 0 and igst_ledger_raw:
+                a("     <LEDGERENTRIES.LIST>")
+                a(f"      <LEDGERNAME>{xml_escape(igst_ledger_raw)}</LEDGERNAME>")
+                _append_common_ledger_flags(a, is_party=False)
+                a(f"      <AMOUNT>-{fmt_amt(igst_amt)}</AMOUNT>")
+                a("     </LEDGERENTRIES.LIST>")
+
+            # Party (Creditor) — Credit
+            a("     <LEDGERENTRIES.LIST>")
+            a(f"      <LEDGERNAME>{party}</LEDGERNAME>")
+            _append_common_ledger_flags(a, is_party=True)
+            if has_gst:
+                a("      <GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>")
+                if party_gstin:
+                    a(f"      <GSTIN>{party_gstin}</GSTIN>")
+                if party_state:
+                    a(f"      <STATENAME>{party_state}</STATENAME>")
+                a("      <COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>")
+            a(f"      <AMOUNT>{fmt_amt(total)}</AMOUNT>")
+            if include_bill_allocations and bill_reference:
+                a("      <BILLALLOCATIONS.LIST>")
+                a(f"       <NAME>{bill_reference}</NAME>")
+                a("       <BILLTYPE>New Ref</BILLTYPE>")
+                a(f"       <AMOUNT>{fmt_amt(total)}</AMOUNT>")
+                a("      </BILLALLOCATIONS.LIST>")
+            a("     </LEDGERENTRIES.LIST>")
 
         a("    </VOUCHER>")
         a("   </TALLYMESSAGE>")
@@ -800,6 +924,8 @@ class TallyJournalApp(ctk.CTk):
 
         self.fetched_companies = []
         self.fetched_party_ledgers = []
+        self.company_gst_registrations = []
+        self.journal_type_var = None  # initialised in _build_ui
         self._company_fetch_running = False
         self._ledger_fetch_running = False
         self._excel_load_running = False
@@ -970,6 +1096,21 @@ class TallyJournalApp(ctk.CTk):
             text_color=COLORS["text_muted"],
         )
         self.party_ledger_status_label.grid(row=0, column=2, sticky="w")
+
+        # ── Journal Type selector ──────────────────────────────────────────
+        jtype_row = ctk.CTkFrame(settings_card, fg_color="transparent")
+        jtype_row.pack(fill="x", padx=14, pady=(0, 6))
+        ctk.CTkLabel(jtype_row, text="Journal Type :",
+                     font=("Segoe UI", 10), text_color=COLORS["text_secondary"]).pack(side="left")
+        self.journal_type_var = ctk.StringVar(value="purchase")
+        for _lbl, _val in (("Purchase  (Dr Expense / Cr Party)", "purchase"),
+                           ("Sale  (Dr Party / Cr Income)", "sale")):
+            ctk.CTkRadioButton(
+                jtype_row, text=_lbl, variable=self.journal_type_var, value=_val,
+                font=("Segoe UI", 10), text_color=COLORS["text_secondary"],
+                fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                border_color=COLORS["border"],
+            ).pack(side="left", padx=(10, 0))
 
         date_mode_row = ctk.CTkFrame(settings_card, fg_color="transparent")
         date_mode_row.pack(fill="x", padx=14, pady=(0, 8))
@@ -1797,6 +1938,7 @@ class TallyJournalApp(ctk.CTk):
                     self._set_company_dropdown(companies, keep_selection=True)
                     self.status_var.set(f"Fetched {len(companies)} company(s) from Tally")
                     self._fetch_party_ledgers_thread(silent=True)
+                    self._fetch_company_gst_regs_thread(silent=True)
                 else:
                     err = str(result.get("error") or "Unknown error")
                     self.company_status_var.set("Companies: Fetch failed")
@@ -1831,6 +1973,7 @@ class TallyJournalApp(ctk.CTk):
                     self.status_var.set("Connected to Tally")
                     self._fetch_tally_companies_thread(silent=True)
                     self._fetch_party_ledgers_thread(silent=True)
+                    self._fetch_company_gst_regs_thread(silent=True)
                 else:
                     err = str(result.get("error") or "Unknown error")
                     self.connection_status_var.set("Connection: Offline")
@@ -1840,6 +1983,20 @@ class TallyJournalApp(ctk.CTk):
 
             self.after(0, done)
 
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _fetch_company_gst_regs_thread(self, silent=False):
+        """Background-fetch company GST registrations (for journal GST context tags)."""
+        try:
+            tally_url = self._get_tally_url()
+        except ValueError:
+            return
+        company = self._get_selected_company()
+        def worker():
+            res = _fetch_cmp_gst_regs(tally_url, company=company, timeout=15)
+            def done():
+                self.company_gst_registrations = res.get("registrations", [])
+            self.after(0, done)
         threading.Thread(target=worker, daemon=True).start()
 
     def _browse_file(self):
@@ -2207,11 +2364,23 @@ class TallyJournalApp(ctk.CTk):
 
         try:
             date_mode, custom_tally_date = self._get_voucher_date_selection()
+            journal_type = self.journal_type_var.get() if self.journal_type_var else "purchase"
+            _cmp_regs = list(self.company_gst_registrations or [])
+            if not _cmp_regs:
+                try:
+                    _r = _fetch_cmp_gst_regs(self._get_tally_url(), company=company, timeout=10)
+                    if _r.get("success"):
+                        _cmp_regs = _r["registrations"]
+                        self.company_gst_registrations = _cmp_regs
+                except Exception:
+                    pass
             xml_payload, voucher_count = generate_journal_xml(
                 rows,
                 company=company,
                 date_mode=date_mode,
                 custom_tally_date=custom_tally_date,
+                journal_type=journal_type,
+                company_gst_registrations=_cmp_regs,
             )
             if voucher_count <= 0:
                 messagebox.showwarning("No Vouchers", "No valid rows found (TaxableValue must be greater than zero).")
@@ -2262,6 +2431,8 @@ class TallyJournalApp(ctk.CTk):
                             custom_tally_date=custom_tally_date,
                             include_voucher_number=False,
                             include_bill_allocations=False,
+                            journal_type=journal_type,
+                            company_gst_registrations=_cmp_regs,
                         )
                         retry_response = push_to_tally(
                             retry_xml_payload,
@@ -2335,5 +2506,3 @@ class TallyJournalApp(ctk.CTk):
 if __name__ == "__main__":
     app = TallyJournalApp()
     app.mainloop()
-
-
