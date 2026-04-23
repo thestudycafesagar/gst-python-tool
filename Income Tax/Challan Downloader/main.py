@@ -548,6 +548,19 @@ class ChallanWorker:
 
             for year in selected_years:
                 self.log(f"   🔹 Processing Year: {year}")
+                
+                # Create subfolder for the year (financial year wise)
+                safe_year = year.replace('/', '-').replace(' ', '_').strip()
+                year_folder = os.path.join(download_folder, safe_year)
+                os.makedirs(year_folder, exist_ok=True)
+                
+                # Update download behavior for this specific year folder
+                try:
+                    driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+                        'behavior': 'allow',
+                        'downloadPath': year_folder
+                    })
+                except: pass
 
                 for dl_attempt in range(3):
                     try:
@@ -595,11 +608,11 @@ class ChallanWorker:
                         time.sleep(4)  # Wait for file to appear
 
                         # Rename the downloaded PDF to NAME-PAN-YEAR.pdf
-                        pdf_files = sorted(glob.glob(os.path.join(download_folder, '*.pdf')), key=os.path.getmtime, reverse=True)
+                        pdf_files = sorted(glob.glob(os.path.join(year_folder, '*.pdf')), key=os.path.getmtime, reverse=True)
                         if pdf_files:
                             latest_pdf = pdf_files[0]
                             new_name = f"{name_from_header}-{user_id}-{year}.pdf"
-                            new_path = os.path.join(download_folder, new_name)
+                            new_path = os.path.join(year_folder, new_name)
                             try:
                                 shutil.move(latest_pdf, new_path)
                                 self.log(f"      📄 Renamed to: {new_name}")

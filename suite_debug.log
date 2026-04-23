@@ -609,3 +609,22 @@
 [2026-04-22 16:04:04] warmup ok requests
 [2026-04-22 16:04:04] warmup ok PIL
 [2026-04-22 16:04:04] dependency warmup done
+[2026-04-22 16:24:12] dependency warmup start
+[2026-04-22 16:24:13] warmup ok pandas
+[2026-04-22 16:24:13] warmup ok numpy
+[2026-04-22 16:24:14] warmup ok openpyxl
+[2026-04-22 16:24:14] warmup ok fitz
+[2026-04-22 16:24:14] warmup ok pdfplumber
+[2026-04-22 16:24:14] warmup ok pdfminer
+[2026-04-22 16:24:14] warmup ok selenium
+[2026-04-22 16:24:14] warmup ok webdriver_manager
+[2026-04-22 16:24:15] warmup ok requests
+[2026-04-22 16:24:15] warmup ok PIL
+[2026-04-22 16:24:15] dependency warmup done
+[2026-04-22 16:24:54] activate_tab start cat=email tab=✏  Custom Email module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Outlook Email Tools\main.py exists=True tk=False
+[2026-04-22 16:24:54] main_import begin tab=✏  Custom Email uid=_suite_mod_0_Outlook_Email_Tools
+[2026-04-22 16:24:54] main_import success tab=✏  Custom Email class=CustomMailApp
+[2026-04-22 16:24:56] instantiate success tab=✏  Custom Email instance=CustomMailApp
+[2026-04-22 16:25:42] activate_tab start cat=email tab=💰  Payment Reminder module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Outlook Email Tools\main.py exists=True tk=False
+[2026-04-22 16:25:42] main_import cache_hit tab=💰  Payment Reminder module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Outlook Email Tools\main.py
+[2026-04-22 16:25:43] instantiate success tab=💰  Payment Reminder instance=PaymentReminderMailApp

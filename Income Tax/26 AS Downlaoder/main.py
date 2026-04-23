@@ -727,6 +727,19 @@ class Tax26ASWorker:
                 self.log(f"   ⬇️ Downloading {len(years_to_download)} Years...")
                 count = 0
                 for year in years_to_download:
+                    # Create subfolder for the year (financial year wise)
+                    safe_year_folder = year.replace('/', '-').replace(' ', '_').strip()
+                    year_folder_path = os.path.join(download_folder, safe_year_folder)
+                    os.makedirs(year_folder_path, exist_ok=True)
+                    
+                    # Update download behavior for this specific year folder
+                    try:
+                        driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+                            'behavior': 'allow',
+                            'downloadPath': year_folder_path
+                        })
+                    except: pass
+
                     year_success = False
                     for year_attempt in range(1, 4):
                         try:
@@ -765,14 +778,14 @@ class Tax26ASWorker:
                                 self.log(f"        ⚠️ PDF Download Retry {pdf_attempt}/3...")
                                 time.sleep(2)
                             
-                            clean_temp_files(download_folder)
+                            clean_temp_files(year_folder_path)
 
                             dl_click_time = time.time()
                             pdf_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.ID, "pdfBtn")))
                             driver.execute_script("arguments[0].click();", pdf_btn)
                             self.log("        ✅ Export Triggered.")
                             
-                            saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="", start_time=dl_click_time, taxpayer_name=name_from_header)
+                            saved_path = wait_and_rename_file(year_folder_path, year, self.log, prefix="", start_time=dl_click_time, taxpayer_name=name_from_header)
                             if saved_path:
                                 count += 1
                                 unlock_pdf(saved_path, user_id, dob, self.log)
@@ -1306,19 +1319,6 @@ class AISTISWorker:
             self.generate_report()
             self.app.update_progress_safe_aistis(1.0)
             self.log("\n✅ BATCH COMPLETED!")
-            self.app.process_finished_safe_aistis("All Tasks Completed.")
-        except Exception as e:
-            self.log(f"❌ CRITICAL ERROR: {str(e)}")
-            self.app.process_finished_safe_aistis("Critical Error Occurred")
-
-    def generate_report(self):
-        try:
-            if not self.report_data: return
-            df_report = pd.DataFrame(self.report_data)
-            filename = f"AISTIS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            df_report.to_excel(filename, index=False)
-            self.log(f"📄 Report saved: {filename}")
-        except: pass
 
     def process_single_user(self, user_id, password, dob, download_root):
         driver = None
@@ -1452,7 +1452,7 @@ class AISTISWorker:
             except Exception as cdp_e:
                 self.log(f"   ⚠️ CDP redirect failed ({str(cdp_e)[:30]}); folder still created.")
 
-            # 2. NAVIGATE TO AIS PORTAL (same entry point for both AIS and TIS)
+            # 2. NAVIGATE TO AIS PORTAL
             self.log("   🚀 Navigating to AIS Portal...")
             nav_success = False
             for nav_attempt in range(1, 4):
@@ -1538,8 +1538,14 @@ class AISTISWorker:
 
                 for year in years_to_download:
                     self.log(f"   📅 Year: {year}")
+                    safe_year_folder = year.replace('/', '-').replace(' ', '_').strip()
+                    year_folder_path = os.path.join(download_folder, safe_year_folder)
+                    os.makedirs(year_folder_path, exist_ok=True)
+                    try:
+                        driver.execute_cdp_cmd('Page.setDownloadBehavior', {'behavior': 'allow', 'downloadPath': year_folder_path})
+                    except: pass
 
-                    # ── AIS download ────────────────────────────────────
+                    # AIS download
                     ais_year_ok = False
                     for year_attempt in range(1, 4):
                         try:
@@ -1560,15 +1566,14 @@ class AISTISWorker:
                             driver.execute_script("arguments[0].click();", dl_icon); time.sleep(1)
                             ais_year_ok = True; break
                         except Exception as e:
-                            if year_attempt == 3:
-                                self.log(f"        ⚠️ AIS failed for {year} after 3 attempts")
+                            if year_attempt == 3: self.log(f"        ⚠️ AIS failed for {year} after 3 attempts")
 
                     if ais_year_ok:
                         for pdf_attempt in range(1, 4):
                             try:
                                 if pdf_attempt > 1:
                                     self.log(f"        ⚠️ AIS PDF Retry {pdf_attempt}/3..."); time.sleep(2)
-                                clean_temp_files(download_folder, prefixes=("AIS_",))
+                                clean_temp_files(year_folder_path, prefixes=("AIS_",))
                                 modal_dl_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Download' and contains(@class, 'btn-outline-primary')]")))
                                 modal_click_time = time.time()
                                 driver.execute_script("arguments[0].click();", modal_dl_btn)
@@ -1576,15 +1581,15 @@ class AISTISWorker:
                                 direct_download = False
                                 for _ in range(8):
                                     time.sleep(1)
-                                    for f in os.listdir(download_folder):
-                                        fp = os.path.join(download_folder, f)
+                                    for f in os.listdir(year_folder_path):
+                                        fp = os.path.join(year_folder_path, f)
                                         if os.path.isfile(fp) and os.path.getmtime(fp) >= modal_click_time - 2:
                                             if f.endswith(".crdownload") or f.endswith(".pdf"):
                                                 direct_download = True; break
                                     if direct_download: break
                                 if direct_download:
                                     self.log("        ✅ AIS Direct download detected.")
-                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="AIS_", start_time=modal_click_time-2, taxpayer_name=name_from_header)
+                                    saved_path = wait_and_rename_file(year_folder_path, year, self.log, prefix="AIS_", start_time=modal_click_time-2, taxpayer_name=name_from_header)
                                     if saved_path:
                                         ais_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
                                     else:
@@ -1601,28 +1606,24 @@ class AISTISWorker:
                                     except: pass
                                     history_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Go To Activity History']")))
                                     driver.execute_script("arguments[0].click();", history_btn); time.sleep(3)
-                                    clean_temp_files(download_folder, prefixes=("AIS_",))
+                                    clean_temp_files(year_folder_path, prefixes=("AIS_",))
                                     hist_click_time = time.time()
                                     final_dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "(//img[@alt='Download'])[1]")))
                                     driver.execute_script("arguments[0].click();", final_dl_icon)
                                     self.log("        ✅ AIS Export Triggered from History.")
-                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="AIS_", start_time=hist_click_time-2, taxpayer_name=name_from_header)
+                                    saved_path = wait_and_rename_file(year_folder_path, year, self.log, prefix="AIS_", start_time=hist_click_time-2, taxpayer_name=name_from_header)
                                     if saved_path:
                                         ais_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
-                                    else:
-                                        self.log("        ❌ AIS file capture failed.")
                             except Exception as e:
                                 self.log(f"       ⚠️ AIS Attempt {pdf_attempt} Failed: {str(e)[:30]}")
-                                if pdf_attempt == 3:
-                                    self.log("       ❌ AIS PDF Export failed after 3 attempts.")
+                                if pdf_attempt == 3: self.log("       ❌ AIS PDF Export failed after 3 attempts.")
 
-                    # Navigate back before TIS
                     try:
                         ais_m = wait.until(EC.element_to_be_clickable((By.XPATH, AIS_MENU_XPATH)))
                         driver.execute_script("arguments[0].click();", ais_m); time.sleep(2)
                     except: pass
 
-                    # ── TIS download ────────────────────────────────────
+                    # TIS download
                     tis_year_ok = False
                     for year_attempt in range(1, 4):
                         try:
@@ -1643,15 +1644,14 @@ class AISTISWorker:
                             driver.execute_script("arguments[0].click();", tis_dl_icon); time.sleep(1)
                             tis_year_ok = True; break
                         except Exception as e:
-                            if year_attempt == 3:
-                                self.log(f"        ⚠️ TIS failed for {year} after 3 attempts")
+                            if year_attempt == 3: self.log(f"        ⚠️ TIS failed for {year} after 3 attempts")
 
                     if tis_year_ok:
                         for pdf_attempt in range(1, 4):
                             try:
                                 if pdf_attempt > 1:
                                     self.log(f"        ⚠️ TIS PDF Retry {pdf_attempt}/3..."); time.sleep(2)
-                                clean_temp_files(download_folder, prefixes=("TIS_",))
+                                clean_temp_files(year_folder_path, prefixes=("TIS_",))
                                 modal_dl_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Download' and contains(@class, 'btn-outline-primary')]")))
                                 modal_click_time = time.time()
                                 driver.execute_script("arguments[0].click();", modal_dl_btn)
@@ -1659,15 +1659,15 @@ class AISTISWorker:
                                 direct_download = False
                                 for _ in range(8):
                                     time.sleep(1)
-                                    for f in os.listdir(download_folder):
-                                        fp = os.path.join(download_folder, f)
+                                    for f in os.listdir(year_folder_path):
+                                        fp = os.path.join(year_folder_path, f)
                                         if os.path.isfile(fp) and os.path.getmtime(fp) >= modal_click_time - 2:
                                             if f.endswith(".crdownload") or f.endswith(".pdf"):
                                                 direct_download = True; break
                                     if direct_download: break
                                 if direct_download:
                                     self.log("        ✅ TIS Direct download detected.")
-                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="TIS_", start_time=modal_click_time-2, taxpayer_name=name_from_header)
+                                    saved_path = wait_and_rename_file(year_folder_path, year, self.log, prefix="TIS_", start_time=modal_click_time-2, taxpayer_name=name_from_header)
                                     if saved_path:
                                         tis_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
                                     else:
@@ -1684,22 +1684,18 @@ class AISTISWorker:
                                     except: pass
                                     history_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Go To Activity History']")))
                                     driver.execute_script("arguments[0].click();", history_btn); time.sleep(3)
-                                    clean_temp_files(download_folder, prefixes=("TIS_",))
+                                    clean_temp_files(year_folder_path, prefixes=("TIS_",))
                                     hist_click_time = time.time()
                                     final_dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "(//img[@alt='Download'])[1]")))
                                     driver.execute_script("arguments[0].click();", final_dl_icon)
                                     self.log("        ✅ TIS Export Triggered from History.")
-                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="TIS_", start_time=hist_click_time-2, taxpayer_name=name_from_header)
+                                    saved_path = wait_and_rename_file(year_folder_path, year, self.log, prefix="TIS_", start_time=hist_click_time-2, taxpayer_name=name_from_header)
                                     if saved_path:
                                         tis_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
-                                    else:
-                                        self.log("        ❌ TIS file capture failed.")
                             except Exception as e:
                                 self.log(f"       ⚠️ TIS Attempt {pdf_attempt} Failed: {str(e)[:30]}")
-                                if pdf_attempt == 3:
-                                    self.log("       ❌ TIS PDF Export failed after 3 attempts.")
+                                if pdf_attempt == 3: self.log("       ❌ TIS PDF Export failed after 3 attempts.")
 
-                    # Return to AIS menu for next year
                     try:
                         ais_m = wait.until(EC.element_to_be_clickable((By.XPATH, AIS_MENU_XPATH)))
                         driver.execute_script("arguments[0].click();", ais_m); time.sleep(2)
