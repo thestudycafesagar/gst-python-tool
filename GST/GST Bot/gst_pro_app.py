@@ -509,11 +509,16 @@ class GSTApp(ctk.CTk):
         self.manual_credentials = []
         
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1) 
+        self.grid_rowconfigure(1, weight=1)
 
-        # --- HEADER ---
+        # HEADER
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.header_frame.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
+
+        # CONTENT AREA (SCROLLABLE)
+        self.scroll_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_container.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.scroll_container.grid_columnconfigure(0, weight=1)
         
         self.lbl_title = ctk.CTkLabel(self.header_frame, text="GST VERIFICATION TOOL", 
                                       font=("Segoe UI", 24, "bold"))
@@ -524,8 +529,8 @@ class GSTApp(ctk.CTk):
         self.lbl_subtitle.pack(side="left", padx=10, pady=(10, 0))
 
         # --- 1. FILE UPLOAD ---
-        self.frame_file = ctk.CTkFrame(self)
-        self.frame_file.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
+        self.frame_file = ctk.CTkFrame(self.scroll_container)
+        self.frame_file.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
         
         self.lbl_step1 = ctk.CTkLabel(self.frame_file, text="STEP 1: Upload Data", font=("Segoe UI", 14, "bold"))
         self.lbl_step1.pack(anchor="w", padx=15, pady=(10, 5))
@@ -538,8 +543,8 @@ class GSTApp(ctk.CTk):
         self.btn_browse.pack(side="right", padx=(0, 15), pady=(0, 15))
 
         # --- Button Row Tools (Internal Actions) ---
-        self.btn_row_actions = ctk.CTkFrame(self, fg_color="transparent")
-        self.btn_row_actions.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.btn_row_actions = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
+        self.btn_row_actions.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
 
         self.btn_add_id = ctk.CTkButton(self.btn_row_actions, text="➕ Add GSTIN", command=self.add_id_password,
                          fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"), width=120)
@@ -565,8 +570,8 @@ class GSTApp(ctk.CTk):
         self.btn_delete_id.configure(state="disabled")
 
         # --- 2. RICH LOG & PROGRESS ---
-        self.frame_log = ctk.CTkFrame(self)
-        self.frame_log.grid(row=3, column=0, padx=20, pady=10, sticky="nsew")
+        self.frame_log = ctk.CTkFrame(self.scroll_container)
+        self.frame_log.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
         
         self.lbl_step2 = ctk.CTkLabel(self.frame_log, text="Process Log", font=("Segoe UI", 14, "bold"))
         self.lbl_step2.pack(anchor="w", padx=15, pady=(10, 5))
@@ -589,8 +594,8 @@ class GSTApp(ctk.CTk):
         self.progress_bar.set(0)
 
         # --- 3. ACTION BUTTON ---
-        btn_footer = ctk.CTkFrame(self, fg_color="transparent")
-        btn_footer.grid(row=4, column=0, padx=20, pady=(10, 20), sticky="ew")
+        btn_footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
+        btn_footer.grid(row=3, column=0, padx=10, pady=(10, 20), sticky="ew")
         btn_footer.grid_columnconfigure(0, weight=1)
         self.btn_start = ctk.CTkButton(btn_footer, text="START AUTOMATION", font=("Segoe UI", 16, "bold"), height=50, command=self.start_process, fg_color="#2563EB", hover_color="#1D4ED8")
         self.btn_start.grid(row=0, column=0, sticky="ew")
@@ -604,7 +609,7 @@ class GSTApp(ctk.CTk):
         self.btn_open_folder.grid_remove()
     def open_demo_link(self):
         import webbrowser
-        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
+        webbrowser.open_new_tab("https://youtu.be/RAwvIz1RU-w")
 
     def browse_excel(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])

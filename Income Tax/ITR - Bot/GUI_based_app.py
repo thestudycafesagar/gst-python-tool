@@ -23,9 +23,12 @@ ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
 YEAR_MODE_OPTIONS = [
-    "Current Year",
-    "Current and Last Year",
-    "Current and Last 2 Years",
+    "2027-2028",
+    "2026-2027",
+    "2025-2026",
+    "2024-2025",
+    "2023-2024",
+    "2022-2023",
 ]
 
 def get_taxpayer_name(driver, fallback=""):
@@ -140,7 +143,7 @@ class IncomeTaxWorker:
 
                 # --- FOLDER ROOT (actual folder created after login with name) ---
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded", "ITR Bot")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded")
                 if not os.path.exists(download_root): os.makedirs(download_root, exist_ok=True)
 
                 # START BROWSER
@@ -175,7 +178,7 @@ class IncomeTaxWorker:
             df_report = pd.DataFrame(self.report_data)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"Processing_Report_{timestamp}.xlsx"
-            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "ITR Bot")
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "reports")
             if not os.path.exists(report_dir): os.makedirs(report_dir, exist_ok=True)
             report_path = os.path.join(report_dir, filename)
             df_report.to_excel(report_path, index=False)
@@ -364,11 +367,13 @@ class IncomeTaxWorker:
                 
                 # --- CALCULATE TARGET COUNT ---
                 selected_mode = (self.years_pref or "").strip()
-                if selected_mode in ("Current and Last 2 Years", "Last 3 Years"):
+                if selected_mode in YEAR_MODE_OPTIONS:
+                    target_count = 1
+                elif selected_mode in ("Current and Last 2 Years", "Last 3 Years"):
                     target_count = 3
                 elif selected_mode in ("Current and Last Year", "Last 2 Years"):
                     target_count = 2
-                elif selected_mode in ("Current Year", "Last 1 Year"):
+                elif selected_mode in ("Last 1 Year",):
                     target_count = 1
                 elif "All" in selected_mode:
                     target_count = total_available
@@ -446,12 +451,17 @@ class App(ctk.CTk):
         self.title("ITR Automation Suite Pro")
         self.geometry("800x700")
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
         # Variables
         self.excel_file_path = ""
         self.manual_credentials = []
         self.worker = None
+
+        # SCROLLABLE CONTAINER
+        self.scroll_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_container.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.scroll_container.grid_columnconfigure(0, weight=1)
 
         # --- HEADER SECTION ---
         self.header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
@@ -466,8 +476,8 @@ class App(ctk.CTk):
         self.status_label.pack(side="left", padx=10, pady=(10, 0))
 
         # --- 1. CONFIGURATION CARD ---
-        self.config_frame = ctk.CTkFrame(self)
-        self.config_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=10)
+        self.config_frame = ctk.CTkFrame(self.scroll_container)
+        self.config_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=10)
         
         # 1.1 File Selection
         self.step1_label = ctk.CTkLabel(self.config_frame, text="1. CREDENTIALS SOURCE", 
@@ -516,18 +526,18 @@ class App(ctk.CTk):
         self.pref_frame = ctk.CTkFrame(self.config_frame, fg_color="transparent")
         self.pref_frame.pack(fill="x", padx=15, pady=(0, 15))
 
-        self.lbl_years = ctk.CTkLabel(self.pref_frame, text="Select Number of Years:", text_color="gray")
+        self.lbl_years = ctk.CTkLabel(self.pref_frame, text="Assessment Year:", text_color="gray")
         self.lbl_years.pack(side="left", padx=(0, 10))
 
         self.combo_years = ctk.CTkComboBox(self.pref_frame, 
                          values=YEAR_MODE_OPTIONS,
                          width=200, state="readonly")
-        self.combo_years.set("Current Year") 
+        self.combo_years.set(YEAR_MODE_OPTIONS[0]) 
         self.combo_years.pack(side="left")
 
         # --- 2. TERMINAL LOG SECTION ---
-        self.log_frame = ctk.CTkFrame(self)
-        self.log_frame.grid(row=2, column=0, sticky="nsew", padx=20, pady=10)
+        self.log_frame = ctk.CTkFrame(self.scroll_container)
+        self.log_frame.grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
         self.log_frame.grid_rowconfigure(1, weight=1)
         self.log_frame.grid_columnconfigure(0, weight=1)
 
@@ -538,7 +548,7 @@ class App(ctk.CTk):
         # Terminal-like Textbox
         self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), 
                                     text_color="#10B981", fg_color="#0F172A",
-                                    activate_scrollbars=True)
+                                    activate_scrollbars=True, height=250)
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box.insert("0.0", "System Ready...\nWaiting for input...\n")
         self.log_box.configure(state="disabled")
@@ -549,8 +559,8 @@ class App(ctk.CTk):
         self.progress_bar.set(0)
 
         # --- 3. CONTROLS ---
-        btn_footer = ctk.CTkFrame(self, fg_color="transparent")
-        btn_footer.grid(row=3, column=0, sticky="ew", padx=20, pady=(10, 20))
+        btn_footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
+        btn_footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 20))
         btn_footer.grid_columnconfigure(0, weight=1)
         self.btn_start = ctk.CTkButton(btn_footer, text="INITIATE BATCH DOWNLOAD",
                                        font=ctk.CTkFont(size=16, weight="bold"),
@@ -585,7 +595,7 @@ class App(ctk.CTk):
 
     def open_demo_link(self):
         import webbrowser
-        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
+        webbrowser.open_new_tab("https://youtu.be/wAxjo_ZwTaE")
 
     def browse_file(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])

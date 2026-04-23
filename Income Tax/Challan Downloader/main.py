@@ -143,7 +143,7 @@ class ChallanWorker:
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded", "Challan Downloader")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded")
 
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
 
@@ -183,7 +183,7 @@ class ChallanWorker:
             if not self.report_data: return
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"Challan_Report_{timestamp}.xlsx"
-            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Challan Downloader")
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "reports")
             os.makedirs(report_dir, exist_ok=True)
             report_path = os.path.join(report_dir, filename)
             df_report = pd.DataFrame(self.report_data)
@@ -518,14 +518,12 @@ class ChallanWorker:
                             continue
                 except:
                     selected_years = []
-            elif mode == "Current Year":
-                selected_years = all_years[:1]
             elif mode == "Last 2 Years":
                 selected_years = all_years[:2]
             elif mode == "All History":
                 selected_years = all_years
             else:
-                # Unknown option — default to most recent year
+                # Default to most recent year if nothing matches
                 selected_years = all_years[:1]
 
             if not selected_years:
@@ -1178,13 +1176,18 @@ class App(ctk.CTk):
         self.tab_challan = ctk.CTkFrame(self, fg_color="transparent")
         self.tab_challan.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         self.tab_challan.grid_columnconfigure(0, weight=1)
-        self.tab_challan.grid_rowconfigure(1, weight=1)
+        self.tab_challan.grid_rowconfigure(0, weight=1)
+
+        # SCROLLABLE CONTAINER
+        self.scroll_container = ctk.CTkScrollableFrame(self.tab_challan, fg_color="transparent")
+        self.scroll_container.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.scroll_container.grid_columnconfigure(0, weight=1)
 
         self._build_challan_ui()
 
     def _build_challan_ui(self):
         self.excel_file_path = ""
-        self.config_frame = ctk.CTkFrame(self.tab_challan)
+        self.config_frame = ctk.CTkFrame(self.scroll_container)
         self.config_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
         ctk.CTkLabel(self.config_frame, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
@@ -1211,19 +1214,19 @@ class App(ctk.CTk):
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
         ctk.CTkLabel(pref_frame, text="Assessment Year:", text_color="gray").pack(side="left", padx=(0, 10))
         # Provide last 5 financial years (newest first). Change these values if you want a different range.
-        fy_values = ["2026-2027", "2025-2026", "2024-2025", "2023-2024", "2022-2023"]
+        fy_values = ["2027-2028", "2026-2027", "2025-2026", "2024-2025", "2023-2024", "2022-2023", "Last 2 Years", "All History"]
         self.combo_filter = ctk.CTkComboBox(pref_frame, values=fy_values, width=250, state="readonly")
         self.combo_filter.set(fy_values[0])
         self.combo_filter.pack(side="left")
 
         # Log UI
-        self.log_frame = ctk.CTkFrame(self.tab_challan)
+        self.log_frame = ctk.CTkFrame(self.scroll_container)
         self.log_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 5))
         self.log_frame.grid_rowconfigure(1, weight=1)
         self.log_frame.grid_columnconfigure(0, weight=1)
         
         ctk.CTkLabel(self.log_frame, text="2. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
-        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), activate_scrollbars=True)
+        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), activate_scrollbars=True, height=250)
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box.configure(state="disabled")
         
@@ -1231,7 +1234,7 @@ class App(ctk.CTk):
         self.progress.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress.set(0)
 
-        btn_row_footer = ctk.CTkFrame(self.tab_challan, fg_color="transparent")
+        btn_row_footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
         btn_row_footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(5, 20))
         self.btn_start = ctk.CTkButton(btn_row_footer, text="START CHALLAN DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=self.start_process)
         self.btn_start.pack(side="left", expand=True, fill="x")
@@ -1262,7 +1265,7 @@ class App(ctk.CTk):
 
     def open_demo_link(self):
         import webbrowser
-        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
+        webbrowser.open_new_tab("https://youtu.be/doam0_V3zFc")
 
     def browse_file(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])

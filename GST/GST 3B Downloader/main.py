@@ -533,7 +533,7 @@ class App(ctk.CTk):
         self.geometry("900x850")
         
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
         self.worker = None
         self.excel_file = ""
@@ -548,14 +548,19 @@ class App(ctk.CTk):
         ctk.CTkLabel(self.head, text="GSTR-3B AUTOMATION", 
                       font=("Segoe UI", 14), text_color="#CBD5E1").pack(side="right", padx=20, pady=15)
 
+        # CONTENT AREA (SCROLLABLE)
+        self.scroll_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_container.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.scroll_container.grid_columnconfigure(0, weight=1)
+
         # SETTINGS
-        self.settings_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.settings_container.grid(row=1, column=0, sticky="ew", padx=20, pady=(20, 10))
+        self.settings_container = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
+        self.settings_container.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 10))
         self.settings_container.grid_columnconfigure((0, 1), weight=1)
 
         # --- LOG SECTION ---
-        self.log_frame = ctk.CTkFrame(self, border_color="#334155", border_width=1)
-        self.log_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
+        self.log_frame = ctk.CTkFrame(self.scroll_container, border_color="#334155", border_width=1)
+        self.log_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
         # Credentials Card
         self.card_cred = ctk.CTkFrame(self.settings_container, border_color="#334155", border_width=1)
@@ -649,15 +654,15 @@ class App(ctk.CTk):
         self.log_frame.grid_columnconfigure(0, weight=1)
         self.log_frame.grid_rowconfigure(1, weight=1)
         ctk.CTkLabel(self.log_frame, text="📜 Execution Logs", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=5)
-        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), text_color="#10B981", height=150)
+        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), text_color="#10B981", height=250)
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         self.log_box.configure(state="disabled")
 
 
 
         # FOOTER
-        self.footer = ctk.CTkFrame(self, fg_color="transparent")
-        self.footer.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 20))
+        self.footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
+        self.footer.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 20))
         self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#10B981")
         self.prog_bar.pack(fill="x", pady=(0, 10))
         self.prog_bar.set(0)
@@ -825,7 +830,7 @@ class App(ctk.CTk):
 
     def open_demo_link(self):
         import webbrowser
-        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
+        webbrowser.open_new_tab("https://youtu.be/zEggEXMjL-w")
 
     def browse_file(self):
         f = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")])

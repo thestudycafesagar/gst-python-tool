@@ -18,7 +18,7 @@ except ImportError:
 
 class Template:
     def __init__(self, name, icon, config_fields, recipient_cols,
-                 defaults, build_subject, build_body, has_attachment=False):
+                 defaults, build_subject, build_body, has_attachment=False, demo_link=""):
         self.name            = name
         self.icon            = icon
         self.config_fields   = config_fields    # [(label, key), ...]
@@ -27,6 +27,7 @@ class Template:
         self.build_subject   = build_subject
         self.build_body      = build_body
         self.has_attachment  = has_attachment
+        self.demo_link       = demo_link
 
     @property
     def all_cols(self):
@@ -73,6 +74,7 @@ TEMPLATE_GST = Template(
     },
     build_subject=_gst_subject,
     build_body=_gst_body,
+    demo_link="https://youtu.be/rrIxoYrnal4"
 )
 
 
@@ -121,6 +123,7 @@ TEMPLATE_INVOICE = Template(
     build_subject=_inv_subject,
     build_body=_inv_body,
     has_attachment=True,
+    demo_link="https://youtu.be/D71OhM83LBU"
 )
 
 
@@ -181,6 +184,7 @@ TEMPLATE_PAYMENT = Template(
     },
     build_subject=_pay_subject,
     build_body=_pay_body,
+    demo_link="https://youtu.be/AEqQM8oww1I"
 )
 
 ALL_TEMPLATES = [TEMPLATE_GST, TEMPLATE_INVOICE, TEMPLATE_PAYMENT]
@@ -704,7 +708,8 @@ class BulkMailApp(ctk.CTk):
 
     def open_demo_link(self):
         import webbrowser
-        webbrowser.open_new_tab(DEMO_VIDEO_URL)
+        link = self._active_template.demo_link if hasattr(self._active_template, "demo_link") and self._active_template.demo_link else DEMO_VIDEO_URL
+        webbrowser.open_new_tab(link)
 
     def _rebuild_config_tab(self):
         for w in self._tab_config.winfo_children():

@@ -576,8 +576,8 @@ COMBINED_EMAIL_TOOLS = [
 ]
 
 MAIL_GROUP_TOOLS = [
-    {"key": "Email_Suite", "tab": "📧  Outlook Email Tools", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Outlook suite with 3 templates: GST Return Request, Invoice Sender, and Payment Reminder.", "is_card_only": True, "action_cat": "email"},
-    {"key": "Gmail_Suite", "tab": "✉  Gmail Email Tools",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Gmail suite with 3 templates: GST Return Request, Invoice Sender, and Payment Reminder.", "is_card_only": True, "action_cat": "gmail"},
+    {"key": "Email_Suite", "tab": "📧  Outlook Email Tools", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Outlook suite with 3 built-in templates: GST Return Request, Invoice Sender, Payment Reminder + 1 Custom Template.", "is_card_only": True, "action_cat": "email"},
+    {"key": "Gmail_Suite", "tab": "✉  Gmail Email Tools",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Gmail suite with 3 built-in templates: GST Return Request, Invoice Sender, Payment Reminder + 1 Custom Template.", "is_card_only": True, "action_cat": "gmail"},
 ]
 
 TALLY_TOOLS = [
@@ -1057,7 +1057,7 @@ class GSTSuite(_RealCTk):
         if self._is_closing:
             return
         self._clock_lbl.configure(
-            text=datetime.now().strftime("%d %b %Y   %H:%M:%S"))
+            text=datetime.now().strftime("%d %b   %H:%M:%S"))
         self._queue_after(1000, self._tick_clock)
 
     def _set_theme(self, label: str):
@@ -1560,7 +1560,7 @@ class GSTSuite(_RealCTk):
 
         hero_help = "Click any tab to load a tool — each loads once and stays active."
         if key == "mail":
-            hero_help = "Choose Outlook or Gmail, then switch between 3 built-in templates inside that suite."
+            hero_help = "Choose Outlook or Gmail, then switch between 3 built-in templates and 1 custom template inside that suite."
 
         ctk.CTkLabel(hb,
                      text=hero_help,

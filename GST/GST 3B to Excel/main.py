@@ -17,8 +17,8 @@ class GSTR3BConverterPro(ctk.CTk):
 
         # Window Setup
         self.title("GSTR-3B Pro Converter")
-        self.geometry("700x580")
-        self.resizable(False, False)
+        self.geometry("700x650")
+        self.resizable(True, True)
 
         # Variables
         self.selected_files = []
@@ -28,8 +28,16 @@ class GSTR3BConverterPro(ctk.CTk):
         self.create_widgets()
 
     def create_widgets(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        # CONTENT AREA (SCROLLABLE)
+        self.scroll_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_container.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.scroll_container.grid_columnconfigure(0, weight=1)
+
         # Header
-        self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.header_frame = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
         self.header_frame.pack(pady=20)
         
         self.title_label = ctk.CTkLabel(
@@ -47,7 +55,7 @@ class GSTR3BConverterPro(ctk.CTk):
         self.subtitle.pack()
 
         # File Selection Area
-        self.file_frame = ctk.CTkFrame(self)
+        self.file_frame = ctk.CTkFrame(self.scroll_container)
         self.file_frame.pack(pady=10, padx=40, fill="x")
 
         self.select_btn = ctk.CTkButton(
@@ -75,7 +83,7 @@ class GSTR3BConverterPro(ctk.CTk):
         self.btn_demo.pack(pady=(0, 15))
 
         # --- Options Area (New Checkbox) ---
-        self.options_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.options_frame = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
         self.options_frame.pack(pady=5)
 
         self.merge_check = ctk.CTkCheckBox(
@@ -97,7 +105,7 @@ class GSTR3BConverterPro(ctk.CTk):
         )
         self.hint_label.pack()
         self.convert_btn = ctk.CTkButton(
-            self,
+            self.scroll_container,
             text="Convert to Excel Now",
             command=self.process_files,
             state="disabled",
@@ -110,7 +118,7 @@ class GSTR3BConverterPro(ctk.CTk):
         self.convert_btn.pack(pady=20)
 
         self.open_folder_btn = ctk.CTkButton(
-            self,
+            self.scroll_container,
             text="📂 Open Output Folder",
             command=self.open_output_folder,
             height=40,
@@ -123,14 +131,14 @@ class GSTR3BConverterPro(ctk.CTk):
         self.open_folder_btn.pack_forget() # Initially hidden
 
         # Log/Status Area
-        self.textbox = ctk.CTkTextbox(self, height=120, width=600)
+        self.textbox = ctk.CTkTextbox(self.scroll_container, height=200, width=600)
         self.textbox.pack(pady=10)
         self.textbox.insert("0.0", "Status log will appear here...\n")
         self.textbox.configure(state="disabled")
 
     def open_demo_link(self):
         import webbrowser
-        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
+        webbrowser.open_new_tab("https://youtu.be/zEggEXMjL-w")
 
     def open_output_folder(self):
         target = os.path.join(os.getcwd(), "GST Downloaded", "GSTR 3B to Excel")

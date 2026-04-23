@@ -42,6 +42,8 @@ ASSESSMENT_YEAR_OPTIONS = [
     "2024-2025",
     "2023-2024",
     "2022-2023",
+    "Current and Last Year",
+    "Current and Last 2 Years",
     "Manual Selection (Popup)",
 ]
 
@@ -390,7 +392,7 @@ class Tax26ASWorker:
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded", "26 AS")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded")
 
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 
@@ -415,7 +417,7 @@ class Tax26ASWorker:
             if not self.report_data: return
             df_report = pd.DataFrame(self.report_data)
             filename = f"26AS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "26 AS Downloader", "reports")
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "reports")
             os.makedirs(report_dir, exist_ok=True)
             report_path = os.path.join(report_dir, filename)
             df_report.to_excel(report_path, index=False)
@@ -711,14 +713,16 @@ class Tax26ASWorker:
                 available_years = [o.text.strip() for o in ay_select.options if "Select" not in o.text]
                 if not available_years: return "Failed", "No years found"
 
-                if self.year_mode == "Current Year": self.current_user_selected_years = available_years[:1]
-                elif self.year_mode == "Current and Last Year": self.current_user_selected_years = available_years[:2]
-                elif self.year_mode == "Current and Last 2 Years": self.current_user_selected_years = available_years[:3]
+                if self.year_mode in ASSESSMENT_YEAR_OPTIONS and "-" in self.year_mode and self.year_mode.split("-")[0].isdigit():
+                    # Match absolute year like "2024-2025" to "2024-25"
+                    start_yr, end_yr = self.year_mode.split("-")
+                    target_ay = f"{start_yr}-{end_yr[2:]}"
+                    self.current_user_selected_years = [target_ay] if target_ay in available_years else []
+                elif self.year_mode == "Current and Last Year":
+                    self.current_user_selected_years = available_years[:2]
+                elif self.year_mode == "Current and Last 2 Years":
+                    self.current_user_selected_years = available_years[:3]
                 else:
-                    self.log(f"   🛑 PAUSED: Found {len(available_years)} years. Waiting for you...")
-                    self.user_selection_event.clear()
-                    self.current_user_selected_years = None
-                    self.app.trigger_year_selection(available_years, user_id, self.set_years_and_resume)
                     self.user_selection_event.wait()
 
                 years_to_download = [y for y in self.current_user_selected_years if y in available_years]
@@ -1109,8 +1113,11 @@ class FiledReturnWorker:
                 self.log(f"   📋 Found {len(available_years)} Assessment Years: {', '.join(available_years)}")
 
                 # Apply year selection logic based on year_mode
-                if self.year_mode == "Current Year":
-                    self.current_user_selected_years = available_years[:1]
+                if self.year_mode in ASSESSMENT_YEAR_OPTIONS and "-" in self.year_mode and self.year_mode.split("-")[0].isdigit():
+                    # Match absolute year like "2024-2025" to "2024-25"
+                    start_yr, end_yr = self.year_mode.split("-")
+                    target_ay = f"{start_yr}-{end_yr[2:]}"
+                    self.current_user_selected_years = [target_ay] if target_ay in available_years else []
                 elif self.year_mode == "Current and Last Year":
                     self.current_user_selected_years = available_years[:2]
                 elif self.year_mode == "Current and Last 2 Years":
@@ -1308,7 +1315,7 @@ class AISTISWorker:
                 self.app.update_progress_safe_aistis(index / total_users)
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded", "AIS-TIS")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded")
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 self.report_data.append({
                     "PAN": user_id, "Status": status, "Details": reason,
@@ -1319,6 +1326,10 @@ class AISTISWorker:
             self.generate_report()
             self.app.update_progress_safe_aistis(1.0)
             self.log("\n✅ BATCH COMPLETED!")
+            self.app.process_finished_safe_aistis("All Tasks Completed.")
+        except Exception as e:
+            self.log(f"❌ CRITICAL ERROR: {str(e)}")
+            self.app.process_finished_safe_aistis("Critical Error Occurred")
 
     def process_single_user(self, user_id, password, dob, download_root):
         driver = None
@@ -1518,15 +1529,25 @@ class AISTISWorker:
                 except: pass
                 if not available_years: return "Failed", "No years found", download_folder
 
-                if self.year_mode == "Current Year": self.current_user_selected_years = available_years[:1]
+                if self.year_mode in ASSESSMENT_YEAR_OPTIONS and "-" in self.year_mode and self.year_mode.split("-")[0].isdigit():
+                    # AIS/TIS portal uses Financial Year. 
+                    # Conversion: AY 2024-2025 -> FY 2023-24
+                    ay_start = int(self.year_mode.split("-")[0])
+                    fy_start = ay_start - 1
+                    fy_end = ay_start
+                    target_fy = f"F.Y. {fy_start}-{str(fy_end)[2:]}"
+                    self.current_user_selected_years = [target_fy] if target_fy in available_years else []
                 elif self.year_mode == "Current and Last Year": self.current_user_selected_years = available_years[:2]
                 elif self.year_mode == "Current and Last 2 Years": self.current_user_selected_years = available_years[:3]
                 else:
-                    self.log(f"   🛑 PAUSED: Found {len(available_years)} years. Waiting for you...")
-                    self.user_selection_event.clear()
-                    self.current_user_selected_years = None
-                    self.app.trigger_year_selection(available_years, user_id, self.set_years_and_resume)
-                    self.user_selection_event.wait()
+                    if self.year_mode == "Manual Selection (Popup)":
+                        self.log(f"   🛑 PAUSED: Found {len(available_years)} years. Waiting for you...")
+                        self.user_selection_event.clear()
+                        self.current_user_selected_years = None
+                        self.app.trigger_year_selection(available_years, user_id, self.set_years_and_resume)
+                        self.user_selection_event.wait()
+                    else:
+                        self.current_user_selected_years = available_years[:1]
 
                 years_to_download = [y for y in self.current_user_selected_years if y in available_years]
                 if not years_to_download: return "Warning", "No valid years selected", download_folder
@@ -1744,10 +1765,15 @@ class App(ctk.CTk):
 
     # --- UI BUILDERS ---
     def _build_26as_ui(self):
-        self.excel_file_path_26as = ""
         self.tab_26as.grid_columnconfigure(0, weight=1)
-        self.tab_26as.grid_rowconfigure(1, weight=1)
-        self.config_26as = ctk.CTkFrame(self.tab_26as)
+        self.tab_26as.grid_rowconfigure(0, weight=1)
+
+        # SCROLLABLE CONTAINER FOR 26AS
+        self.scroll_26as = ctk.CTkScrollableFrame(self.tab_26as, fg_color="transparent")
+        self.scroll_26as.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.scroll_26as.grid_columnconfigure(0, weight=1)
+
+        self.config_26as = ctk.CTkFrame(self.scroll_26as)
         self.config_26as.grid(row=0, column=0, sticky="ew", padx=10, pady=(2, 5))
 
         ctk.CTkLabel(self.config_26as, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
@@ -1776,12 +1802,12 @@ class App(ctk.CTk):
         self.combo_years_26as.set(ASSESSMENT_YEAR_OPTIONS[0])
         self.combo_years_26as.pack(side="left")
 
-        self.log_frame_26as = ctk.CTkFrame(self.tab_26as)
+        self.log_frame_26as = ctk.CTkFrame(self.scroll_26as)
         self.log_frame_26as.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 5))
         self.log_frame_26as.grid_rowconfigure(1, weight=1)
         self.log_frame_26as.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(self.log_frame_26as, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
-        self.log_box_26as = ctk.CTkTextbox(self.log_frame_26as, font=("Consolas", 12), activate_scrollbars=True)
+        self.log_box_26as = ctk.CTkTextbox(self.log_frame_26as, font=("Consolas", 12), activate_scrollbars=True, height=250)
         self.log_box_26as.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box_26as.configure(state="disabled")
         
@@ -1789,8 +1815,8 @@ class App(ctk.CTk):
         self.progress_26as.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_26as.set(0)
 
-        btn_footer_26as = ctk.CTkFrame(self.tab_26as, fg_color="transparent")
-        btn_footer_26as.grid(row=2, column=0, sticky="ew", padx=20, pady=(5, 10))
+        btn_footer_26as = ctk.CTkFrame(self.scroll_26as, fg_color="transparent")
+        btn_footer_26as.grid(row=2, column=0, sticky="ew", padx=10, pady=(5, 10))
         self.btn_start_26as = ctk.CTkButton(btn_footer_26as, text="START 26AS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("26as"))
         self.btn_start_26as.pack(side="left", expand=True, fill="x")
         self.btn_stop_26as = ctk.CTkButton(btn_footer_26as, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("26as"), width=150)
@@ -1801,10 +1827,15 @@ class App(ctk.CTk):
         self.btn_open_folder_26as.pack_forget()
 
     def _build_aistis_ui(self):
-        self.excel_file_path_aistis = ""
         self.tab_aistis.grid_columnconfigure(0, weight=1)
-        self.tab_aistis.grid_rowconfigure(1, weight=1)
-        self.config_aistis = ctk.CTkFrame(self.tab_aistis)
+        self.tab_aistis.grid_rowconfigure(0, weight=1)
+
+        # SCROLLABLE CONTAINER FOR AIS/TIS
+        self.scroll_aistis = ctk.CTkScrollableFrame(self.tab_aistis, fg_color="transparent")
+        self.scroll_aistis.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.scroll_aistis.grid_columnconfigure(0, weight=1)
+
+        self.config_aistis = ctk.CTkFrame(self.scroll_aistis)
         self.config_aistis.grid(row=0, column=0, sticky="ew", padx=10, pady=(2, 5))
 
         ctk.CTkLabel(self.config_aistis, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
@@ -1830,12 +1861,12 @@ class App(ctk.CTk):
         self.combo_years_aistis.set(ASSESSMENT_YEAR_OPTIONS[0])
         self.combo_years_aistis.pack(side="left")
 
-        self.log_frame_aistis = ctk.CTkFrame(self.tab_aistis)
+        self.log_frame_aistis = ctk.CTkFrame(self.scroll_aistis)
         self.log_frame_aistis.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 5))
         self.log_frame_aistis.grid_rowconfigure(1, weight=1)
         self.log_frame_aistis.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(self.log_frame_aistis, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
-        self.log_box_aistis = ctk.CTkTextbox(self.log_frame_aistis, font=("Consolas", 12), activate_scrollbars=True)
+        self.log_box_aistis = ctk.CTkTextbox(self.log_frame_aistis, font=("Consolas", 12), activate_scrollbars=True, height=250)
         self.log_box_aistis.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box_aistis.configure(state="disabled")
 
@@ -1843,8 +1874,8 @@ class App(ctk.CTk):
         self.progress_aistis.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_aistis.set(0)
 
-        btn_footer_aistis = ctk.CTkFrame(self.tab_aistis, fg_color="transparent")
-        btn_footer_aistis.grid(row=2, column=0, sticky="ew", padx=20, pady=(5, 10))
+        btn_footer_aistis = ctk.CTkFrame(self.scroll_aistis, fg_color="transparent")
+        btn_footer_aistis.grid(row=2, column=0, sticky="ew", padx=10, pady=(5, 10))
         self.btn_start_aistis = ctk.CTkButton(btn_footer_aistis, text="START AIS & TIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("aistis"))
         self.btn_start_aistis.pack(side="left", expand=True, fill="x")
         self.btn_stop_aistis = ctk.CTkButton(btn_footer_aistis, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("aistis"), width=150)
@@ -1879,7 +1910,7 @@ class App(ctk.CTk):
 
     def open_demo_link(self):
         import webbrowser
-        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
+        webbrowser.open_new_tab("https://youtu.be/byMvFynIJuo")
 
     def browse_file(self, mode):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
@@ -2047,7 +2078,7 @@ class App(ctk.CTk):
         }
         combo_attr = combo_map.get(mode)
         if not combo_attr:
-            return "Current Year"
+            return ASSESSMENT_YEAR_OPTIONS[0]
 
         combo = getattr(self, combo_attr, None)
         try:
@@ -2055,7 +2086,7 @@ class App(ctk.CTk):
         except Exception:
             selected = ""
 
-        return selected if selected in YEAR_MODE_OPTIONS else "Current Year"
+        return selected if selected in ASSESSMENT_YEAR_OPTIONS else ASSESSMENT_YEAR_OPTIONS[0]
 
     def start_process(self, mode):
         if mode == "26as":

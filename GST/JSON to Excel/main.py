@@ -347,12 +347,7 @@ class App(ctk.CTk):
         self.btn_clear = ctk.CTkButton(self.sidebar, text="Clear Queue", command=self.clear_queue, fg_color="#DC2626", hover_color="#B91C1C")
         self.btn_clear.grid(row=2, column=0, padx=20, pady=20)
 
-        # Theme controls removed — theme is controlled globally by GST_Suite.py
-        # self.appearance_mode_label = ctk.CTkLabel(self.sidebar, text="Appearance Mode:", anchor="w")
-        # self.appearance_mode_label.grid(row=5, column=0, padx=20, pady=(10, 0))
-        # self.appearance_mode_optionemenu = ctk.CTkOptionMenu(self.sidebar, values=["Dark", "Light", "System"],
-        #                                                      command=self.change_appearance_mode_event)
-        # self.appearance_mode_optionemenu.grid(row=6, column=0, padx=20, pady=(10, 20))
+
 
         # 2. MAIN AREA
         self.main_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")

@@ -8,6 +8,15 @@ from datetime import datetime
 from tkinter import filedialog, messagebox
 from functools import wraps
 
+YEAR_LIST = [
+    "2027-2028",
+    "2026-2027",
+    "2025-2026",
+    "2024-2025",
+    "2023-2024",
+    "2022-2023",
+]
+
 # Selenium Imports
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -357,18 +366,21 @@ class FiledReturnWorker:
 
                 self.log(f"   📋 Found {len(available_years)} Assessment Years: {', '.join(available_years)}")
 
-                if self.year_mode == "Current Year":
-                    self.current_user_selected_years = available_years[:1]
-                elif self.year_mode == "Current and Last Year":
-                    self.current_user_selected_years = available_years[:2]
-                elif self.year_mode == "Current and Last 2 Years":
-                    self.current_user_selected_years = available_years[:3]
-                else:  # Manual Selection
-                    self.log(f"   🛑 PAUSED: Found {len(available_years)} years. Waiting for selection...")
-                    self.user_selection_event.clear()
-                    self.current_user_selected_years = None
-                    self.app.trigger_year_selection(available_years, user_id, self.set_years_and_resume)
-                    self.user_selection_event.wait()
+                if self.year_mode in YEAR_LIST:
+                    # Match absolute year like "2024-2025" to "A.Y. 2024-25"
+                    start_yr, end_yr = self.year_mode.split("-")
+                    target_ay = f"A.Y. {start_yr}-{end_yr[2:]}"
+                    self.current_user_selected_years = [target_ay] if target_ay in available_years else []
+                else:  # Manual Selection or fallback
+                    if self.year_mode == "Manual Selection (Popup)":
+                        self.log(f"   🛑 PAUSED: Found {len(available_years)} years. Waiting for selection...")
+                        self.user_selection_event.clear()
+                        self.current_user_selected_years = None
+                        self.app.trigger_year_selection(available_years, user_id, self.set_years_and_resume)
+                        self.user_selection_event.wait()
+                    else:
+                        # Fallback for relative modes if they still exist somehow or for safety
+                        self.current_user_selected_years = available_years[:1]
 
                 years_to_extract = [y for y in self.current_user_selected_years if y in available_years]
                 if not years_to_extract:
@@ -504,14 +516,19 @@ class RefundCheckerApp(ctk.CTk):
         self.content = ctk.CTkFrame(self, fg_color="transparent")
         self.content.grid(row=1, column=0, sticky="nsew")
         self.content.grid_columnconfigure(0, weight=1)
-        self.content.grid_rowconfigure(1, weight=1)
+        self.content.grid_rowconfigure(0, weight=1)
+
+        # SCROLLABLE CONTAINER
+        self.scroll_container = ctk.CTkScrollableFrame(self.content, fg_color="transparent")
+        self.scroll_container.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.scroll_container.grid_columnconfigure(0, weight=1)
 
         self._build_ui()
 
     def _build_ui(self):
         self.excel_file_path_filed = ""
 
-        config_frame = ctk.CTkFrame(self.content)
+        config_frame = ctk.CTkFrame(self.scroll_container)
         config_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
         ctk.CTkLabel(config_frame, text="1. CREDENTIALS SOURCE",
@@ -537,24 +554,24 @@ class RefundCheckerApp(ctk.CTk):
 
         pref_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 15))
-        ctk.CTkLabel(pref_frame, text="Extract Data for:", text_color="gray").pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(pref_frame, text="Assessment Year:", text_color="gray").pack(side="left", padx=(0, 10))
         self.combo_years_filed = ctk.CTkComboBox(
             pref_frame,
-            values=["Current Year", "Current and Last Year", "Current and Last 2 Years", "Manual Selection (Popup)"],
+            values=YEAR_LIST + ["Manual Selection (Popup)"],
             width=250, state="readonly"
         )
-        self.combo_years_filed.set("Current Year")
+        self.combo_years_filed.set(YEAR_LIST[0])
         self.combo_years_filed.pack(side="left")
 
         # Log UI
-        log_frame = ctk.CTkFrame(self.content)
+        log_frame = ctk.CTkFrame(self.scroll_container)
         log_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 5))
         log_frame.grid_rowconfigure(1, weight=1)
         log_frame.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(log_frame, text="2. LIVE LOG",
                      font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
-        self.log_box_filed = ctk.CTkTextbox(log_frame, font=("Consolas", 12), activate_scrollbars=True)
+        self.log_box_filed = ctk.CTkTextbox(log_frame, font=("Consolas", 12), activate_scrollbars=True, height=250)
         self.log_box_filed.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box_filed.configure(state="disabled")
 
@@ -562,7 +579,7 @@ class RefundCheckerApp(ctk.CTk):
         self.progress_filed.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_filed.set(0)
 
-        btn_footer = ctk.CTkFrame(self.content, fg_color="transparent")
+        btn_footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
         btn_footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
         btn_footer.grid_columnconfigure(0, weight=1)
         self.btn_start_filed = ctk.CTkButton(btn_footer, text="GENERATE REPORT",
@@ -605,7 +622,7 @@ class RefundCheckerApp(ctk.CTk):
 
     def open_demo_link(self):
         import webbrowser
-        webbrowser.open_new_tab("https://www.youtube.com/watch?v=XXXXXXXXXX")
+        webbrowser.open_new_tab("https://youtu.be/7vb6m3VUaqQ")
 
     def browse_file(self):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
