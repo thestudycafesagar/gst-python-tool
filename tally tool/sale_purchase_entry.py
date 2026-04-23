@@ -3138,6 +3138,214 @@ def generate_unit_xml(unit_names: list, company: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  CREDIT / DEBIT NOTE XML GENERATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _normalize_note_type(value: str) -> str:
+    text = str(value or "").strip().casefold()
+    if text in {"debit note", "debit", "debitnote"}:
+        return "Debit Note"
+    return "Credit Note"
+
+
+def _clean_note_tax_ledger(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.casefold() in {"0", "0.0", "none", "na", "n/a", "-"}:
+        return ""
+    return text
+
+
+def generate_note_xml(
+    rows: list,
+    company: str,
+    use_today_date: bool = False,
+    date_mode: str = "",
+    custom_tally_date: str = "",
+    voucher_type: str = "Credit Note",
+    company_gst_registrations: list = None,
+) -> tuple:
+    """
+    Credit/Debit Note accounting:
+    - Credit Note: party credited (ISDEEMEDPOSITIVE=No), particular/tax debited (Yes)
+    - Debit Note:  party debited  (ISDEEMEDPOSITIVE=Yes), particular/tax credited (No)
+    """
+    normalized_type = _normalize_note_type(voucher_type)
+    is_debit_note = (normalized_type == "Debit Note")
+    default_particular_ledger = f"{normalized_type} Account"
+
+    lines_out = []
+    a = lines_out.append
+    company_static = _company_static_block(company)
+
+    a('<?xml version="1.0" encoding="UTF-8"?>')
+    a("<ENVELOPE>")
+    a(" <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>")
+    a(" <BODY><IMPORTDATA>")
+    a("  <REQUESTDESC><REPORTNAME>Vouchers</REPORTNAME>")
+    if company_static:
+        a(company_static)
+    a("  </REQUESTDESC>")
+    a("  <REQUESTDATA>")
+
+    voucher_count = 0
+    resolved_mode = str(date_mode or ("current" if use_today_date else "excel")).strip().lower()
+    if resolved_mode not in {"current", "excel", "custom"}:
+        resolved_mode = "current" if use_today_date else "excel"
+    resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
+
+    for idx, r in enumerate(rows):
+        taxable = _row_float(r, "TaxableValue", 0.0)
+        if taxable <= 0:
+            continue
+
+        if resolved_mode == "current":
+            from datetime import datetime as _dt
+            source_date = _dt.today()
+        elif resolved_mode == "custom":
+            source_date = resolved_custom_date
+        else:
+            source_date = _row_get(r, "Date", "")
+        dt = tally_date(source_date)
+
+        vno_raw = _row_voucher_number(r, str(idx + 1))
+        party_raw = _ledger_or_suspense(_row_text(r, "PartyLedger") or _row_text(r, "Party Ledger"))
+        particular_raw = (
+            _row_text(r, "Particular") or _row_text(r, "Particulars")
+            or _row_text(r, "SalesLedger") or _row_text(r, "Sales Ledger")
+            or _row_text(r, "Purchase Ledger") or default_particular_ledger
+        )
+        particular_raw = _ledger_or_suspense(particular_raw) or default_particular_ledger
+
+        cgst_ledger_raw = _clean_note_tax_ledger(_row_text(r, "CGSTLedger"))
+        sgst_ledger_raw = _clean_note_tax_ledger(_row_text(r, "SGSTLedger"))
+        igst_ledger_raw = _clean_note_tax_ledger(_row_text(r, "IGSTLedger"))
+
+        cgst_rate = _row_float(r, "CGSTRate", 0.0)
+        sgst_rate = _row_float(r, "SGSTRate", 0.0)
+        igst_rate = _row_float(r, "IGSTRate", 0.0)
+
+        cgst_amt = round(taxable * cgst_rate / 100, 2) if cgst_rate > 0 else 0.0
+        sgst_amt = round(taxable * sgst_rate / 100, 2) if sgst_rate > 0 else 0.0
+        igst_amt = round(taxable * igst_rate / 100, 2) if igst_rate > 0 else 0.0
+        total = taxable + cgst_amt + sgst_amt + igst_amt
+
+        vno = xml_escape(vno_raw)
+        party = xml_escape(party_raw)
+        particular = xml_escape(particular_raw)
+        narration = xml_escape(_row_text(r, "Narration"))
+        gstin_raw = _row_text(r, "GSTIN") or _row_text(r, "PartyGSTIN")
+        gstin = xml_escape(gstin_raw)
+
+        state_name_raw = _state_name_from_gstin(gstin_raw)
+        state_xml = xml_escape(state_name_raw)
+
+        # Sign convention
+        party_is_deemed_positive = "Yes" if is_debit_note else "No"
+        party_amount = -total if is_debit_note else total
+        counter_is_deemed_positive = "No" if is_debit_note else "Yes"
+        taxable_amount = taxable if is_debit_note else -taxable
+        cgst_amount = cgst_amt if is_debit_note else -cgst_amt
+        sgst_amount = sgst_amt if is_debit_note else -sgst_amt
+        igst_amount = igst_amt if is_debit_note else -igst_amt
+
+        voucher_count += 1
+        a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
+        a(f'    <VOUCHER VCHTYPE="{normalized_type}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
+        a(f"     <DATE>{dt}</DATE>")
+        a(f"     <VOUCHERTYPENAME>{normalized_type}</VOUCHERTYPENAME>")
+        a(f"     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>")
+        a(f"     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>")
+        a(f"     <PARTYNAME>{party}</PARTYNAME>")
+
+        if not is_debit_note:
+            a(f"     <BASICBUYERNAME>{party}</BASICBUYERNAME>")
+            if state_xml:
+                a(f"     <STATENAME>{state_xml}</STATENAME>")
+                a(f"     <PLACEOFSUPPLY>{state_xml}</PLACEOFSUPPLY>")
+        else:
+            _cmp_regs = list(company_gst_registrations or [])
+            _cmp_state = _cmp_gstin = _cmp_name = ""
+            if _cmp_regs:
+                _cr = _cmp_regs[0]
+                _cmp_gstin = xml_escape(str(_cr.get("gstin", "") or "").strip())
+                _cmp_state = xml_escape(str(_cr.get("state", "") or "").strip())
+                _cmp_name  = xml_escape(str(_cr.get("name", "") or "").strip())
+            if state_xml:
+                a(f"     <STATENAME>{state_xml}</STATENAME>")
+            if _cmp_state:
+                a(f"     <PLACEOFSUPPLY>{_cmp_state}</PLACEOFSUPPLY>")
+            _dn_reg = "Regular" if gstin_raw else "Unregistered"
+            a(f"     <GSTREGISTRATIONTYPE>{_dn_reg}</GSTREGISTRATIONTYPE>")
+            if gstin_raw:
+                a("     <VATDEALERTYPE>Regular</VATDEALERTYPE>")
+            if _cmp_gstin and _cmp_name:
+                a(f'     <GSTREGISTRATION TAXTYPE="GST" TAXREGISTRATION="{_cmp_gstin}">{_cmp_name}</GSTREGISTRATION>')
+                a(f'     <CMPGSTIN>{_cmp_gstin}</CMPGSTIN>')
+                a('     <CMPGSTREGISTRATIONTYPE>Regular</CMPGSTREGISTRATIONTYPE>')
+            if _cmp_state:
+                a(f'     <CMPGSTSTATE>{_cmp_state}</CMPGSTSTATE>')
+
+        a("     <COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>")
+        a(f"     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>")
+        a("     <ISINVOICE>Yes</ISINVOICE>")
+        a("     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>")
+        a("     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>")
+        if is_debit_note:
+            a("     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>")
+            _dn_gst_txn = "Tax Invoice" if gstin_raw else "Unregistered"
+            a(f"     <GSTTRANSACTIONTYPE>{_dn_gst_txn}</GSTTRANSACTIONTYPE>")
+        if gstin:
+            a(f"     <PARTYGSTIN>{gstin}</PARTYGSTIN>")
+        if narration:
+            a(f"     <NARRATION>{narration}</NARRATION>")
+
+        # Party ledger entry
+        a("     <LEDGERENTRIES.LIST>")
+        a(f"      <LEDGERNAME>{party}</LEDGERNAME>")
+        a(f"      <ISDEEMEDPOSITIVE>{party_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+        a(f"      <AMOUNT>{fmt_amt(party_amount)}</AMOUNT>")
+        a("     </LEDGERENTRIES.LIST>")
+
+        # Particular / income ledger
+        a("     <LEDGERENTRIES.LIST>")
+        a(f"      <LEDGERNAME>{particular}</LEDGERNAME>")
+        a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+        a(f"      <AMOUNT>{fmt_amt(taxable_amount)}</AMOUNT>")
+        a("     </LEDGERENTRIES.LIST>")
+
+        if cgst_amt > 0 and cgst_ledger_raw:
+            a("     <LEDGERENTRIES.LIST>")
+            a(f"      <LEDGERNAME>{xml_escape(cgst_ledger_raw)}</LEDGERNAME>")
+            a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+            a(f"      <AMOUNT>{fmt_amt(cgst_amount)}</AMOUNT>")
+            a("     </LEDGERENTRIES.LIST>")
+
+        if sgst_amt > 0 and sgst_ledger_raw:
+            a("     <LEDGERENTRIES.LIST>")
+            a(f"      <LEDGERNAME>{xml_escape(sgst_ledger_raw)}</LEDGERNAME>")
+            a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+            a(f"      <AMOUNT>{fmt_amt(sgst_amount)}</AMOUNT>")
+            a("     </LEDGERENTRIES.LIST>")
+
+        if igst_amt > 0 and igst_ledger_raw:
+            a("     <LEDGERENTRIES.LIST>")
+            a(f"      <LEDGERNAME>{xml_escape(igst_ledger_raw)}</LEDGERNAME>")
+            a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+            a(f"      <AMOUNT>{fmt_amt(igst_amount)}</AMOUNT>")
+            a("     </LEDGERENTRIES.LIST>")
+
+        a("    </VOUCHER>")
+        a("   </TALLYMESSAGE>")
+
+    a("  </REQUESTDATA>")
+    a(" </IMPORTDATA></BODY>")
+    a("</ENVELOPE>")
+    return "\n".join(lines_out), voucher_count
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  READ EXCEL
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -3200,6 +3408,14 @@ class TallySalesApp(ctk.CTk):
         self._voucher_save_buttons = {}
         self._voucher_push_buttons = {}
         self._voucher_template_buttons = {}
+        self._voucher_xml_fp_vars = {}
+        self._voucher_xml_browse_buttons = {}
+        self._voucher_import_buttons = {}  # kept for compat, not used in UI
+        self._active_preview_mode = {}     # tracks "excel" or "xml" per mode
+        self._note_type_var = ctk.StringVar(value="Credit Note")
+        self.company_gst_registrations = []
+        self._note_loaded_rows = []
+        self._note_loaded_headers = []
         self._push_running = False
         self._push_overlay = None
         self._push_message_var = ctk.StringVar(value="")
@@ -3445,35 +3661,92 @@ class TallySalesApp(ctk.CTk):
         self.voucher_custom_date_entry.pack(side="left", padx=(8, 0))
         self._set_voucher_date_mode("excel")
 
-        self.tabs = ctk.CTkTabview(
-            self,
-            corner_radius=10,
-            fg_color=COLORS["bg_card"],
-            border_width=1,
-            border_color=COLORS["border"],
-            segmented_button_fg_color=COLORS["bg_input"],
-            segmented_button_selected_color=COLORS["accent"],
-            segmented_button_selected_hover_color=COLORS["accent_hover"],
-            segmented_button_unselected_color=COLORS["bg_input"],
-            segmented_button_unselected_hover_color=COLORS["bg_card_hover"],
-            text_color=COLORS["text_primary"],
-            text_color_disabled=COLORS["text_muted"],
-        )
-        self.tabs.pack(fill="both", expand=True, padx=16, pady=(0, 10))
+        # ─── Panel Selector Dropdown ─────────────────────────────────────────────
+        _sel_row_outer = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=10,
+                                       border_width=1, border_color=COLORS["border"])
+        _sel_row_outer.pack(fill="x", padx=16, pady=(0, 6))
+        _sel_row = ctk.CTkFrame(_sel_row_outer, fg_color="transparent")
+        _sel_row.pack(fill="x", padx=14, pady=10)
+        ctk.CTkLabel(_sel_row, text="Select Mode", font=("Segoe UI", 11, "bold"),
+                     text_color=COLORS["text_secondary"]).pack(side="left")
 
-        self.tab_acct = self.tabs.add("📋 Sales Accounting Invoice")
-        self.tab_item = self.tabs.add("📦 Sales Item Invoice")
-        self.tab_purchase_acct = self.tabs.add("🧾 Purchase Accounting Invoice")
-        self.tab_purchase_item = self.tabs.add("🛒 Purchase Item Invoice")
-        self.tab_ledger = self.tabs.add("🏦 Create Ledgers")
-        self.tab_stock = self.tabs.add("📁 Create Stock Items")
+        _panel_options = [
+            "📋  Sales Accounting Invoice",
+            "📦  Sales Item Invoice",
+            "🧾  Purchase Accounting Invoice",
+            "🛒  Purchase Item Invoice",
+            "📝  Credit Note",
+            "🗒️  Debit Note",
+            "🏦  Create Ledgers",
+            "📁  Create Stock Items",
+        ]
+        self._panel_option_to_key = {
+            "📋  Sales Accounting Invoice": "accounting",
+            "📦  Sales Item Invoice": "item",
+            "🧾  Purchase Accounting Invoice": "purchase_accounting",
+            "🛒  Purchase Item Invoice": "purchase_item",
+            "📝  Credit Note": "credit_note",
+            "🗒️  Debit Note": "debit_note",
+            "🏦  Create Ledgers": "ledger",
+            "📁  Create Stock Items": "stock",
+        }
+        self._panel_var = ctk.StringVar(value=_panel_options[0])
+        self._panel_option_menu = ctk.CTkOptionMenu(
+            _sel_row,
+            variable=self._panel_var,
+            values=_panel_options,
+            width=380,
+            height=36,
+            font=("Segoe UI", 11, "bold"),
+            fg_color=COLORS["accent"],
+            button_color=COLORS["accent_hover"],
+            button_hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_text_color=COLORS["text_primary"],
+            dropdown_hover_color=COLORS["bg_input"],
+            corner_radius=8,
+            command=self._switch_panel,
+        )
+        self._panel_option_menu.pack(side="left", padx=(12, 0))
+
+        # ─── Content container (all panels stacked in same grid cell) ────────────
+        _content_outer = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=10,
+                                       border_width=1, border_color=COLORS["border"])
+        _content_outer.pack(fill="both", expand=True, padx=16, pady=(0, 10))
+        _content_outer.grid_rowconfigure(0, weight=1)
+        _content_outer.grid_columnconfigure(0, weight=1)
+
+        self._panels = {}
+        for _key in ("accounting", "item", "purchase_accounting", "purchase_item", "ledger", "stock"):
+            _pf = ctk.CTkFrame(_content_outer, fg_color="transparent")
+            _pf.grid(row=0, column=0, sticky="nsew")
+            self._panels[_key] = _pf
+
+        # Shared Credit/Debit Note panel
+        _note_pf = ctk.CTkFrame(_content_outer, fg_color="transparent")
+        _note_pf.grid(row=0, column=0, sticky="nsew")
+        self._panels["credit_note"] = _note_pf
+        self._panels["debit_note"] = _note_pf   # same frame — note_type_var controls type
+        self._panels["note"] = _note_pf
+
+        self.tab_acct = self._panels["accounting"]
+        self.tab_item = self._panels["item"]
+        self.tab_purchase_acct = self._panels["purchase_accounting"]
+        self.tab_purchase_item = self._panels["purchase_item"]
+        self.tab_ledger = self._panels["ledger"]
+        self.tab_stock = self._panels["stock"]
 
         self._build_voucher_tab(self.tab_acct, mode="accounting")
         self._build_voucher_tab(self.tab_item, mode="item")
         self._build_voucher_tab(self.tab_purchase_acct, mode="purchase_accounting")
         self._build_voucher_tab(self.tab_purchase_item, mode="purchase_item")
+        self._build_note_panel(self._panels["note"])
         self._build_ledger_tab()
         self._build_stock_tab()
+
+        # Show first panel
+        self._switch_panel(_panel_options[0])
 
         status_bar = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=0, height=32)
         status_bar.pack(fill="x", side="bottom")
@@ -3678,107 +3951,179 @@ class TallySalesApp(ctk.CTk):
 
     def _build_voucher_tab(self, parent, mode="accounting"):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(2, weight=1)
+        parent.grid_rowconfigure(4, weight=1)  # row 4 = preview container
 
+        # Row 0: Template download
         template_row = ctk.CTkFrame(parent, fg_color="transparent")
         template_row.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
-
         template_btn = ctk.CTkButton(
-            template_row,
-            text="📥  Download Template",
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
-            text_color=COLORS["text_secondary"],
-            width=170,
+            template_row, text="📥  Download Template",
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"], width=170,
             command=lambda: self._download_template_for_mode(mode),
         )
         template_btn.pack(side="right")
         self._voucher_template_buttons[mode] = template_btn
 
-        # File load row
+        # Row 1: Browse Excel row
         load_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        load_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
-
+        load_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 0))
         fp_var = ctk.StringVar()
-        ctk.CTkEntry(load_frame, textvariable=fp_var, placeholder_text="Select Excel file (.xlsx / .xlsm)...",
-                      width=500, state="readonly").pack(side="left", padx=(0,8))
+        ctk.CTkEntry(load_frame, textvariable=fp_var,
+                     placeholder_text="Select Excel file (.xlsx / .xlsm)...",
+                     width=500, state="readonly").pack(side="left", padx=(0, 8))
+
+        self._active_preview_mode[mode] = "excel"  # default
 
         def browse():
             if self._voucher_load_running.get(mode):
                 self.status_var.set("Please wait, file is still loading...")
                 return
-            f = filedialog.askopenfilename(filetypes=[("Excel","*.xlsx *.xlsm *.xls")])
+            f = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx *.xlsm *.xls")])
             if f:
                 fp_var.set(f)
                 self._load_preview(f, tree, mode)
-        browse_btn = ctk.CTkButton(
-            load_frame,
-            text="Browse Excel",
-            command=browse,
-            width=90,
-            fg_color=ACCENT,
-            hover_color=ACCENT_HOVER,
-        )
-        browse_btn.pack(side="left", padx=(0,8))
+                self._show_preview_mode(excel_tree_frame, xml_preview_frame, "excel",
+                                        excel_toggle_btn, xml_toggle_btn, mode_key=mode)
+
+        browse_btn = ctk.CTkButton(load_frame, text="Browse Excel", command=browse,
+                                    width=90, fg_color=ACCENT, hover_color=ACCENT_HOVER)
+        browse_btn.pack(side="left", padx=(0, 8))
         self._voucher_browse_buttons[mode] = browse_btn
         self._voucher_load_running[mode] = False
 
         if mode in {"item", "purchase_item"}:
-            ctk.CTkLabel(load_frame, text="⚠ Requires: ItemName, Quantity, Rate, and Per or Unit/UOM columns",
-                          font=("Segoe UI", 11), text_color=COLORS["warning"]).pack(side="left")
+            ctk.CTkLabel(load_frame,
+                         text="⚠ Requires: ItemName, Quantity, Rate, and Per or Unit/UOM columns",
+                         font=("Segoe UI", 11), text_color=COLORS["warning"]).pack(side="left")
 
-        # Preview table
-        tree_frame = ctk.CTkFrame(
-            parent,
-            fg_color=COLORS["bg_dark"],
-            corner_radius=8,
-            border_width=1,
-            border_color=COLORS["border"],
-        )
-        tree_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
+        # Row 2: Browse XML row
+        xml_row = ctk.CTkFrame(parent, fg_color="transparent")
+        xml_row.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 0))
+        xml_fp_var = ctk.StringVar()
+        self._voucher_xml_fp_vars[mode] = xml_fp_var
+        ctk.CTkEntry(xml_row, textvariable=xml_fp_var,
+                     placeholder_text="Or select existing XML file to import/preview...",
+                     width=500, state="readonly").pack(side="left", padx=(0, 8))
 
-        tree_scroll_y = ttk.Scrollbar(tree_frame, orient="vertical")
-        tree_scroll_x = ttk.Scrollbar(tree_frame, orient="horizontal")
-        tree = ttk.Treeview(tree_frame, show="headings",
-                             yscrollcommand=tree_scroll_y.set,
-                             xscrollcommand=tree_scroll_x.set)
+        def browse_xml():
+            f = filedialog.askopenfilename(filetypes=[("XML Files", "*.xml")])
+            if f:
+                xml_fp_var.set(f)
+                self._load_xml_preview(f, xml_text, mode, info_lbl)
+                self._show_preview_mode(excel_tree_frame, xml_preview_frame, "xml",
+                                        excel_toggle_btn, xml_toggle_btn, mode_key=mode)
+
+        xml_browse_btn = ctk.CTkButton(
+            xml_row, text="Browse XML", command=browse_xml, width=90,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"])
+        xml_browse_btn.pack(side="left", padx=(0, 8))
+        self._voucher_xml_browse_buttons[mode] = xml_browse_btn
+        ctk.CTkLabel(xml_row, text="Browse an existing XML to preview & push it directly to Tally",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left")
+
+        # Row 3: Preview toggle + info label
+        toggle_row = ctk.CTkFrame(parent, fg_color="transparent")
+        toggle_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(8, 0))
+
+        excel_toggle_btn = ctk.CTkButton(
+            toggle_row, text="📊 Excel Data", width=160, height=30,
+            font=("Segoe UI", 10, "bold"), fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"], text_color="#FFFFFF", corner_radius=6)
+        excel_toggle_btn.pack(side="left", padx=(0, 4))
+
+        xml_toggle_btn = ctk.CTkButton(
+            toggle_row, text="📄 XML Preview", width=150, height=30,
+            font=("Segoe UI", 10, "bold"), fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_muted"], corner_radius=6)
+        xml_toggle_btn.pack(side="left", padx=(0, 8))
+
+        info_lbl = ctk.CTkLabel(toggle_row, text="", font=("Segoe UI", 11),
+                                 text_color=TEXT_MUTED)
+        info_lbl.pack(side="left", padx=4)
+        self._voucher_info_labels[mode] = info_lbl
+
+        # Row 4: Preview container — Excel treeview + XML text widget stacked
+        preview_container = ctk.CTkFrame(parent, fg_color="transparent")
+        preview_container.grid(row=4, column=0, sticky="nsew", padx=10, pady=(4, 4))
+        preview_container.grid_rowconfigure(0, weight=1)
+        preview_container.grid_columnconfigure(0, weight=1)
+
+        # Excel treeview frame
+        excel_tree_frame = ctk.CTkFrame(
+            preview_container, fg_color=COLORS["bg_dark"], corner_radius=8,
+            border_width=1, border_color=COLORS["border"])
+        excel_tree_frame.grid(row=0, column=0, sticky="nsew")
+        excel_tree_frame.grid_rowconfigure(0, weight=1)
+        excel_tree_frame.grid_columnconfigure(0, weight=1)
+
+        tree_scroll_y = ttk.Scrollbar(excel_tree_frame, orient="vertical")
+        tree_scroll_x = ttk.Scrollbar(excel_tree_frame, orient="horizontal")
+        tree = ttk.Treeview(excel_tree_frame, show="headings",
+                            yscrollcommand=tree_scroll_y.set,
+                            xscrollcommand=tree_scroll_x.set)
         tree_scroll_y.config(command=tree.yview)
         tree_scroll_x.config(command=tree.xview)
-        tree_frame.grid_rowconfigure(0, weight=1)
-        tree_frame.grid_columnconfigure(0, weight=1)
         tree.grid(row=0, column=0, sticky="nsew")
         tree_scroll_y.grid(row=0, column=1, sticky="ns")
         tree_scroll_x.grid(row=1, column=0, sticky="ew")
 
-        # Action buttons
+        # XML preview frame
+        xml_preview_frame = ctk.CTkFrame(
+            preview_container, fg_color=COLORS["bg_dark"], corner_radius=8,
+            border_width=1, border_color=COLORS["border"])
+        xml_preview_frame.grid(row=0, column=0, sticky="nsew")
+        xml_preview_frame.grid_rowconfigure(0, weight=1)
+        xml_preview_frame.grid_columnconfigure(0, weight=1)
+
+        _xml_bg = self._resolve_theme_color("bg_card")
+        _xml_fg = self._resolve_theme_color("text_primary")
+        xml_text = tk.Text(
+            xml_preview_frame, wrap="none", font=("Consolas", 10),
+            bg=_xml_bg, fg=_xml_fg, insertbackground=_xml_fg,
+            relief="flat", borderwidth=0)
+        _xsy = ttk.Scrollbar(xml_preview_frame, orient="vertical", command=xml_text.yview)
+        _xsx = ttk.Scrollbar(xml_preview_frame, orient="horizontal", command=xml_text.xview)
+        xml_text.configure(yscrollcommand=_xsy.set, xscrollcommand=_xsx.set)
+        xml_text.grid(row=0, column=0, sticky="nsew")
+        _xsy.grid(row=0, column=1, sticky="ns")
+        _xsx.grid(row=1, column=0, sticky="ew")
+        xml_text.insert("end", "Browse an XML file above to preview its contents here.")
+        xml_text.configure(state="disabled")
+
+        # Wire toggle buttons
+        excel_toggle_btn.configure(command=lambda: self._show_preview_mode(
+            excel_tree_frame, xml_preview_frame, "excel", excel_toggle_btn, xml_toggle_btn, mode_key=mode))
+        xml_toggle_btn.configure(command=lambda: self._show_preview_mode(
+            excel_tree_frame, xml_preview_frame, "xml", excel_toggle_btn, xml_toggle_btn, mode_key=mode))
+
+        # Show Excel frame by default
+        excel_tree_frame.tkraise()
+
+        # Row 5: Action buttons (smart Push: uses active preview mode)
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(5, 10))
+        btn_frame.grid(row=5, column=0, sticky="ew", padx=10, pady=(4, 10))
 
         save_btn = ctk.CTkButton(
-            btn_frame,
-            text="💾  Save XML File",
-            fg_color=SUCCESS,
-            hover_color="#15803D",
-            width=160,
-            command=lambda: self._generate(mode, "save", fp_var.get()),
-        )
-        save_btn.pack(side="left", padx=(0,10))
+            btn_frame, text="💾  Save XML File",
+            fg_color=SUCCESS, hover_color="#15803D", width=155,
+            command=lambda: self._generate(mode, "save", fp_var.get()))
+        save_btn.pack(side="left", padx=(0, 8))
         self._voucher_save_buttons[mode] = save_btn
 
         push_btn = ctk.CTkButton(
-            btn_frame,
-            text="🚀  Push to Tally",
-            fg_color=ACCENT,
-            hover_color=ACCENT_HOVER,
-            width=160,
-            command=lambda: self._generate(mode, "push", fp_var.get()),
-        )
-        push_btn.pack(side="left", padx=(0,10))
+            btn_frame, text="🚀  Push to Tally",
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, width=165,
+            command=lambda: self._smart_push(mode, fp_var, xml_fp_var))
+        push_btn.pack(side="left", padx=(0, 8))
         self._voucher_push_buttons[mode] = push_btn
 
-        lbl = ctk.CTkLabel(btn_frame, text="", font=("Segoe UI", 11), text_color=TEXT_MUTED)
-        lbl.pack(side="left", padx=10)
-        self._voucher_info_labels[mode] = lbl
+        hint_lbl = ctk.CTkLabel(
+            btn_frame, text="Push uses active preview (Excel or XML)",
+            font=("Segoe UI", 10), text_color=COLORS["text_muted"])
+        hint_lbl.pack(side="left", padx=8)
+
 
     def _set_voucher_loading_state(self, mode: str, is_loading: bool):
         self._voucher_load_running[mode] = is_loading
@@ -3796,6 +4141,12 @@ class TallySalesApp(ctk.CTk):
         push_btn = self._voucher_push_buttons.get(mode)
         if push_btn:
             push_btn.configure(state=state)
+        xml_browse_btn = self._voucher_xml_browse_buttons.get(mode)
+        if xml_browse_btn:
+            xml_browse_btn.configure(state=state)
+        import_btn = self._voucher_import_buttons.get(mode)
+        if import_btn:
+            import_btn.configure(state=state)
 
     def _set_push_loading_state(self, is_loading: bool, message: str = ""):
         self._push_running = is_loading
@@ -3808,6 +4159,8 @@ class TallySalesApp(ctk.CTk):
         for btn in self._voucher_template_buttons.values():
             btn.configure(state=state)
         for btn in self._voucher_push_buttons.values():
+            btn.configure(state=state)
+        for btn in self._voucher_xml_browse_buttons.values():
             btn.configure(state=state)
         if self.demo_btn is not None:
             self.demo_btn.configure(state=state)
@@ -4890,6 +5243,9 @@ class TallySalesApp(ctk.CTk):
                        command=lambda: export_ledgers("save")).grid(row=0, column=0, sticky="ew", padx=(0,6), pady=(0,6))
         ctk.CTkButton(btn_row, text="🚀 Push to Tally", fg_color=ACCENT, hover_color=ACCENT_HOVER,
                        command=lambda: export_ledgers("push")).grid(row=0, column=1, sticky="ew", padx=(6,0), pady=(0,6))
+        ctk.CTkButton(btn_row, text="📂 Import XML", fg_color=COLORS["warning"], hover_color="#B45309",
+                       text_color="#FFFFFF",
+                       command=lambda: self._import_xml_direct("ledger")).grid(row=0, column=2, sticky="ew", padx=(6,0), pady=(0,6))
         ctk.CTkButton(btn_row, text="🗑 Clear", fg_color=DANGER, hover_color="#B91C1C",
                        command=clear_ledgers).grid(row=1, column=0, sticky="ew", padx=(0,6))
 
@@ -5226,6 +5582,9 @@ class TallySalesApp(ctk.CTk):
                        command=lambda: export_stock("save")).grid(row=0, column=0, sticky="ew", padx=(0,6), pady=(0,6))
         ctk.CTkButton(btn_row, text="🚀 Push to Tally", fg_color=ACCENT, hover_color=ACCENT_HOVER,
                        command=lambda: export_stock("push")).grid(row=0, column=1, sticky="ew", padx=(6,0), pady=(0,6))
+        ctk.CTkButton(btn_row, text="📂 Import XML", fg_color=COLORS["warning"], hover_color="#B45309",
+                       text_color="#FFFFFF",
+                       command=lambda: self._import_xml_direct("stock")).grid(row=0, column=2, sticky="ew", padx=(6,0), pady=(0,6))
         ctk.CTkButton(btn_row, text="🗑 Clear", fg_color=DANGER, hover_color="#B91C1C",
                        command=clear_stock).grid(row=1, column=0, sticky="ew", padx=(0,6))
 
@@ -5264,6 +5623,549 @@ class TallySalesApp(ctk.CTk):
             text_color="#FFFFFF",
             command=load_stock_excel,
         ).grid(row=1, column=1, sticky="ew", padx=(6,0))
+    # ─── PANEL SWITCHING ──────────────────────────────────────────────────────
+
+    def _switch_panel(self, selected_label: str):
+        """Raise the panel matching the dropdown selection."""
+        key = self._panel_option_to_key.get(selected_label, "accounting")
+        # Update note type var when a note option is selected
+        if key == "credit_note":
+            self._note_type_var.set("Credit Note")
+            if hasattr(self, "_note_type_display_label"):
+                self._note_type_display_label.configure(text="Mode: Credit Note 📝",
+                                                         text_color=COLORS["success"])
+        elif key == "debit_note":
+            self._note_type_var.set("Debit Note")
+            if hasattr(self, "_note_type_display_label"):
+                self._note_type_display_label.configure(text="Mode: Debit Note 🗒️",
+                                                         text_color=COLORS["warning"])
+        panel = self._panels.get(key)
+        if panel:
+            panel.tkraise()
+
+    # ─── PREVIEW MODE TOGGLE ──────────────────────────────────────────────────
+
+    def _show_preview_mode(self, excel_frame, xml_frame, mode: str,
+                           excel_btn, xml_btn, mode_key: str = ""):
+        """Raise the correct preview frame, update toggle styles, track active view."""
+        if mode_key:
+            self._active_preview_mode[mode_key] = mode
+        if mode == "xml":
+            xml_frame.tkraise()
+            xml_btn.configure(fg_color=COLORS["accent"], text_color="#FFFFFF")
+            excel_btn.configure(fg_color=COLORS["bg_input"], text_color=COLORS["text_muted"])
+        else:
+            excel_frame.tkraise()
+            excel_btn.configure(fg_color=COLORS["accent"], text_color="#FFFFFF")
+            xml_btn.configure(fg_color=COLORS["bg_input"], text_color=COLORS["text_muted"])
+
+    # ─── XML PREVIEW ──────────────────────────────────────────────────────────
+
+    def _load_xml_preview(self, filepath: str, xml_text_widget, mode: str, info_label):
+        """Read an XML file and show its pretty-printed content in the text widget."""
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                raw = f.read()
+
+            import xml.dom.minidom as _minidom
+            try:
+                dom = _minidom.parseString(raw.encode("utf-8", errors="replace"))
+                pretty = dom.toprettyxml(indent="  ")
+                # Strip the <?xml ...?> declaration for cleaner display
+                lines = pretty.splitlines()
+                if lines and lines[0].startswith("<?xml"):
+                    pretty = "\n".join(lines[1:])
+            except Exception:
+                pretty = raw  # show raw if XML is malformed
+
+            xml_text_widget.configure(state="normal")
+            xml_text_widget.delete("1.0", "end")
+            xml_text_widget.insert("end", pretty)
+            xml_text_widget.configure(state="disabled")
+
+            # Count vouchers for info label
+            import xml.etree.ElementTree as _ET
+            count_str = ""
+            try:
+                root = _ET.fromstring(raw)
+                vouchers = root.findall(".//VOUCHER")
+                masters = root.findall(".//LEDGER") + root.findall(".//STOCKITEM")
+                if vouchers:
+                    count_str = f"📄 {len(vouchers)} voucher(s)"
+                elif masters:
+                    count_str = f"📄 {len(masters)} master(s)"
+                else:
+                    count_str = "📄 XML loaded"
+            except Exception:
+                count_str = "📄 XML loaded"
+
+            info_text = f"{count_str} — {len(raw):,} bytes"
+            if info_label:
+                info_label.configure(text=info_text)
+            self.status_var.set(f"XML loaded: {os.path.basename(filepath)}")
+        except Exception as e:
+            messagebox.showerror("XML Load Error", str(e))
+
+    # ─── IMPORT XML (Voucher modes) ───────────────────────────────────────────
+
+    def _import_xml(self, mode: str, xml_fp_var):
+        """Push an existing XML file to Tally (used by voucher tabs)."""
+        filepath = xml_fp_var.get() if hasattr(xml_fp_var, "get") else str(xml_fp_var)
+        if not filepath or not os.path.isfile(filepath):
+            messagebox.showwarning("No XML File",
+                                   "Please browse and select an XML file first using the Browse XML button.")
+            return
+        if self._push_running:
+            self.status_var.set("Push already in progress. Please wait...")
+            return
+
+        host = self.tally_host_var.get() or "localhost"
+        port_text = self.tally_port_var.get() or "9000"
+        try:
+            port = int(port_text)
+        except ValueError:
+            messagebox.showerror("Invalid Port", f"Invalid port number: {port_text}")
+            return
+
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                xml_content = f.read()
+        except Exception as e:
+            messagebox.showerror("File Read Error", str(e))
+            return
+
+        self._set_push_loading_state(True, f"Importing XML to Tally...")
+
+        def worker():
+            try:
+                resp = push_to_tally(xml_content, host, port)
+                parsed = _parse_tally_response_details(resp)
+                def done():
+                    self._set_push_loading_state(False)
+                    if parsed.get("success"):
+                        self.status_var.set("XML imported to Tally successfully")
+                        messagebox.showinfo(
+                            "Import Successful",
+                            f"XML file imported to Tally successfully.\n\n"
+                            f"File: {os.path.basename(filepath)}\n"
+                            f"Created: {parsed.get('created', 0)}\n"
+                            f"Altered: {parsed.get('altered', 0)}\n"
+                            f"Ignored: {parsed.get('ignored', 0)}",
+                        )
+                    else:
+                        err = parsed.get("error") or "Unknown Tally error"
+                        self.status_var.set("Import failed")
+                        messagebox.showerror("Import Failed",
+                                             f"Tally rejected the import:\n\n{err}\n\n"
+                                             f"Raw response (first 500 chars):\n{resp[:500]}")
+                self.after(0, done)
+            except Exception as e:
+                def done_err():
+                    self._set_push_loading_state(False)
+                    messagebox.showerror("Error", str(e))
+                self.after(0, done_err)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ─── IMPORT XML DIRECT (Ledger/Stock tabs — browse a file) ───────────────
+
+    def _import_xml_direct(self, panel_hint: str = ""):
+        """Browse for an XML file and push it directly to Tally (ledger/stock tabs)."""
+        if self._push_running:
+            self.status_var.set("Push already in progress. Please wait...")
+            return
+
+        f = filedialog.askopenfilename(
+            title="Select XML file to import into Tally",
+            filetypes=[("XML Files", "*.xml"), ("All Files", "*.*")],
+        )
+        if not f:
+            return
+
+        host = self.tally_host_var.get() or "localhost"
+        port_text = self.tally_port_var.get() or "9000"
+        try:
+            port = int(port_text)
+        except ValueError:
+            messagebox.showerror("Invalid Port", f"Invalid port number: {port_text}")
+            return
+
+        try:
+            with open(f, "r", encoding="utf-8", errors="replace") as fh:
+                xml_content = fh.read()
+        except Exception as e:
+            messagebox.showerror("File Read Error", str(e))
+            return
+
+        self._set_push_loading_state(True, f"Importing {os.path.basename(f)} to Tally...")
+
+        def worker():
+            try:
+                resp = push_to_tally(xml_content, host, port)
+                parsed = _parse_tally_response_details(resp)
+                def done():
+                    self._set_push_loading_state(False)
+                    if parsed.get("success"):
+                        self.status_var.set("XML imported to Tally successfully")
+                        messagebox.showinfo(
+                            "Import Successful",
+                            f"XML file imported to Tally successfully.\n\n"
+                            f"File: {os.path.basename(f)}\n"
+                            f"Created: {parsed.get('created', 0)}\n"
+                            f"Altered: {parsed.get('altered', 0)}\n"
+                            f"Ignored: {parsed.get('ignored', 0)}",
+                        )
+                    else:
+                        err = parsed.get("error") or "Unknown Tally error"
+                        self.status_var.set("Import failed")
+                        messagebox.showerror("Import Failed",
+                                             f"Tally rejected the import:\n\n{err}\n\n"
+                                             f"Raw response (first 500 chars):\n{resp[:500]}")
+                self.after(0, done)
+            except Exception as e:
+                def done_err():
+                    self._set_push_loading_state(False)
+                    messagebox.showerror("Error", str(e))
+                self.after(0, done_err)
+
+        threading.Thread(target=worker, daemon=True).start()
+    # ─── SMART PUSH (context-aware: Excel or XML based on active toggle) ─────
+
+    def _smart_push(self, mode: str, fp_var, xml_fp_var):
+        """Push to Tally using whichever preview is currently active."""
+        active = self._active_preview_mode.get(mode, "excel")
+        if active == "xml":
+            self._import_xml(mode, xml_fp_var)
+        else:
+            self._generate(mode, "push", fp_var.get() if hasattr(fp_var, "get") else str(fp_var))
+
+    # ─── SMART PUSH FOR NOTE PANEL ────────────────────────────────────────────
+
+    def _smart_push_note(self, note_fp_var, note_xml_fp_var):
+        """Smart push for the Credit/Debit Note panel."""
+        active = self._active_preview_mode.get("note", "excel")
+        if active == "xml":
+            self._import_xml("note", note_xml_fp_var)
+        else:
+            self._generate_note("push", note_fp_var.get() if hasattr(note_fp_var, "get") else "")
+
+    # ─── NOTE GENERATION ─────────────────────────────────────────────────────
+
+    def _generate_note(self, action: str, filepath: str):
+        if self._push_running:
+            self.status_var.set("Push already in progress...")
+            return
+
+        note_type = self._note_type_var.get() or "Credit Note"
+        rows = self._note_loaded_rows
+
+        if not rows:
+            messagebox.showwarning("No Data", "No rows loaded. Browse and load an Excel file first.")
+            return
+
+        company = self._get_selected_company()
+        if action == "push" and not company and len(getattr(self, "fetched_companies", [])) > 1:
+            messagebox.showwarning("Select Company", "Please select a target company before pushing.")
+            return
+
+        try:
+            date_mode, custom_tally_date = self._get_voucher_date_selection()
+
+            _cmp_gst_regs = list(self.company_gst_registrations or [])
+            if _normalize_note_type(note_type) == "Debit Note" and not _cmp_gst_regs:
+                try:
+                    _tally_url = self._get_tally_url()
+                    _gst_fetch = _fetch_company_gst_registrations(_tally_url, company_name=company, timeout=10)
+                    if _gst_fetch.get("success"):
+                        _cmp_gst_regs = _gst_fetch.get("registrations", [])
+                        self.company_gst_registrations = _cmp_gst_regs
+                except Exception:
+                    pass
+
+            xml_payload, voucher_count = generate_note_xml(
+                rows,
+                company=company,
+                date_mode=date_mode,
+                custom_tally_date=custom_tally_date,
+                voucher_type=note_type,
+                company_gst_registrations=_cmp_gst_regs,
+            )
+            if voucher_count <= 0:
+                messagebox.showwarning("No Vouchers", "No valid rows (TaxableValue must be > 0).")
+                return
+
+            if action == "save":
+                stem = note_type.replace(" ", "")
+                out = filedialog.asksaveasfilename(
+                    defaultextension=".xml",
+                    initialfile=f"{stem}.xml",
+                    filetypes=[("XML", "*.xml")],
+                )
+                if not out:
+                    return
+                with open(out, "w", encoding="utf-8") as f:
+                    f.write(xml_payload)
+                self.status_var.set(f"{note_type} XML saved: {os.path.basename(out)}")
+                messagebox.showinfo("Saved", f"{note_type} XML saved.\n{out}")
+                return
+
+            host = (self.tally_host_var.get() or "localhost").strip()
+            port = int((self.tally_port_var.get() or "9000").strip())
+
+            self._set_push_loading_state(True, f"Pushing {voucher_count} {note_type} voucher(s)...")
+            self.status_var.set("Pushing to Tally...")
+
+            def worker():
+                try:
+                    resp = push_to_tally(xml_payload, host=host, port=port)
+                    parsed = _parse_tally_response_details(resp)
+                    result = {"ok": True, "parsed": parsed}
+                except Exception as exc:
+                    result = {"ok": False, "error": str(exc)}
+
+                def done():
+                    self._set_push_loading_state(False)
+                    if not result.get("ok"):
+                        messagebox.showerror("Push Failed", str(result.get("error", "Unknown error")))
+                        return
+                    p = result["parsed"]
+                    created, altered = p.get("created", 0), p.get("altered", 0)
+                    errors = p.get("errors", 0)
+                    summary = f"Created: {created}\nAltered: {altered}\nErrors: {errors}"
+                    if p.get("success"):
+                        self.status_var.set(f"{note_type} pushed: {created} created, {altered} altered")
+                        messagebox.showinfo("Push Successful", summary)
+                    else:
+                        line_errors = p.get("line_errors", [])
+                        if line_errors:
+                            summary += "\n\nLine Errors:\n- " + "\n- ".join(line_errors[:8])
+                        self.status_var.set(f"{note_type} push completed with errors.")
+                        messagebox.showwarning("Push With Errors", summary)
+                self.after(0, done)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        except ValueError as exc:
+            messagebox.showerror("Validation Error", str(exc))
+        except Exception as exc:
+            messagebox.showerror("Error", str(exc))
+
+    # ─── NOTE PANEL BUILDER ───────────────────────────────────────────────────
+
+    def _build_note_panel(self, parent):
+        """Build the shared Credit / Debit Note panel."""
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(3, weight=1)
+
+        # Row 0: Note type indicator + template
+        top_row = ctk.CTkFrame(parent, fg_color="transparent")
+        top_row.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
+
+        type_badge = ctk.CTkFrame(top_row, fg_color=COLORS["bg_input"], corner_radius=8)
+        type_badge.pack(side="left")
+        self._note_type_display_label = ctk.CTkLabel(
+            type_badge, text="Mode: Credit Note 📝",
+            font=("Segoe UI", 11, "bold"), text_color=COLORS["success"], padx=10, pady=4)
+        self._note_type_display_label.pack()
+
+        ctk.CTkLabel(top_row,
+                     text="Select Credit Note or Debit Note from the dropdown above",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=12)
+
+        note_template_btn = ctk.CTkButton(
+            top_row, text="📥  Download Template",
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"], width=170,
+            command=self._download_note_template)
+        note_template_btn.pack(side="right")
+
+        # Row 1: Browse Excel
+        excel_row = ctk.CTkFrame(parent, fg_color="transparent")
+        excel_row.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 0))
+        note_fp_var = ctk.StringVar()
+        ctk.CTkEntry(excel_row, textvariable=note_fp_var,
+                     placeholder_text="Select Credit/Debit Note Excel (.xlsx/.xlsm)...",
+                     width=500, state="readonly").pack(side="left", padx=(0, 8))
+
+        self._active_preview_mode["note"] = "excel"
+
+        def browse_note_excel():
+            f = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx *.xlsm *.xls")])
+            if not f:
+                return
+            note_fp_var.set(f)
+            try:
+                headers, rows = read_excel(f)
+                self._note_loaded_headers = headers
+                self._note_loaded_rows = rows
+                # populate treeview
+                tree.delete(*tree.get_children())
+                tree["columns"] = headers
+                for col in headers:
+                    tree.heading(col, text=col)
+                    tree.column(col, width=max(80, len(col) * 9), minwidth=50)
+                for row in rows[:300]:
+                    tree.insert("", "end", values=[row.get(h, "") for h in headers])
+                note_info_lbl.configure(text=f"📊 {len(rows)} row(s) — {len(headers)} column(s)")
+                self._show_preview_mode(note_excel_frame, note_xml_frame, "excel",
+                                        note_excel_btn, note_xml_btn, mode_key="note")
+                self.status_var.set(f"Loaded: {os.path.basename(f)}")
+            except Exception as exc:
+                messagebox.showerror("Load Error", str(exc))
+
+        ctk.CTkButton(excel_row, text="Browse Excel", command=browse_note_excel,
+                      width=100, fg_color=ACCENT, hover_color=ACCENT_HOVER).pack(side="left", padx=(0, 8))
+
+        # Row 2: Browse XML
+        xml_row2 = ctk.CTkFrame(parent, fg_color="transparent")
+        xml_row2.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 0))
+        note_xml_fp_var = ctk.StringVar()
+        ctk.CTkEntry(xml_row2, textvariable=note_xml_fp_var,
+                     placeholder_text="Or select existing XML file to import/preview...",
+                     width=500, state="readonly").pack(side="left", padx=(0, 8))
+
+        # toggle + info (built after XML preview widget, wired below)
+        toggle_row = ctk.CTkFrame(parent, fg_color="transparent")
+        # grid is assigned after all refs are ready — placeholder
+        note_excel_btn = ctk.CTkButton(
+            None, text="📊 Excel Data", width=160, height=30,
+            font=("Segoe UI", 10, "bold"), fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"], text_color="#FFFFFF", corner_radius=6)
+        note_xml_btn = ctk.CTkButton(
+            None, text="📄 XML Preview", width=150, height=30,
+            font=("Segoe UI", 10, "bold"), fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_muted"], corner_radius=6)
+        note_info_lbl = ctk.CTkLabel(None, text="", font=("Segoe UI", 11), text_color=TEXT_MUTED)
+
+        def browse_note_xml():
+            f = filedialog.askopenfilename(filetypes=[("XML Files", "*.xml")])
+            if not f:
+                return
+            note_xml_fp_var.set(f)
+            self._load_xml_preview(f, note_xml_text, "note", note_info_lbl)
+            self._show_preview_mode(note_excel_frame, note_xml_frame, "xml",
+                                    note_excel_btn, note_xml_btn, mode_key="note")
+
+        ctk.CTkButton(xml_row2, text="Browse XML", command=browse_note_xml,
+                      width=100, fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                      text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(xml_row2, text="Browse an existing XML to preview & push directly to Tally",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left")
+
+        # Toggle row (row 2.5 → actually row 3 after we shift)
+        toggle_row = ctk.CTkFrame(parent, fg_color="transparent")
+        toggle_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(8, 0))
+        parent.grid_rowconfigure(4, weight=1)  # preview row expands
+
+        # Re-create buttons properly parented to toggle_row
+        note_excel_btn = ctk.CTkButton(
+            toggle_row, text="📊 Excel Data", width=160, height=30,
+            font=("Segoe UI", 10, "bold"), fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"], text_color="#FFFFFF", corner_radius=6)
+        note_excel_btn.pack(side="left", padx=(0, 4))
+
+        note_xml_btn = ctk.CTkButton(
+            toggle_row, text="📄 XML Preview", width=150, height=30,
+            font=("Segoe UI", 10, "bold"), fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_muted"], corner_radius=6)
+        note_xml_btn.pack(side="left", padx=(0, 8))
+
+        note_info_lbl = ctk.CTkLabel(toggle_row, text="", font=("Segoe UI", 11), text_color=TEXT_MUTED)
+        note_info_lbl.pack(side="left", padx=4)
+
+        # Preview container
+        preview_cont = ctk.CTkFrame(parent, fg_color="transparent")
+        preview_cont.grid(row=4, column=0, sticky="nsew", padx=10, pady=(4, 4))
+        preview_cont.grid_rowconfigure(0, weight=1)
+        preview_cont.grid_columnconfigure(0, weight=1)
+
+        note_excel_frame = ctk.CTkFrame(preview_cont, fg_color=COLORS["bg_dark"],
+                                         corner_radius=8, border_width=1, border_color=COLORS["border"])
+        note_excel_frame.grid(row=0, column=0, sticky="nsew")
+        note_excel_frame.grid_rowconfigure(0, weight=1)
+        note_excel_frame.grid_columnconfigure(0, weight=1)
+
+        _sy = ttk.Scrollbar(note_excel_frame, orient="vertical")
+        _sx = ttk.Scrollbar(note_excel_frame, orient="horizontal")
+        tree = ttk.Treeview(note_excel_frame, show="headings",
+                            yscrollcommand=_sy.set, xscrollcommand=_sx.set)
+        _sy.config(command=tree.yview); _sx.config(command=tree.xview)
+        tree.grid(row=0, column=0, sticky="nsew")
+        _sy.grid(row=0, column=1, sticky="ns"); _sx.grid(row=1, column=0, sticky="ew")
+
+        note_xml_frame = ctk.CTkFrame(preview_cont, fg_color=COLORS["bg_dark"],
+                                       corner_radius=8, border_width=1, border_color=COLORS["border"])
+        note_xml_frame.grid(row=0, column=0, sticky="nsew")
+        note_xml_frame.grid_rowconfigure(0, weight=1)
+        note_xml_frame.grid_columnconfigure(0, weight=1)
+
+        _xbg = self._resolve_theme_color("bg_card")
+        _xfg = self._resolve_theme_color("text_primary")
+        note_xml_text = tk.Text(note_xml_frame, wrap="none", font=("Consolas", 10),
+                                bg=_xbg, fg=_xfg, relief="flat", borderwidth=0)
+        _xsy = ttk.Scrollbar(note_xml_frame, orient="vertical", command=note_xml_text.yview)
+        _xsx = ttk.Scrollbar(note_xml_frame, orient="horizontal", command=note_xml_text.xview)
+        note_xml_text.configure(yscrollcommand=_xsy.set, xscrollcommand=_xsx.set)
+        note_xml_text.grid(row=0, column=0, sticky="nsew")
+        _xsy.grid(row=0, column=1, sticky="ns"); _xsx.grid(row=1, column=0, sticky="ew")
+        note_xml_text.insert("end", "Browse an XML file above to preview its contents here.")
+        note_xml_text.configure(state="disabled")
+
+        # Wire toggle buttons now that all refs exist
+        note_excel_btn.configure(command=lambda: self._show_preview_mode(
+            note_excel_frame, note_xml_frame, "excel",
+            note_excel_btn, note_xml_btn, mode_key="note"))
+        note_xml_btn.configure(command=lambda: self._show_preview_mode(
+            note_xml_frame, note_excel_frame, "xml",
+            note_excel_btn, note_xml_btn, mode_key="note"))
+
+        note_excel_frame.tkraise()
+
+        # Action buttons
+        btn_row = ctk.CTkFrame(parent, fg_color="transparent")
+        btn_row.grid(row=5, column=0, sticky="ew", padx=10, pady=(4, 10))
+
+        ctk.CTkButton(
+            btn_row, text="💾  Save XML File", fg_color=SUCCESS, hover_color="#15803D", width=155,
+            command=lambda: self._generate_note("save", note_fp_var.get())
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row, text="🚀  Push to Tally", fg_color=ACCENT, hover_color=ACCENT_HOVER, width=165,
+            command=lambda: self._smart_push_note(note_fp_var, note_xml_fp_var)
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(btn_row, text="Push uses active preview (Excel or XML)",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=8)
+
+    # ─── NOTE TEMPLATE DOWNLOAD ───────────────────────────────────────────────
+
+    def _download_note_template(self):
+        note_type = self._note_type_var.get() or "Credit Note"
+        headers = [
+            "Date", "VoucherNo", "GSTIN", "PartyLedger", "Particular",
+            "TaxableValue", "CGSTLedger", "CGSTRate", "SGSTLedger", "SGSTRate",
+            "IGSTLedger", "IGSTRate", "Narration",
+        ]
+        sample = ["16-12-25", "1", "", "Interactive Media Pvt Ltd", "Lecture Income",
+                  100000, "CGST", 9, "SGST", 9, "", 0, "Test Note"]
+        out = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            initialfile=f"Template_{note_type.replace(' ', '_')}.xlsx",
+            filetypes=[("Excel", "*.xlsx")],
+        )
+        if not out:
+            return
+        try:
+            import openpyxl as _xl
+            wb = _xl.Workbook(); ws = wb.active
+            ws.title = note_type
+            ws.append(headers)
+            ws.append(sample)
+            wb.save(out)
+            messagebox.showinfo("Template Saved", f"{note_type} template saved:\n{out}")
+        except Exception as exc:
+            messagebox.showerror("Template Error", str(exc))
 
 
 # ═══════════════════════════════════════════════════════════════════════════

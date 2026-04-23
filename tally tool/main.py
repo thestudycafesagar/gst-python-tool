@@ -3019,6 +3019,13 @@ class GSTR2BTallyApp(ctk.CTk):
         self.download2b_worker = None
         self._download2b_captcha_img = None
         self.tally_push_is_running = False
+        # Pending push-after-generate state
+        self._pending_push = False
+        self._pending_push_url = ""
+        self._pending_push_timeout = 30
+        self._pending_push_date_mode = "current"
+        self._pending_push_custom_date = ""
+        self._pending_push_company = ""
         self.tally_push_companies = []
         self.tally_push_company_placeholder = "Auto (Loaded Company)"
         self.create_ledger_is_running = False
@@ -3919,6 +3926,7 @@ class GSTR2BTallyApp(ctk.CTk):
                                            text_color="#FFFFFF", corner_radius=10,
                                            command=self._generate_output)
         self.generate_btn.pack(fill="x", padx=16, pady=(0, 6))
+        # Keep these created (they are referenced elsewhere) but not packed
         self.excel_only_btn = ctk.CTkButton(self.action_card, text="Generate Tally Sheet Only",
                                              font=("Segoe UI", 12), height=38, fg_color=COLORS["bg_input"],
                                              hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_primary"],
@@ -3927,6 +3935,101 @@ class GSTR2BTallyApp(ctk.CTk):
                                            font=("Segoe UI", 12), height=38, fg_color=COLORS["bg_input"],
                                            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_primary"],
                                            corner_radius=8, command=lambda: self._generate_output(excel=False))
+
+        # ─── Inline Push to Tally Panel ───────────────────────────────────────
+        ctk.CTkFrame(self.action_card, fg_color=COLORS["border"], height=1).pack(fill="x", padx=16, pady=(4, 0))
+        ctk.CTkLabel(self.action_card, text="Push to Tally",
+                     font=("Segoe UI", 11, "bold"), text_color=COLORS["accent"]).pack(anchor="w", padx=16, pady=(8, 4))
+
+        # Host / Port / Timeout row
+        _ipr = ctk.CTkFrame(self.action_card, fg_color="transparent")
+        _ipr.pack(fill="x", padx=16, pady=(0, 6))
+        ctk.CTkLabel(_ipr, text="Host", font=("Segoe UI", 11),
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        self.inline_push_host_entry = ctk.CTkEntry(_ipr, width=104, height=32,
+            fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], font=("Segoe UI", 11), corner_radius=8)
+        self.inline_push_host_entry.insert(0, "localhost")
+        self.inline_push_host_entry.pack(side="left", padx=(6, 10))
+        ctk.CTkLabel(_ipr, text="Port", font=("Segoe UI", 11),
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        self.inline_push_port_entry = ctk.CTkEntry(_ipr, width=68, height=32,
+            fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], font=("Segoe UI", 11), corner_radius=8)
+        self.inline_push_port_entry.insert(0, "9000")
+        self.inline_push_port_entry.pack(side="left", padx=(6, 10))
+        ctk.CTkLabel(_ipr, text="Timeout", font=("Segoe UI", 11),
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        self.inline_push_timeout_entry = ctk.CTkEntry(_ipr, width=54, height=32,
+            fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], font=("Segoe UI", 11), corner_radius=8)
+        self.inline_push_timeout_entry.insert(0, "30")
+        self.inline_push_timeout_entry.pack(side="left", padx=(6, 0))
+
+        # Date mode row — shares same BooleanVars as Push To Tally tab
+        _dmf = ctk.CTkFrame(self.action_card, fg_color=COLORS["bg_input"], corner_radius=8)
+        _dmf.pack(fill="x", padx=16, pady=(0, 6))
+        ctk.CTkLabel(_dmf, text="Voucher Date Mode", font=("Segoe UI", 10, "bold"),
+                     text_color=COLORS["text_secondary"]).pack(anchor="w", padx=10, pady=(8, 4))
+        _dcr = ctk.CTkFrame(_dmf, fg_color="transparent")
+        _dcr.pack(fill="x", padx=10, pady=(0, 4))
+        ctk.CTkCheckBox(_dcr, text="Current Date", variable=self.tally_push_date_checks["current"],
+            command=lambda: self._set_tally_push_date_mode("current"),
+            font=("Segoe UI", 10), text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 8))
+        ctk.CTkCheckBox(_dcr, text="Excel Date", variable=self.tally_push_date_checks["excel"],
+            command=lambda: self._set_tally_push_date_mode("excel"),
+            font=("Segoe UI", 10), text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 8))
+        ctk.CTkCheckBox(_dcr, text="Custom Date", variable=self.tally_push_date_checks["custom"],
+            command=lambda: self._set_tally_push_date_mode("custom"),
+            font=("Segoe UI", 10), text_color=COLORS["text_secondary"]).pack(side="left")
+        _cdr = ctk.CTkFrame(_dmf, fg_color="transparent")
+        _cdr.pack(fill="x", padx=10, pady=(0, 8))
+        ctk.CTkEntry(_cdr, textvariable=self.tally_push_custom_date_var, height=30,
+            fg_color=COLORS["bg_card"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], placeholder_text="Custom Date (DD/MM/YYYY)",
+            font=("Segoe UI", 10), corner_radius=6).pack(fill="x")
+
+        # Company selector row
+        _cr2 = ctk.CTkFrame(self.action_card, fg_color="transparent")
+        _cr2.pack(fill="x", padx=16, pady=(0, 4))
+        _cr2.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_cr2, text="Target Company", font=("Segoe UI", 11),
+                     text_color=COLORS["text_secondary"]).grid(row=0, column=0, sticky="w")
+        self.inline_push_company_cb = ctk.CTkComboBox(
+            _cr2, values=[self.tally_push_company_placeholder], width=200, height=34,
+            fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"])
+        self.inline_push_company_cb.set(self.tally_push_company_placeholder)
+        self.inline_push_company_cb.grid(row=0, column=1, sticky="ew", padx=(8, 6))
+        self.inline_push_company_refresh_btn = ctk.CTkButton(
+            _cr2, text="Fetch", width=60, height=34,
+            font=("Segoe UI", 10, "bold"), fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_secondary"],
+            corner_radius=8, command=self._inline_push_refresh_companies_thread)
+        self.inline_push_company_refresh_btn.grid(row=0, column=2, sticky="e")
+
+        self.inline_push_company_status = ctk.CTkLabel(
+            self.action_card, text="Companies: Not fetched",
+            font=("Segoe UI", 10), text_color=COLORS["text_muted"])
+        self.inline_push_company_status.pack(anchor="w", padx=16, pady=(0, 2))
+        self.inline_push_conn_status = ctk.CTkLabel(
+            self.action_card, text="Connection: Not checked",
+            font=("Segoe UI", 10), text_color=COLORS["text_muted"])
+        self.inline_push_conn_status.pack(anchor="w", padx=16, pady=(0, 6))
+
+        # Action buttons
+        _ibr = ctk.CTkFrame(self.action_card, fg_color="transparent")
+        _ibr.pack(fill="x", padx=16, pady=(0, 14))
+        self.inline_push_test_btn = ctk.CTkButton(
+            _ibr, text="Test Connection", height=40,
+            font=("Segoe UI", 11, "bold"), fg_color=COLORS["warning"], hover_color="#B45309",
+            text_color="#FFFFFF", corner_radius=8, command=self._inline_push_test_connection)
+        self.inline_push_test_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self.inline_push_post_btn = ctk.CTkButton(
+            _ibr, text="Generate & Push to Tally", height=40,
+            font=("Segoe UI", 12, "bold"), fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF", corner_radius=8, command=self._generate_and_push_inline)
+        self.inline_push_post_btn.pack(side="left", fill="x", expand=True, padx=(4, 0))
 
         # Progress
         self.progress_frame = ctk.CTkFrame(self.left_col, fg_color=COLORS["bg_card"], corner_radius=12,
@@ -4727,6 +4830,13 @@ class GSTR2BTallyApp(ctk.CTk):
                 self.tally_push_date_custom_cb.configure(state="disabled")
             if hasattr(self, "tally_push_custom_date_entry"):
                 self.tally_push_custom_date_entry.configure(state="disabled")
+            # Inline push panel
+            if hasattr(self, "inline_push_post_btn"):
+                self.inline_push_post_btn.configure(state="disabled", text="PROCESSING...")
+            if hasattr(self, "inline_push_test_btn"):
+                self.inline_push_test_btn.configure(state="disabled")
+            if hasattr(self, "inline_push_company_refresh_btn"):
+                self.inline_push_company_refresh_btn.configure(state="disabled")
         else:
             self.tally_push_test_btn.configure(state="normal")
             self.tally_push_post_btn.configure(state="normal", text="Step 2: Push XML")
@@ -4741,6 +4851,13 @@ class GSTR2BTallyApp(ctk.CTk):
             if hasattr(self, "tally_push_date_custom_cb"):
                 self.tally_push_date_custom_cb.configure(state="normal")
             self._set_tally_push_date_mode(self.tally_push_date_mode.get())
+            # Inline push panel
+            if hasattr(self, "inline_push_post_btn"):
+                self.inline_push_post_btn.configure(state="normal", text="Generate & Push to Tally")
+            if hasattr(self, "inline_push_test_btn"):
+                self.inline_push_test_btn.configure(state="normal")
+            if hasattr(self, "inline_push_company_refresh_btn"):
+                self.inline_push_company_refresh_btn.configure(state="normal")
         if label_text is not None:
             self.progress_label.configure(text=label_text, text_color=label_color or COLORS["text_muted"])
 
@@ -4775,6 +4892,19 @@ class GSTR2BTallyApp(ctk.CTk):
             text=f"Companies: {len(cleaned)} available",
             text_color=COLORS["text_muted"],
         )
+        # Also sync inline push panel dropdown
+        if hasattr(self, "inline_push_company_cb"):
+            inline_cur = ""
+            if keep_selection:
+                inline_cur = _normalize_company_name(self.inline_push_company_cb.get() or "")
+            self.inline_push_company_cb.configure(values=values)
+            if inline_cur and _company_key(inline_cur) in {_company_key(x) for x in cleaned}:
+                self.inline_push_company_cb.set(inline_cur)
+            else:
+                self.inline_push_company_cb.set(self.tally_push_company_placeholder)
+        if hasattr(self, "inline_push_company_status"):
+            self.inline_push_company_status.configure(
+                text=f"Companies: {len(cleaned)} available", text_color=COLORS["text_muted"])
 
     def _get_selected_tally_push_company(self):
         if not hasattr(self, "tally_push_company_cb"):
@@ -6697,6 +6827,10 @@ class GSTR2BTallyApp(ctk.CTk):
         self.generate_btn.configure(state="disabled")
         self.excel_only_btn.configure(state="disabled")
         self.xml_only_btn.configure(state="disabled")
+        if hasattr(self, "inline_push_post_btn"):
+            self.inline_push_post_btn.configure(state="disabled")
+        if hasattr(self, "inline_push_test_btn"):
+            self.inline_push_test_btn.configure(state="disabled")
         self.progress_bar.set(0)
         self.progress_label.configure(text="Generating...", text_color=COLORS["warning"])
         self.status_label.configure(text="Generating", text_color=COLORS["warning"])
@@ -6739,6 +6873,10 @@ class GSTR2BTallyApp(ctk.CTk):
         self.generate_btn.configure(state="normal")
         self.excel_only_btn.configure(state="normal")
         self.xml_only_btn.configure(state="normal")
+        if hasattr(self, "inline_push_post_btn"):
+            self.inline_push_post_btn.configure(state="normal")
+        if hasattr(self, "inline_push_test_btn"):
+            self.inline_push_test_btn.configure(state="normal")
         self.progress_bar.set(1.0)
         success_msgs = []
         if do_excel and results["excel"]:
@@ -6749,6 +6887,12 @@ class GSTR2BTallyApp(ctk.CTk):
             self.progress_label.configure(text="Generation complete!", text_color=COLORS["success"])
             self.status_label.configure(text="Complete", text_color=COLORS["success"])
             self.log_panel.log(f"Files generated in: {os.path.dirname(xml_path)}", "success")
+            # Auto-push if requested via the new button
+            if self._pending_push and do_xml and results["xml"] and os.path.isfile(xml_path):
+                self._pending_push = False
+                self.log_panel.log("Auto-push to Tally triggered...", "process")
+                self.after(400, lambda p=xml_path: self._auto_push_generated_xml(p))
+                return  # Skip the messagebox — push flow will show its own result
             msg = ["Files generated successfully!\n"]
             if do_excel and results["excel"]: msg.append(f"Excel: {excel_path}")
             if do_xml and results["xml"]: msg.append(f"XML: {xml_path}")
@@ -6759,6 +6903,158 @@ class GSTR2BTallyApp(ctk.CTk):
             self.status_label.configure(text="Error", text_color=COLORS["error"])
             for err in self.engine.errors: self.log_panel.log(err, "error")
             messagebox.showerror("Error", "Failed to generate output files.\nCheck activity log.")
+
+
+    # ─── INLINE PUSH TO TALLY METHODS ────────────────────────────────────────
+
+    def _inline_push_get_url(self):
+        host = (self.inline_push_host_entry.get() or "localhost").strip()
+        port_str = (self.inline_push_port_entry.get() or "9000").strip()
+        try:
+            port = int(port_str)
+        except ValueError:
+            raise ValueError(f"Invalid port number: '{port_str}'")
+        return f"http://{host}:{port}"
+
+    def _inline_push_get_timeout(self):
+        t = (self.inline_push_timeout_entry.get() or "30").strip()
+        try:
+            return int(t)
+        except ValueError:
+            raise ValueError(f"Invalid timeout value: '{t}'")
+
+    def _inline_push_get_company(self):
+        if not hasattr(self, "inline_push_company_cb"):
+            return ""
+        selected = _normalize_company_name(self.inline_push_company_cb.get() or "")
+        if not selected or _company_key(selected) == _company_key(self.tally_push_company_placeholder):
+            return ""
+        return selected
+
+    def _inline_push_set_company_dropdown(self, companies, keep_selection=True):
+        current = ""
+        if keep_selection and hasattr(self, "inline_push_company_cb"):
+            current = _normalize_company_name(self.inline_push_company_cb.get() or "")
+        cleaned = []
+        seen = set()
+        for name in companies or []:
+            txt = _normalize_company_name(name)
+            if not _is_valid_company_name(txt):
+                continue
+            key = _company_key(txt)
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(txt)
+        cleaned = sorted(cleaned, key=lambda x: _company_key(x))
+        values = [self.tally_push_company_placeholder] + cleaned
+        self.inline_push_company_cb.configure(values=values)
+        if current and _company_key(current) in {_company_key(x) for x in cleaned}:
+            self.inline_push_company_cb.set(current)
+        else:
+            self.inline_push_company_cb.set(self.tally_push_company_placeholder)
+        self.inline_push_company_status.configure(
+            text=f"Companies: {len(cleaned)} available", text_color=COLORS["text_muted"])
+
+    def _inline_push_refresh_companies_thread(self):
+        if self.tally_push_is_running:
+            return
+        try:
+            tally_url = self._inline_push_get_url()
+            timeout = self._inline_push_get_timeout()
+        except ValueError as e:
+            messagebox.showerror("Invalid Settings", str(e))
+            return
+        self.inline_push_company_refresh_btn.configure(state="disabled", text="Fetching...")
+        self.inline_push_company_status.configure(text="Companies: Fetching...", text_color=COLORS["warning"])
+
+        def _worker():
+            result = _fetch_tally_companies(tally_url, timeout=min(timeout, 20))
+            def done():
+                self.inline_push_company_refresh_btn.configure(state="normal", text="Fetch")
+                if result.get("success"):
+                    companies = result.get("companies", [])
+                    self._inline_push_set_company_dropdown(companies, keep_selection=True)
+                    self.log_panel.log(f"Fetched {len(companies)} Tally companies.", "info")
+                else:
+                    err = str(result.get("error") or "Unknown error")
+                    self.inline_push_company_status.configure(text="Companies: Fetch failed", text_color=COLORS["warning"])
+                    self.log_panel.log(f"Could not fetch companies: {err}", "warning")
+            self.after(0, done)
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _inline_push_test_connection(self):
+        if self.tally_push_is_running:
+            return
+        try:
+            tally_url = self._inline_push_get_url()
+            timeout = self._inline_push_get_timeout()
+        except ValueError as e:
+            messagebox.showerror("Invalid Settings", str(e))
+            return
+        self.inline_push_test_btn.configure(state="disabled", text="Checking...")
+        self.inline_push_conn_status.configure(text="Connection: Checking...", text_color=COLORS["warning"])
+
+        def _worker():
+            check_result = _check_tally_connection(tally_url, timeout=min(timeout, 10))
+            ok = check_result.get("connected", False)
+            def done():
+                self.inline_push_test_btn.configure(state="normal", text="Test Connection")
+                if ok:
+                    self.inline_push_conn_status.configure(
+                        text=f"Connection: Connected ({tally_url})", text_color=COLORS["success"])
+                    self.log_panel.log(f"Tally connected at {tally_url}", "success")
+                    self._inline_push_refresh_companies_thread()
+                else:
+                    err = str(check_result.get("error") or "Offline")
+                    self.inline_push_conn_status.configure(text="Connection: Offline", text_color=COLORS["error"])
+                    self.log_panel.log(f"Tally offline ({err})", "error")
+            self.after(0, done)
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _generate_and_push_inline(self):
+        """Generate XML then immediately push it to Tally using inline panel settings."""
+        try:
+            tally_url = self._inline_push_get_url()
+            timeout = self._inline_push_get_timeout()
+            date_mode, custom_tally_date = self._get_tally_push_date_selection()
+        except ValueError as e:
+            messagebox.showerror("Invalid Settings", str(e))
+            return
+        self._pending_push = True
+        self._pending_push_url = tally_url
+        self._pending_push_timeout = timeout
+        self._pending_push_date_mode = date_mode
+        self._pending_push_custom_date = custom_tally_date
+        self._pending_push_company = self._inline_push_get_company()
+        self.log_panel.log(f"Generate & Push: will post to {tally_url} after XML is ready.", "process")
+        self._generate_output(excel=False)
+
+    def _auto_push_generated_xml(self, xml_path: str):
+        """Auto-push the freshly generated XML to Tally."""
+        if not os.path.isfile(xml_path):
+            messagebox.showerror("Auto-Push Failed", f"Generated XML not found:\n{xml_path}")
+            return
+        tally_url = self._pending_push_url
+        timeout = self._pending_push_timeout
+        date_mode = self._pending_push_date_mode
+        custom_tally_date = self._pending_push_custom_date
+        selected_company = getattr(self, "_pending_push_company", "") or ""
+
+        self._set_tally_push_running_ui(True, "Auto-pushing XML to Tally...", COLORS["warning"])
+        self.status_label.configure(text="Posting", text_color=COLORS["warning"])
+        self.progress_bar.set(0.25)
+        self.log_panel.log(f"Auto-pushing: {Path(xml_path).name} to {tally_url}", "process")
+        if selected_company:
+            self.log_panel.log(f"Target company: {selected_company}", "info")
+        else:
+            self.log_panel.log("Target company: currently loaded company in Tally", "info")
+
+        threading.Thread(
+            target=self._post_tally_xml_worker,
+            args=(xml_path, tally_url, timeout, selected_company, date_mode, custom_tally_date),
+            daemon=True,
+        ).start()
 
 
 if __name__ == "__main__":
