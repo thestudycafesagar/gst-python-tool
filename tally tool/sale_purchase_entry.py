@@ -1932,6 +1932,8 @@ def generate_accounting_xml(
         else:
             vno_raw = _row_voucher_number(r)
         vno      = xml_escape(vno_raw)
+        invoice_ref_raw = _row_invoice_reference(r, vno_raw)
+        invoice_ref = xml_escape(invoice_ref_raw)
         party_raw = _ledger_or_suspense(_row_text(r, "PartyLedger"))
         party_context = _collect_party_context(r, party_raw)
         sales_raw = _ledger_or_suspense(_row_text(r, "SalesLedger"))
@@ -1985,6 +1987,8 @@ def generate_accounting_xml(
             party_context.get("gstin", ""),
         )
         a(f'     <GSTTRANSACTIONTYPE>{xml_escape(_gst_txn_type)}</GSTTRANSACTIONTYPE>')
+        if invoice_ref:
+            a(f'     <REFERENCE>{invoice_ref}</REFERENCE>')
         if narr:
             a(f'     <NARRATION>{narr}</NARRATION>')
 
@@ -1994,7 +1998,7 @@ def generate_accounting_xml(
         a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
         a(f'      <AMOUNT>-{fmt_amt(total)}</AMOUNT>')
         a('      <BILLALLOCATIONS.LIST>')
-        a(f'       <NAME>{vno}</NAME>')
+        a(f'       <NAME>{invoice_ref or vno}</NAME>')
         a('       <BILLTYPE>New Ref</BILLTYPE>')
         a(f'       <AMOUNT>-{fmt_amt(total)}</AMOUNT>')
         a('      </BILLALLOCATIONS.LIST>')
@@ -2096,6 +2100,8 @@ def generate_item_xml(
         else:
             vno_raw = _row_voucher_number(r)
         vno      = xml_escape(vno_raw)
+        invoice_ref_raw = _row_invoice_reference(r, vno_raw)
+        invoice_ref = xml_escape(invoice_ref_raw)
         party_raw = _ledger_or_suspense(_row_text(r, "PartyLedger"))
         party_context = _collect_party_context(r, party_raw)
         party = xml_escape(party_raw)
@@ -2216,6 +2222,8 @@ def generate_item_xml(
                 party_context.get("gstin", ""),
             )
             a(f'     <GSTTRANSACTIONTYPE>{xml_escape(_gst_txn_type)}</GSTTRANSACTIONTYPE>')
+        if invoice_ref:
+            a(f'     <REFERENCE>{invoice_ref}</REFERENCE>')
         if narr:
             a(f'     <NARRATION>{narr}</NARRATION>')
 
@@ -2246,7 +2254,7 @@ def generate_item_xml(
         a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
         a(f'      <AMOUNT>-{fmt_amt(total)}</AMOUNT>')
         a('      <BILLALLOCATIONS.LIST>')
-        a(f'       <NAME>{vno}</NAME>')
+        a(f'       <NAME>{invoice_ref or vno}</NAME>')
         a('       <BILLTYPE>New Ref</BILLTYPE>')
         a(f'       <AMOUNT>-{fmt_amt(total)}</AMOUNT>')
         a('      </BILLALLOCATIONS.LIST>')

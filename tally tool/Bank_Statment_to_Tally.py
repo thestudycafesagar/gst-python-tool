@@ -194,11 +194,16 @@ def _derive_import_period(
     return start, end, end
 
 
-def _count_voucher_entries(rows: list) -> tuple:
+def _count_voucher_entries(rows: list, contra_ledger_names: set = None) -> tuple:
     payment_count = 0
     receipt_count = 0
+    contra_count = 0
+    contra_set = {n.upper() for n in (contra_ledger_names or [])}
 
     for r in rows or []:
+        ledger = str(r.get("LEDGER") or r.get("Ledger") or "Suspense A/c").strip()
+        is_contra = bool(contra_set and ledger.upper() in contra_set)
+
         dr = r.get("Debit") or r.get("DEBIT") or r.get("debit") or 0
         cr = r.get("Credit") or r.get("CREDIT") or r.get("credit") or 0
         try:
@@ -211,11 +216,17 @@ def _count_voucher_entries(rows: list) -> tuple:
             cr_val = 0.0
 
         if dr_val > 0:
-            payment_count += 1
+            if is_contra:
+                contra_count += 1
+            else:
+                payment_count += 1
         if cr_val > 0:
-            receipt_count += 1
+            if is_contra:
+                contra_count += 1
+            else:
+                receipt_count += 1
 
-    return payment_count, receipt_count
+    return payment_count, receipt_count, contra_count
 
 
 def _normalize_company_name(value) -> str:
@@ -668,11 +679,13 @@ def generate_bank_voucher_xml(
     custom_tally_date: str = "",
     payment_start_vno: int = None,
     receipt_start_vno: int = None,
+    contra_ledger_names: set = None,
+    contra_start_vno: int = None,
 ) -> str:
     """
-    Generate Payment and Receipt vouchers from bank statement rows.
-    Debit column → Payment voucher (money out: Bank CR, Contra Ledger DR)
-    Credit column → Receipt voucher (money in: Bank DR, Contra Ledger CR)
+    Generate Payment, Receipt, and Contra vouchers from bank statement rows.
+    Debit column → Payment (Bank CR, Ledger DR) or Contra if ledger is bank/cash
+    Credit column → Receipt (Bank DR, Ledger CR) or Contra if ledger is bank/cash
     """
     resolved_mode = str(date_mode or ("current" if use_today_date else "excel")).strip().lower()
     if resolved_mode not in {"current", "excel", "custom"}:
@@ -705,8 +718,10 @@ def generate_bank_voucher_xml(
     a('  <REQUESTDATA>')
 
     bank_esc = xml_escape(bank_ledger)
+    contra_set = {n.upper() for n in (contra_ledger_names or [])}
     payment_counter = 0
     receipt_counter = 0
+    contra_counter = 0
 
     for idx, r in enumerate(rows):
         if resolved_mode == "current":
@@ -756,15 +771,26 @@ def generate_bank_voucher_xml(
         if debit_amt <= 0 and credit_amt <= 0:
             continue  # Skip empty rows
 
+        is_contra_row = bool(contra_set and contra_ledger.upper() in contra_set)
+
         if debit_amt > 0:
-            # PAYMENT voucher: money going OUT of bank
-            vch_type = "Payment"
             amount = debit_amt
-            payment_counter += 1
-            if payment_start_vno is not None:
-                vno = str(payment_start_vno + payment_counter - 1)
+            if is_contra_row:
+                # CONTRA voucher: bank-to-bank or bank-to-cash transfer (money OUT)
+                vch_type = "Contra"
+                contra_counter += 1
+                if contra_start_vno is not None:
+                    vno = str(contra_start_vno + contra_counter - 1)
+                else:
+                    vno = str(r.get("VoucherNo") or r.get("VchNo") or contra_counter)
             else:
-                vno = str(r.get("VoucherNo") or r.get("VchNo") or payment_counter)
+                # PAYMENT voucher: money going OUT of bank to expense/party
+                vch_type = "Payment"
+                payment_counter += 1
+                if payment_start_vno is not None:
+                    vno = str(payment_start_vno + payment_counter - 1)
+                else:
+                    vno = str(r.get("VoucherNo") or r.get("VchNo") or payment_counter)
 
             a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
             a(f'    <VOUCHER VCHTYPE="{vch_type}" ACTION="Create" OBJVIEW="Accounting Voucher View">')
@@ -776,14 +802,14 @@ def generate_bank_voucher_xml(
             if narration:
                 a(f'     <NARRATION>{narration}</NARRATION>')
 
-            # Contra Ledger - DEBIT (money goes TO this ledger)
+            # Destination ledger - DEBIT (receives the money)
             a('     <ALLLEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{contra_esc}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(amount)}</AMOUNT>')
             a('     </ALLLEDGERENTRIES.LIST>')
 
-            # Bank Ledger - CREDIT (money goes OUT of bank)
+            # Source bank - CREDIT (money goes OUT)
             a('     <ALLLEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{bank_esc}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
@@ -794,14 +820,23 @@ def generate_bank_voucher_xml(
             a('   </TALLYMESSAGE>')
 
         if credit_amt > 0:
-            # RECEIPT voucher: money coming IN to bank
-            vch_type = "Receipt"
             amount = credit_amt
-            receipt_counter += 1
-            if receipt_start_vno is not None:
-                vno = str(receipt_start_vno + receipt_counter - 1)
+            if is_contra_row:
+                # CONTRA voucher: cash-to-bank or bank-to-bank transfer (money IN)
+                vch_type = "Contra"
+                contra_counter += 1
+                if contra_start_vno is not None:
+                    vno = str(contra_start_vno + contra_counter - 1)
+                else:
+                    vno = str(r.get("VoucherNo") or r.get("VchNo") or contra_counter)
             else:
-                vno = str(r.get("VoucherNo") or r.get("VchNo") or receipt_counter)
+                # RECEIPT voucher: money coming IN to bank from party/income
+                vch_type = "Receipt"
+                receipt_counter += 1
+                if receipt_start_vno is not None:
+                    vno = str(receipt_start_vno + receipt_counter - 1)
+                else:
+                    vno = str(r.get("VoucherNo") or r.get("VchNo") or receipt_counter)
 
             a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
             a(f'    <VOUCHER VCHTYPE="{vch_type}" ACTION="Create" OBJVIEW="Accounting Voucher View">')
@@ -813,14 +848,14 @@ def generate_bank_voucher_xml(
             if narration:
                 a(f'     <NARRATION>{narration}</NARRATION>')
 
-            # Bank Ledger - DEBIT (money comes IN to bank)
+            # Destination bank - DEBIT (money comes IN)
             a('     <ALLLEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{bank_esc}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(amount)}</AMOUNT>')
             a('     </ALLLEDGERENTRIES.LIST>')
 
-            # Contra Ledger - CREDIT (money comes FROM this ledger)
+            # Source ledger - CREDIT (money goes OUT from here)
             a('     <ALLLEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{contra_esc}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
@@ -834,6 +869,59 @@ def generate_bank_voucher_xml(
     a(' </IMPORTDATA></BODY>')
     a('</ENVELOPE>')
     return "\n".join(lines)
+
+#Csk CSK CSK CSK CSK > 49
+
+# ─── Fetch All Ledger Names from Tally (for duplicate-prevention) ────────
+
+def _fetch_all_ledger_names(tally_url: str, company: str = "", timeout: float = 15.0) -> set:
+    """Return a set of uppercased ledger names currently in Tally."""
+    static = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
+    if company:
+        static += f"<SVCURRENTCOMPANY>{xml_escape(company)}</SVCURRENTCOMPANY>"
+    static += "</STATICVARIABLES>"
+
+    xml_payload = (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+        "<TYPE>Collection</TYPE><ID>AllLedgerNames</ID></HEADER><BODY><DESC>"
+        f"{static}"
+        "<TDL><TDLMESSAGE>"
+        "<COLLECTION NAME='AllLedgerNames'>"
+        "<TYPE>Ledger</TYPE>"
+        "<NATIVEMETHOD>Name</NATIVEMETHOD>"
+        "</COLLECTION>"
+        "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+    )
+    names: set = set()
+    try:
+        resp = _post_tally_xml(tally_url, xml_payload, timeout=timeout)
+        try:
+            root = ET.fromstring(resp)
+            for node in root.iter():
+                tag = str(node.tag or "")
+                if "}" in tag:
+                    tag = tag.split("}", 1)[1]
+                tag = tag.upper()
+                if tag == "LEDGER":
+                    name = _normalize_company_name(node.attrib.get("NAME") or "")
+                    if not name:
+                        for child in node:
+                            ctag = str(child.tag or "")
+                            if "}" in ctag:
+                                ctag = ctag.split("}", 1)[1]
+                            if ctag.upper() in {"NAME", "LEDGERNAME"} and child.text:
+                                name = _normalize_company_name(child.text)
+                                break
+                    if name:
+                        names.add(name.upper())
+        except ET.ParseError:
+            for match in re.findall(r'<LEDGER[^>]+NAME="([^"]*)"', resp, re.IGNORECASE):
+                name = _normalize_company_name(match)
+                if name:
+                    names.add(name.upper())
+    except Exception:
+        pass
+    return names
 
 
 # ─── Generate Ledger Master XML (for auto-creating missing ledgers) ─────
@@ -855,7 +943,7 @@ def generate_ledger_xml(ledgers: list, company: str) -> str:
         today = date.today()
         fy_start_year = today.year if today.month >= 4 else today.year - 1
         return f"{fy_start_year}0401"
-
+######CSK CSK CSK CSK 
     def _state_name_from_gstin(gstin: str) -> str:
         gstin_text = str(gstin or "").strip().upper()
         state_map = {
@@ -3540,7 +3628,8 @@ class TallyBankApp(ctk.CTk):
                 xml = generate_bank_voucher_xml(
                     self.loaded_rows, company, bank_ledger,
                     date_mode=date_mode,
-                    custom_tally_date=custom_tally_date)
+                    custom_tally_date=custom_tally_date,
+                    contra_ledger_names=set(self.fetched_banks))
                 out = filedialog.asksaveasfilename(
                     defaultextension=".xml", initialfile="Tally_BankVouchers.xml",
                     filetypes=[("XML", "*.xml")])
@@ -3555,6 +3644,7 @@ class TallyBankApp(ctk.CTk):
                 host = host.replace("http://", "", 1)
                 target_company = company or "Loaded company in Tally"
                 rows_snapshot = list(self.loaded_rows)
+                banks_snapshot = set(self.fetched_banks)
 
                 self._set_push_loading_state(True, "Preparing vouchers...")
                 self.status_var.set(f"Posting to Tally ({target_company}, Bank: {bank_ledger})...")
@@ -3571,25 +3661,36 @@ class TallyBankApp(ctk.CTk):
                                 unique_ledgers.add(ledger)
 
                         if unique_ledgers:
-                            ledger_defs = [{"Name": n, "Parent": "Suspense A/c"} for n in unique_ledgers]
-                            ledger_xml = generate_ledger_xml(ledger_defs, company)
+                            # Fetch existing ledger names so we don't overwrite them
                             try:
-                                ledger_resp = push_to_tally(ledger_xml, host, int(port_text))
-                                ledger_parsed = _parse_tally_response_details(ledger_resp)
-                                self._append_debug_log(
-                                    "auto-ledger",
-                                    target_company,
-                                    ledger_xml,
-                                    ledger_resp,
-                                    ledger_parsed,
-                                    note=f"bank_contra_ledgers={len(ledger_defs)}",
-                                )
+                                existing_ledger_names = _fetch_all_ledger_names(tally_url, company, timeout=15)
                             except Exception:
-                                pass
+                                existing_ledger_names = set()
+
+                            # Only create ledgers that are truly new (not already in Tally)
+                            new_ledgers = {n for n in unique_ledgers if n.upper() not in existing_ledger_names}
+
+                            if new_ledgers:
+                                ledger_defs = [{"Name": n, "Parent": "Suspense A/c"} for n in new_ledgers]
+                                ledger_xml = generate_ledger_xml(ledger_defs, company)
+                                try:
+                                    ledger_resp = push_to_tally(ledger_xml, host, int(port_text))
+                                    ledger_parsed = _parse_tally_response_details(ledger_resp)
+                                    self._append_debug_log(
+                                        "auto-ledger",
+                                        target_company,
+                                        ledger_xml,
+                                        ledger_resp,
+                                        ledger_parsed,
+                                        note=f"bank_contra_ledgers={len(ledger_defs)}",
+                                    )
+                                except Exception:
+                                    pass
 
                         self.after(0, lambda: self._push_message_var.set("Getting next voucher numbers..."))
                         payment_start = None
                         receipt_start = None
+                        contra_start = None
                         try:
                             pmt_result = _fetch_next_voucher_number(tally_url, company, "Payment", timeout=15)
                             if pmt_result.get("success"):
@@ -3602,6 +3703,12 @@ class TallyBankApp(ctk.CTk):
                                 receipt_start = rct_result.get("next_number")
                         except Exception:
                             pass
+                        try:
+                            ctr_result = _fetch_next_voucher_number(tally_url, company, "Contra", timeout=15)
+                            if ctr_result.get("success"):
+                                contra_start = ctr_result.get("next_number")
+                        except Exception:
+                            pass
 
                         self.after(0, lambda: self._push_message_var.set("Preparing XML batches..."))
                         batches = [
@@ -3611,6 +3718,7 @@ class TallyBankApp(ctk.CTk):
                         total_batches = max(1, len(batches))
                         payment_cursor = payment_start
                         receipt_cursor = receipt_start
+                        contra_cursor = contra_start
 
                         created_total = 0
                         altered_total = 0
@@ -3632,6 +3740,8 @@ class TallyBankApp(ctk.CTk):
                                 custom_tally_date=custom_tally_date,
                                 payment_start_vno=payment_cursor,
                                 receipt_start_vno=receipt_cursor,
+                                contra_ledger_names=banks_snapshot,
+                                contra_start_vno=contra_cursor,
                             )
 
                             resp = push_to_tally(
@@ -3649,8 +3759,8 @@ class TallyBankApp(ctk.CTk):
                                 parsed,
                                 note=(
                                     f"bank={bank_ledger}, pmt_start={payment_cursor}, "
-                                    f"rct_start={receipt_cursor}, batch={batch_idx}/{total_batches}, "
-                                    f"rows={len(batch_rows)}"
+                                    f"rct_start={receipt_cursor}, ctr_start={contra_cursor}, "
+                                    f"batch={batch_idx}/{total_batches}, rows={len(batch_rows)}"
                                 ),
                             )
 
@@ -3671,12 +3781,14 @@ class TallyBankApp(ctk.CTk):
                             altered_total += parsed.get("altered", 0)
                             ignored_total += parsed.get("ignored", 0)
 
-                            if payment_cursor is not None or receipt_cursor is not None:
-                                p_count, r_count = _count_voucher_entries(batch_rows)
+                            if payment_cursor is not None or receipt_cursor is not None or contra_cursor is not None:
+                                p_count, r_count, c_count = _count_voucher_entries(batch_rows, contra_ledger_names=banks_snapshot)
                                 if payment_cursor is not None:
                                     payment_cursor += p_count
                                 if receipt_cursor is not None:
                                     receipt_cursor += r_count
+                                if contra_cursor is not None:
+                                    contra_cursor += c_count
                         else:
                             result = {
                                 "ok": True,
