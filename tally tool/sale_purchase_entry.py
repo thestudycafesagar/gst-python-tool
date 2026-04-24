@@ -3138,6 +3138,418 @@ def generate_unit_xml(unit_names: list, company: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  JOURNAL ENTRY HELPERS & XML GENERATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _ledger_or_default(value: str, fallback: str = SUSPENSE_LEDGER) -> str:
+    text = str(value or "").strip()
+    return text or fallback
+
+
+def _state_from_gstin(g):
+    M = {
+        '01': 'Jammu and Kashmir', '02': 'Himachal Pradesh', '03': 'Punjab', '04': 'Chandigarh',
+        '05': 'Uttarakhand', '06': 'Haryana', '07': 'Delhi', '08': 'Rajasthan', '09': 'Uttar Pradesh',
+        '10': 'Bihar', '11': 'Sikkim', '12': 'Arunachal Pradesh', '13': 'Nagaland', '14': 'Manipur',
+        '15': 'Mizoram', '16': 'Tripura', '17': 'Meghalaya', '18': 'Assam', '19': 'West Bengal',
+        '20': 'Jharkhand', '21': 'Odisha', '22': 'Chattisgarh', '23': 'Madhya Pradesh', '24': 'Gujarat',
+        '26': 'Dadra and Nagar Haveli and Daman and Diu', '27': 'Maharashtra',
+        '28': 'Andhra Pradesh', '29': 'Karnataka', '30': 'Goa', '31': 'Lakshadweep', '32': 'Kerala',
+        '33': 'Tamil Nadu', '34': 'Puducherry', '35': 'Andaman and Nicobar Islands',
+        '36': 'Telangana', '37': 'Andhra Pradesh (New)', '38': 'Ladakh', '97': 'Other Territory',
+    }
+    return M.get(str(g or '')[:2], '')
+
+
+def _fetch_tally_ledgers(tally_url: str, timeout: float = 15.0, company_name: str = "") -> dict:
+    selected_company = _normalize_company_name(company_name)
+    static_vars = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
+    if selected_company:
+        static_vars += f"<SVCURRENTCOMPANY>{xml_escape(selected_company)}</SVCURRENTCOMPANY>"
+    static_vars += "</STATICVARIABLES>"
+
+    request_xml_variants = [
+        (
+            "collection-ledger",
+            "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+            "<TYPE>Collection</TYPE><ID>Ledger Collection</ID></HEADER>"
+            f"<BODY><DESC>{static_vars}<TDL><TDLMESSAGE><COLLECTION NAME='Ledger Collection'>"
+            "<TYPE>Ledger</TYPE><FETCH>Name,Parent</FETCH><NATIVEMETHOD>Name</NATIVEMETHOD>"
+            "</COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>",
+        ),
+        (
+            "report-list-ledgers",
+            "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>"
+            "<BODY><EXPORTDATA><REQUESTDESC><REPORTNAME>List of Ledgers</REPORTNAME>"
+            f"{static_vars}</REQUESTDESC></EXPORTDATA></BODY></ENVELOPE>",
+        ),
+    ]
+
+    def _extract_from_response(response_text: str):
+        all_entries = []
+        try:
+            root = ET.fromstring(response_text)
+            for ledger_node in root.findall(".//LEDGER"):
+                name = _normalize_ledger_name(
+                    ledger_node.attrib.get("NAME")
+                    or ledger_node.findtext("NAME")
+                )
+                parent = _normalize_ledger_name(
+                    ledger_node.attrib.get("PARENT")
+                    or ledger_node.findtext("PARENT")
+                )
+                if name:
+                    all_entries.append((name, parent))
+        except ET.ParseError:
+            pass
+
+        for match in re.findall(r'LEDGER[^>]*NAME="([^"]+)"', response_text, flags=re.IGNORECASE):
+            name = _normalize_ledger_name(match)
+            if name:
+                all_entries.append((name, ""))
+        return all_entries
+
+    all_ledgers_map = {}
+    errors = []
+
+    for label, payload in request_xml_variants:
+        try:
+            response_text = _post_tally_xml(tally_url, payload, timeout=timeout)
+            entries = _extract_from_response(response_text)
+            for name, parent in entries:
+                key = _ledger_key(name)
+                if key not in all_ledgers_map:
+                    all_ledgers_map[key] = {"name": name, "parent": parent}
+                elif not all_ledgers_map[key].get("parent") and parent:
+                    all_ledgers_map[key]["parent"] = parent
+        except HTTPError as exc:
+            errors.append(f"{label}: HTTP {exc.code}")
+        except URLError:
+            errors.append(f"{label}: ConnectionError")
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+
+    ledgers = sorted((v["name"] for v in all_ledgers_map.values() if v.get("name")), key=lambda x: _ledger_key(x))
+
+    party_group_keys = {"SUNDRY CREDITORS", "SUNDRY DEBTORS"}
+    party_ledgers = sorted(
+        (
+            v["name"]
+            for v in all_ledgers_map.values()
+            if v.get("name") and re.sub(r"\s+", " ", str(v.get("parent") or "")).strip().upper() in party_group_keys
+        ),
+        key=lambda x: _ledger_key(x),
+    )
+
+    if party_ledgers or ledgers:
+        return {
+            "success": True,
+            "ledgers": ledgers,
+            "party_ledgers": party_ledgers,
+        }
+
+    err = "; ".join(errors) if errors else "No ledgers returned by Tally."
+    return {
+        "success": False,
+        "error": err,
+        "ledgers": [],
+        "party_ledgers": [],
+    }
+
+
+def _fetch_cmp_gst_regs_for_journal(url, company='', timeout=15):
+    sc = f'<SVCURRENTCOMPANY>{xml_escape(company)}</SVCURRENTCOMPANY>' if company else ''
+    col = ("<COLLECTION NAME='TUL'><TYPE>TaxUnit</TYPE>"
+           "<FETCH>Name,TaxType,TaxRegistration,GSTRegNumber,StateName</FETCH></COLLECTION>")
+    rq = (
+        f'<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>'
+        f'<TYPE>Collection</TYPE><ID>TUL</ID></HEADER>'
+        f'<BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>{sc}'
+        f'</STATICVARIABLES><TDL><TDLMESSAGE>{col}</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>'
+    )
+    try:
+        r = _post_tally_xml(url, rq, timeout=timeout)
+        regs = []
+        for m in re.finditer(r'<TAXUNIT[^>]*>(.*?)</TAXUNIT>', r, re.DOTALL):
+            blk = m.group(1)
+            def _t(tag, b=blk):
+                x = re.search(fr'<{tag}[^>]*>(.*?)</{tag}>', b, re.DOTALL)
+                return x.group(1).strip() if x else ''
+            gstin = (_t('GSTREGNUMBER') or _t('TAXREGISTRATION') or '').upper()
+            state = _t('STATENAME') or ''
+            name = _t('NAME') or ''
+            if not gstin:
+                continue
+            if not state:
+                state = _state_from_gstin(gstin)
+            regs.append({'gstin': gstin, 'state': state, 'name': name})
+        return {'success': bool(regs), 'registrations': regs}
+    except Exception as e:
+        return {'success': False, 'registrations': [], 'error': str(e)}
+
+
+def _clean_tax_ledger(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.casefold() in {"0", "0.0", "none", "na", "n/a", "-"}:
+        return ""
+    return text
+
+
+def _row_reference_number(row: dict, default: str = "") -> str:
+    return (
+        _row_text(row, "Reference")
+        or _row_text(row, "RefNo")
+        or _row_text(row, "Ref No")
+        or _row_text(row, "BillRef")
+        or _row_text(row, "BillNo")
+        or _row_text(row, "Bill No")
+        or _row_text(row, "InvoiceNo")
+        or _row_text(row, "Invoice No")
+        or _row_text(row, "SupplierInvoiceNo")
+        or _row_text(row, "Supplier Invoice No")
+        or default
+    )
+
+
+def _append_common_ledger_flags(add_line, is_party: bool, is_debit: bool = None) -> None:
+    if is_debit is None:
+        is_debit = not is_party
+    add_line("      <GSTCLASS>Not Applicable</GSTCLASS>")
+    add_line(f"      <ISDEEMEDPOSITIVE>{'Yes' if is_debit else 'No'}</ISDEEMEDPOSITIVE>")
+    add_line("      <LEDGERFROMITEM>No</LEDGERFROMITEM>")
+    add_line("      <REMOVEZEROENTRIES>No</REMOVEZEROENTRIES>")
+    add_line(f"      <ISPARTYLEDGER>{'Yes' if is_party else 'No'}</ISPARTYLEDGER>")
+    add_line("      <GSTOVERRIDDEN>No</GSTOVERRIDDEN>")
+    add_line("      <ISGSTASSESSABLEVALUEOVERRIDDEN>No</ISGSTASSESSABLEVALUEOVERRIDDEN>")
+
+
+def generate_journal_xml(
+    rows: list,
+    company: str,
+    use_today_date: bool = False,
+    date_mode: str = "",
+    custom_tally_date: str = "",
+    include_voucher_number: bool = True,
+    include_bill_allocations: bool = True,
+    journal_type: str = "purchase",
+    company_gst_registrations: list = None,
+) -> tuple:
+    """
+    Purchase: Expense Dr / Tax Dr / Party Cr
+    Sale:     Party Dr  / Sales Cr / Tax Cr
+    GST State/Country fetched by Tally from party ledger master via GSTREGISTRATIONTYPE=Regular.
+    """
+    is_sale = str(journal_type or "purchase").strip().lower() == "sale"
+    lines = []
+    a = lines.append
+    company_static = _company_static_block(company)
+
+    a('<?xml version="1.0" encoding="UTF-8"?>')
+    a("<ENVELOPE>")
+    a(" <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>")
+    a(" <BODY><IMPORTDATA>")
+    a("  <REQUESTDESC><REPORTNAME>Vouchers</REPORTNAME>")
+    if company_static:
+        a(company_static)
+    a("  </REQUESTDESC>")
+    a("  <REQUESTDATA>")
+
+    resolved_mode = str(date_mode or ("current" if use_today_date else "excel")).strip().lower()
+    if resolved_mode not in {"current", "excel", "custom"}:
+        resolved_mode = "current" if use_today_date else "excel"
+    resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
+
+    _cmp_regs = list(company_gst_registrations or [])
+    _cmp_gstin = _cmp_state = _cmp_name = ""
+    if _cmp_regs:
+        _r = _cmp_regs[0]
+        _cmp_gstin = xml_escape(str(_r.get("gstin", "")).strip())
+        _cmp_state = xml_escape(str(_r.get("state", "")).strip())
+        _cmp_name = xml_escape(str(_r.get("name", "")).strip())
+
+    voucher_count = 0
+
+    for idx, r in enumerate(rows):
+        taxable = _row_float(r, "TaxableValue", 0.0)
+        if taxable <= 0:
+            continue
+
+        if resolved_mode == "current":
+            source_date = datetime.today()
+        elif resolved_mode == "custom":
+            source_date = resolved_custom_date
+        else:
+            source_date = _row_get(r, "Date", "")
+        dt = tally_date(source_date)
+        vno_raw = _row_voucher_number(r, "")
+
+        party_raw = _ledger_or_default(_row_text(r, "PartyLedger"))
+        particular_raw = (
+            _row_text(r, "Particular")
+            or _row_text(r, "Particulars")
+            or _row_text(r, "ExpenseLedger")
+            or _row_text(r, "PurchaseLedger")
+            or "Journal Adjustment"
+        )
+        particular_raw = _ledger_or_default(particular_raw, "Journal Adjustment")
+
+        cgst_ledger_raw = _clean_tax_ledger(_row_text(r, "CGSTLedger"))
+        sgst_ledger_raw = _clean_tax_ledger(_row_text(r, "SGSTLedger"))
+        igst_ledger_raw = _clean_tax_ledger(_row_text(r, "IGSTLedger"))
+
+        cgst_rate = _row_float(r, "CGSTRate", 0.0)
+        sgst_rate = _row_float(r, "SGSTRate", 0.0)
+        igst_rate = _row_float(r, "IGSTRate", 0.0)
+
+        cgst_amt = round(taxable * cgst_rate / 100, 2) if cgst_rate > 0 and cgst_ledger_raw else 0.0
+        sgst_amt = round(taxable * sgst_rate / 100, 2) if sgst_rate > 0 and sgst_ledger_raw else 0.0
+        igst_amt = round(taxable * igst_rate / 100, 2) if igst_rate > 0 and igst_ledger_raw else 0.0
+        total = taxable + cgst_amt + sgst_amt + igst_amt
+        has_gst = (cgst_amt + sgst_amt + igst_amt) > 0
+
+        bill_reference_raw = _row_reference_number(r, "")
+        voucher_reference_raw = bill_reference_raw or (vno_raw if include_voucher_number else "")
+        vno = xml_escape(vno_raw)
+        reference = xml_escape(voucher_reference_raw)
+        bill_reference = xml_escape(bill_reference_raw)
+        party = xml_escape(party_raw)
+        particular = xml_escape(particular_raw)
+        narration = xml_escape(_row_text(r, "Narration"))
+
+        party_gstin_raw = str(_row_text(r, "PartyGSTIN") or _row_text(r, "GSTIN") or "").strip().upper()
+        pos_raw = str(_row_text(r, "PlaceOfSupply") or "").strip()
+        party_state_raw = pos_raw or (_state_from_gstin(party_gstin_raw) if party_gstin_raw else "")
+        place_of_supply = xml_escape(party_state_raw if is_sale else (pos_raw or _cmp_state))
+        party_gstin = xml_escape(party_gstin_raw)
+        party_state = xml_escape(party_state_raw)
+
+        voucher_count += 1
+        a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
+        a('    <VOUCHER REMOTEID="" VCHTYPE="Journal" ACTION="Create" OBJVIEW="Accounting Voucher View">')
+        a(f"     <DATE>{dt}</DATE>")
+        a("     <VOUCHERTYPENAME>Journal</VOUCHERTYPENAME>")
+        a("     <PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>")
+        a("     <VCHENTRYMODE>Accounting Voucher View</VCHENTRYMODE>")
+        a("     <ISINVOICE>No</ISINVOICE>")
+        a(f"     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>")
+        a("     <ISELIGIBLEFORITC>No</ISELIGIBLEFORITC>")
+
+        if has_gst:
+            a("     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>")
+            a("     <GSTTRANSACTIONTYPE>Tax Invoice</GSTTRANSACTIONTYPE>")
+            a("     <GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>")
+            if party_gstin:
+                a(f'     <PARTYGSTIN>{party_gstin}</PARTYGSTIN>')
+            if _cmp_gstin and _cmp_name:
+                a(f'     <GSTREGISTRATION TAXTYPE="GST" TAXREGISTRATION="{_cmp_gstin}">{_cmp_name}</GSTREGISTRATION>')
+                a(f'     <CMPGSTIN>{_cmp_gstin}</CMPGSTIN>')
+                a('     <CMPGSTREGISTRATIONTYPE>Regular</CMPGSTREGISTRATIONTYPE>')
+            if _cmp_state:
+                a(f'     <CMPGSTSTATE>{_cmp_state}</CMPGSTSTATE>')
+            if place_of_supply:
+                a(f'     <PLACEOFSUPPLY>{place_of_supply}</PLACEOFSUPPLY>')
+        if reference:
+            a(f"     <REFERENCE>{reference}</REFERENCE>")
+        if include_voucher_number and vno:
+            a(f"     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>")
+        if narration:
+            a(f"     <NARRATION>{narration}</NARRATION>")
+
+        if is_sale:
+            # ---- Sale Journal: Party Dr / Income Cr / Output Tax Cr ----
+            a("     <LEDGERENTRIES.LIST>")
+            a(f"      <LEDGERNAME>{party}</LEDGERNAME>")
+            _append_common_ledger_flags(a, is_party=True, is_debit=True)
+            if has_gst:
+                a("      <GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>")
+                if party_gstin:
+                    a(f"      <GSTIN>{party_gstin}</GSTIN>")
+                if party_state:
+                    a(f"      <STATENAME>{party_state}</STATENAME>")
+                a("      <COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>")
+            a(f"      <AMOUNT>-{fmt_amt(total)}</AMOUNT>")
+            if include_bill_allocations and bill_reference:
+                a("      <BILLALLOCATIONS.LIST>")
+                a(f"       <NAME>{bill_reference}</NAME>")
+                a("       <BILLTYPE>New Ref</BILLTYPE>")
+                a(f"       <AMOUNT>-{fmt_amt(total)}</AMOUNT>")
+                a("      </BILLALLOCATIONS.LIST>")
+            a("     </LEDGERENTRIES.LIST>")
+
+            a("     <LEDGERENTRIES.LIST>")
+            a(f"      <LEDGERNAME>{particular}</LEDGERNAME>")
+            _append_common_ledger_flags(a, is_party=False, is_debit=False)
+            a(f"      <AMOUNT>{fmt_amt(taxable)}</AMOUNT>")
+            a("     </LEDGERENTRIES.LIST>")
+
+            for _ln, _la in [(cgst_ledger_raw, cgst_amt), (sgst_ledger_raw, sgst_amt), (igst_ledger_raw, igst_amt)]:
+                if _la > 0 and _ln:
+                    a("     <LEDGERENTRIES.LIST>")
+                    a(f"      <LEDGERNAME>{xml_escape(_ln)}</LEDGERNAME>")
+                    _append_common_ledger_flags(a, is_party=False, is_debit=False)
+                    a(f"      <AMOUNT>{fmt_amt(_la)}</AMOUNT>")
+                    a("     </LEDGERENTRIES.LIST>")
+
+        else:
+            # ---- Purchase Journal: Expense Dr / Input Tax Dr / Party Cr ----
+            a("     <LEDGERENTRIES.LIST>")
+            a(f"      <LEDGERNAME>{particular}</LEDGERNAME>")
+            _append_common_ledger_flags(a, is_party=False)
+            a(f"      <AMOUNT>-{fmt_amt(taxable)}</AMOUNT>")
+            a("     </LEDGERENTRIES.LIST>")
+
+            if cgst_amt > 0 and cgst_ledger_raw:
+                a("     <LEDGERENTRIES.LIST>")
+                a(f"      <LEDGERNAME>{xml_escape(cgst_ledger_raw)}</LEDGERNAME>")
+                _append_common_ledger_flags(a, is_party=False)
+                a(f"      <AMOUNT>-{fmt_amt(cgst_amt)}</AMOUNT>")
+                a("     </LEDGERENTRIES.LIST>")
+
+            if sgst_amt > 0 and sgst_ledger_raw:
+                a("     <LEDGERENTRIES.LIST>")
+                a(f"      <LEDGERNAME>{xml_escape(sgst_ledger_raw)}</LEDGERNAME>")
+                _append_common_ledger_flags(a, is_party=False)
+                a(f"      <AMOUNT>-{fmt_amt(sgst_amt)}</AMOUNT>")
+                a("     </LEDGERENTRIES.LIST>")
+
+            if igst_amt > 0 and igst_ledger_raw:
+                a("     <LEDGERENTRIES.LIST>")
+                a(f"      <LEDGERNAME>{xml_escape(igst_ledger_raw)}</LEDGERNAME>")
+                _append_common_ledger_flags(a, is_party=False)
+                a(f"      <AMOUNT>-{fmt_amt(igst_amt)}</AMOUNT>")
+                a("     </LEDGERENTRIES.LIST>")
+
+            a("     <LEDGERENTRIES.LIST>")
+            a(f"      <LEDGERNAME>{party}</LEDGERNAME>")
+            _append_common_ledger_flags(a, is_party=True)
+            if has_gst:
+                a("      <GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>")
+                if party_gstin:
+                    a(f"      <GSTIN>{party_gstin}</GSTIN>")
+                if party_state:
+                    a(f"      <STATENAME>{party_state}</STATENAME>")
+                a("      <COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>")
+            a(f"      <AMOUNT>{fmt_amt(total)}</AMOUNT>")
+            if include_bill_allocations and bill_reference:
+                a("      <BILLALLOCATIONS.LIST>")
+                a(f"       <NAME>{bill_reference}</NAME>")
+                a("       <BILLTYPE>New Ref</BILLTYPE>")
+                a(f"       <AMOUNT>{fmt_amt(total)}</AMOUNT>")
+                a("      </BILLALLOCATIONS.LIST>")
+            a("     </LEDGERENTRIES.LIST>")
+
+        a("    </VOUCHER>")
+        a("   </TALLYMESSAGE>")
+
+    a("  </REQUESTDATA>")
+    a(" </IMPORTDATA></BODY>")
+    a("</ENVELOPE>")
+    return "\n".join(lines), voucher_count
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  CREDIT / DEBIT NOTE XML GENERATION
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -3416,6 +3828,41 @@ class TallySalesApp(ctk.CTk):
         self.company_gst_registrations = []
         self._note_loaded_rows = []
         self._note_loaded_headers = []
+        self.fetched_party_ledgers = []
+        self._ledger_fetch_running = False
+        # Journal Entry instance variables
+        self._jnl_loaded_rows = []
+        self._jnl_loaded_headers = []
+        self._jnl_manual_rows = []
+        self._jnl_manual_form_vars = {}
+        self._jnl_manual_party_ledger_combo = None
+        self._jnl_manual_party_search_var = ctk.StringVar(value="")
+        self._jnl_manual_party_match_label = None
+        self._jnl_manual_fetch_ledger_btn = None
+        self._jnl_manual_tree = None
+        self._jnl_excel_tree = None
+        self._jnl_manual_editing_index = None
+        self._jnl_manual_update_btn = None
+        self._jnl_source_tabs = None
+        self._jnl_manual_info_label = None
+        self._jnl_excel_info_label = None
+        self._journal_type_var = ctk.StringVar(value="purchase")
+        self._jnl_manual_party_search_clear_btn = None
+        # Note panel manual entry vars
+        self._note_manual_rows = []
+        self._note_manual_form_vars = {}
+        self._note_manual_party_ledger_combo = None
+        self._note_manual_party_search_var = ctk.StringVar(value="")
+        self._note_manual_party_match_label = None
+        self._note_manual_fetch_ledger_btn = None
+        self._note_manual_tree = None
+        self._note_excel_tree = None
+        self._note_manual_editing_index = None
+        self._note_manual_update_btn = None
+        self._note_source_tabs = None
+        self._note_manual_info_label = None
+        self._note_excel_info_label = None
+        self._note_manual_party_search_clear_btn = None
         self._push_running = False
         self._push_overlay = None
         self._push_message_var = ctk.StringVar(value="")
@@ -3676,7 +4123,8 @@ class TallySalesApp(ctk.CTk):
             "🧾  Purchase Accounting Invoice",
             "🛒  Purchase Item Invoice",
             "📝  Credit Note",
-            "🗒️  Debit Note",
+            "📒  Debit Note",
+            "📓  Journal Entry",
             "🏦  Create Ledgers",
             "📁  Create Stock Items",
         ]
@@ -3686,7 +4134,8 @@ class TallySalesApp(ctk.CTk):
             "🧾  Purchase Accounting Invoice": "purchase_accounting",
             "🛒  Purchase Item Invoice": "purchase_item",
             "📝  Credit Note": "credit_note",
-            "🗒️  Debit Note": "debit_note",
+            "📒  Debit Note": "debit_note",
+            "📓  Journal Entry": "journal",
             "🏦  Create Ledgers": "ledger",
             "📁  Create Stock Items": "stock",
         }
@@ -3730,6 +4179,11 @@ class TallySalesApp(ctk.CTk):
         self._panels["debit_note"] = _note_pf   # same frame — note_type_var controls type
         self._panels["note"] = _note_pf
 
+        # Journal Entry panel
+        journal_pf = ctk.CTkFrame(_content_outer, fg_color="transparent")
+        journal_pf.grid(row=0, column=0, sticky="nsew")
+        self._panels["journal"] = journal_pf
+
         self.tab_acct = self._panels["accounting"]
         self.tab_item = self._panels["item"]
         self.tab_purchase_acct = self._panels["purchase_accounting"]
@@ -3742,6 +4196,7 @@ class TallySalesApp(ctk.CTk):
         self._build_voucher_tab(self.tab_purchase_acct, mode="purchase_accounting")
         self._build_voucher_tab(self.tab_purchase_item, mode="purchase_item")
         self._build_note_panel(self._panels["note"])
+        self._build_journal_panel(self._panels["journal"])
         self._build_ledger_tab()
         self._build_stock_tab()
 
@@ -5637,8 +6092,10 @@ class TallySalesApp(ctk.CTk):
         elif key == "debit_note":
             self._note_type_var.set("Debit Note")
             if hasattr(self, "_note_type_display_label"):
-                self._note_type_display_label.configure(text="Mode: Debit Note 🗒️",
+                self._note_type_display_label.configure(text="Mode: Debit Note 📒",
                                                          text_color=COLORS["warning"])
+        elif key == "journal":
+            pass  # no special state to set
         panel = self._panels.get(key)
         if panel:
             panel.tkraise()
@@ -5857,10 +6314,22 @@ class TallySalesApp(ctk.CTk):
             return
 
         note_type = self._note_type_var.get() or "Credit Note"
-        rows = self._note_loaded_rows
+
+        # Determine rows based on active tab
+        if hasattr(self, '_note_source_tabs') and self._note_source_tabs is not None:
+            active_tab = self._note_source_tabs.get()
+            if active_tab == "Manual Entry":
+                rows = getattr(self, '_note_manual_rows', [])
+                source_label = "Manual Entry"
+            else:
+                rows = getattr(self, '_note_loaded_rows', [])
+                source_label = "Excel Upload"
+        else:
+            rows = getattr(self, '_note_loaded_rows', [])
+            source_label = "Excel Upload"
 
         if not rows:
-            messagebox.showwarning("No Data", "No rows loaded. Browse and load an Excel file first.")
+            messagebox.showwarning("No Data", f"No rows available in {source_label}.")
             return
 
         company = self._get_selected_company()
@@ -5952,10 +6421,16 @@ class TallySalesApp(ctk.CTk):
 
     # ─── NOTE PANEL BUILDER ───────────────────────────────────────────────────
 
+    NOTE_TEMPLATE_HEADERS = [
+        "Date", "VoucherNo", "GSTIN", "PartyLedger", "Particular",
+        "TaxableValue", "CGSTLedger", "CGSTRate", "SGSTLedger", "SGSTRate",
+        "IGSTLedger", "IGSTRate", "Narration",
+    ]
+
     def _build_note_panel(self, parent):
-        """Build the shared Credit / Debit Note panel."""
+        """Build the shared Credit / Debit Note panel (tabbed: Excel Upload, Manual Entry, Create Party)."""
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(3, weight=1)
+        parent.grid_rowconfigure(1, weight=1)
 
         # Row 0: Note type indicator + template
         top_row = ctk.CTkFrame(parent, fg_color="transparent")
@@ -5979,15 +6454,53 @@ class TallySalesApp(ctk.CTk):
             command=self._download_note_template)
         note_template_btn.pack(side="right")
 
-        # Row 1: Browse Excel
-        excel_row = ctk.CTkFrame(parent, fg_color="transparent")
-        excel_row.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 0))
-        note_fp_var = ctk.StringVar()
-        ctk.CTkEntry(excel_row, textvariable=note_fp_var,
-                     placeholder_text="Select Credit/Debit Note Excel (.xlsx/.xlsm)...",
-                     width=500, state="readonly").pack(side="left", padx=(0, 8))
+        # Row 1: Tabview
+        self._note_source_tabs = ctk.CTkTabview(
+            parent,
+            fg_color="transparent",
+            segmented_button_fg_color=COLORS["bg_input"],
+            segmented_button_selected_color=COLORS["accent"],
+            segmented_button_selected_hover_color=COLORS["accent_hover"],
+            segmented_button_unselected_color=COLORS["bg_input"],
+            segmented_button_unselected_hover_color=COLORS["bg_card_hover"],
+        )
+        self._note_source_tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 4))
 
-        self._active_preview_mode["note"] = "excel"
+        excel_tab = self._note_source_tabs.add("Excel Upload")
+        manual_tab = self._note_source_tabs.add("Manual Entry")
+        party_tab = self._note_source_tabs.add("Create Party Ledger")
+        self._note_source_tabs.set("Excel Upload")
+
+        self._build_note_excel_tab(excel_tab)
+        self._build_note_manual_tab(manual_tab)
+        self._build_note_create_party_tab(party_tab)
+
+        # Row 2: Action buttons
+        btn_row = ctk.CTkFrame(parent, fg_color="transparent")
+        btn_row.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+
+        ctk.CTkButton(
+            btn_row, text="💾  Save XML File", fg_color=SUCCESS, hover_color="#15803D", width=155,
+            command=lambda: self._generate_note("save", "")
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row, text="🚀  Push to Tally", fg_color=ACCENT, hover_color=ACCENT_HOVER, width=165,
+            command=lambda: self._generate_note("push", "")
+        ).pack(side="left", padx=(0, 8))
+
+    def _build_note_excel_tab(self, parent):
+        """Excel Upload sub-tab for the Note panel."""
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(2, weight=1)
+
+        load_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        load_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
+        note_fp_var = ctk.StringVar()
+        ctk.CTkEntry(load_frame, textvariable=note_fp_var,
+                     placeholder_text="Select Credit/Debit Note Excel (.xlsx/.xlsm)...",
+                     state="readonly", fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                     ).pack(side="left", padx=(0, 8), fill="x", expand=True)
 
         def browse_note_excel():
             f = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx *.xlsm *.xls")])
@@ -5998,155 +6511,680 @@ class TallySalesApp(ctk.CTk):
                 headers, rows = read_excel(f)
                 self._note_loaded_headers = headers
                 self._note_loaded_rows = rows
-                # populate treeview
-                tree.delete(*tree.get_children())
-                tree["columns"] = headers
-                for col in headers:
-                    tree.heading(col, text=col)
-                    tree.column(col, width=max(80, len(col) * 9), minwidth=50)
-                for row in rows[:300]:
-                    tree.insert("", "end", values=[row.get(h, "") for h in headers])
-                note_info_lbl.configure(text=f"📊 {len(rows)} row(s) — {len(headers)} column(s)")
-                self._show_preview_mode(note_excel_frame, note_xml_frame, "excel",
-                                        note_excel_btn, note_xml_btn, mode_key="note")
+                if self._note_excel_tree is not None:
+                    self._note_excel_tree.delete(*self._note_excel_tree.get_children())
+                    self._note_excel_tree["columns"] = headers
+                    for col in headers:
+                        self._note_excel_tree.heading(col, text=col)
+                        self._note_excel_tree.column(col, width=max(80, len(col) * 9), minwidth=50)
+                    for row in rows[:300]:
+                        self._note_excel_tree.insert("", "end", values=[row.get(h, "") for h in headers])
+                if self._note_excel_info_label is not None:
+                    self._note_excel_info_label.configure(text=f"📊 {len(rows)} row(s) — {len(headers)} column(s)")
                 self.status_var.set(f"Loaded: {os.path.basename(f)}")
             except Exception as exc:
                 messagebox.showerror("Load Error", str(exc))
 
-        ctk.CTkButton(excel_row, text="Browse Excel", command=browse_note_excel,
-                      width=100, fg_color=ACCENT, hover_color=ACCENT_HOVER).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(load_frame, text="Browse Excel", command=browse_note_excel,
+                      width=120, fg_color=ACCENT, hover_color=ACCENT_HOVER).pack(side="left")
 
-        # Row 2: Browse XML
-        xml_row2 = ctk.CTkFrame(parent, fg_color="transparent")
-        xml_row2.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 0))
-        note_xml_fp_var = ctk.StringVar()
-        ctk.CTkEntry(xml_row2, textvariable=note_xml_fp_var,
-                     placeholder_text="Or select existing XML file to import/preview...",
-                     width=500, state="readonly").pack(side="left", padx=(0, 8))
+        info_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        info_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 4))
+        self._note_excel_info_label = ctk.CTkLabel(info_frame, text="", font=("Segoe UI", 11),
+                                                    text_color=TEXT_MUTED)
+        self._note_excel_info_label.pack(side="left")
 
-        # toggle + info (built after XML preview widget, wired below)
-        toggle_row = ctk.CTkFrame(parent, fg_color="transparent")
-        # grid is assigned after all refs are ready — placeholder
-        note_excel_btn = ctk.CTkButton(
-            None, text="📊 Excel Data", width=160, height=30,
-            font=("Segoe UI", 10, "bold"), fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"], text_color="#FFFFFF", corner_radius=6)
-        note_xml_btn = ctk.CTkButton(
-            None, text="📄 XML Preview", width=150, height=30,
-            font=("Segoe UI", 10, "bold"), fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_muted"], corner_radius=6)
-        note_info_lbl = ctk.CTkLabel(None, text="", font=("Segoe UI", 11), text_color=TEXT_MUTED)
+        tree_frame = ctk.CTkFrame(parent, fg_color=COLORS["bg_dark"],
+                                   corner_radius=8, border_width=1, border_color=COLORS["border"])
+        tree_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 8))
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
 
-        def browse_note_xml():
-            f = filedialog.askopenfilename(filetypes=[("XML Files", "*.xml")])
-            if not f:
-                return
-            note_xml_fp_var.set(f)
-            self._load_xml_preview(f, note_xml_text, "note", note_info_lbl)
-            self._show_preview_mode(note_excel_frame, note_xml_frame, "xml",
-                                    note_excel_btn, note_xml_btn, mode_key="note")
+        _sy = ttk.Scrollbar(tree_frame, orient="vertical")
+        _sx = ttk.Scrollbar(tree_frame, orient="horizontal")
+        self._note_excel_tree = ttk.Treeview(tree_frame, show="headings",
+                                              yscrollcommand=_sy.set, xscrollcommand=_sx.set)
+        _sy.config(command=self._note_excel_tree.yview)
+        _sx.config(command=self._note_excel_tree.xview)
+        self._note_excel_tree.grid(row=0, column=0, sticky="nsew")
+        _sy.grid(row=0, column=1, sticky="ns")
+        _sx.grid(row=1, column=0, sticky="ew")
 
-        ctk.CTkButton(xml_row2, text="Browse XML", command=browse_note_xml,
-                      width=100, fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
-                      text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 8))
-        ctk.CTkLabel(xml_row2, text="Browse an existing XML to preview & push directly to Tally",
-                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left")
+    def _build_note_manual_tab(self, parent):
+        """Manual Entry sub-tab for the Note panel."""
+        _NOTE_HDRS = self.NOTE_TEMPLATE_HEADERS
+        wrapper = ctk.CTkFrame(parent, fg_color="transparent")
+        wrapper.pack(fill="both", expand=True, padx=10, pady=8)
+        wrapper.grid_columnconfigure(0, weight=1, uniform="note_manual_split")
+        wrapper.grid_columnconfigure(1, weight=1, uniform="note_manual_split")
+        wrapper.grid_rowconfigure(0, weight=1)
 
-        # Toggle row (row 2.5 → actually row 3 after we shift)
-        toggle_row = ctk.CTkFrame(parent, fg_color="transparent")
-        toggle_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(8, 0))
-        parent.grid_rowconfigure(4, weight=1)  # preview row expands
+        left_panel = ctk.CTkFrame(wrapper, fg_color=COLORS["bg_card"],
+                                   border_width=1, border_color=COLORS["border"], corner_radius=10)
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        left_panel.grid_columnconfigure(0, weight=1)
+        left_panel.grid_rowconfigure(0, weight=1)
 
-        # Re-create buttons properly parented to toggle_row
-        note_excel_btn = ctk.CTkButton(
-            toggle_row, text="📊 Excel Data", width=160, height=30,
-            font=("Segoe UI", 10, "bold"), fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"], text_color="#FFFFFF", corner_radius=6)
-        note_excel_btn.pack(side="left", padx=(0, 4))
+        form_scroll = ctk.CTkScrollableFrame(left_panel, fg_color="transparent", corner_radius=8)
+        form_scroll.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8, 6))
+        form_card = ctk.CTkFrame(form_scroll, fg_color="transparent")
+        form_card.pack(fill="x", padx=2, pady=2)
 
-        note_xml_btn = ctk.CTkButton(
-            toggle_row, text="📄 XML Preview", width=150, height=30,
-            font=("Segoe UI", 10, "bold"), fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_muted"], corner_radius=6)
-        note_xml_btn.pack(side="left", padx=(0, 8))
+        fields = [
+            ("Date", "Date", "DD-MM-YY"),
+            ("VoucherNo", "Voucher No", "Optional"),
+            ("GSTIN", "GSTIN", "Optional"),
+            ("PartyLedger", "Party Ledger", "Required"),
+            ("Particular", "Particular", "Required"),
+            ("TaxableValue", "Taxable Value", "Required Amount"),
+            ("CGSTLedger", "CGST Ledger", "Optional"),
+            ("CGSTRate", "CGST Rate", "0"),
+            ("SGSTLedger", "SGST Ledger", "Optional"),
+            ("SGSTRate", "SGST Rate", "0"),
+            ("IGSTLedger", "IGST Ledger", "Optional"),
+            ("IGSTRate", "IGST Rate", "0"),
+            ("Narration", "Narration", "Optional"),
+        ]
 
-        note_info_lbl = ctk.CTkLabel(toggle_row, text="", font=("Segoe UI", 11), text_color=TEXT_MUTED)
-        note_info_lbl.pack(side="left", padx=4)
+        cols = 2
+        for i, (key, label, placeholder) in enumerate(fields):
+            row_idx = i // cols
+            col_idx = i % cols
+            field_wrap = ctk.CTkFrame(form_card, fg_color="transparent")
+            field_wrap.grid(row=row_idx, column=col_idx, sticky="ew", padx=8, pady=6)
+            form_card.grid_columnconfigure(col_idx, weight=1)
 
-        # Preview container
-        preview_cont = ctk.CTkFrame(parent, fg_color="transparent")
-        preview_cont.grid(row=4, column=0, sticky="nsew", padx=10, pady=(4, 4))
-        preview_cont.grid_rowconfigure(0, weight=1)
-        preview_cont.grid_columnconfigure(0, weight=1)
+            if key == "PartyLedger":
+                top_line = ctk.CTkFrame(field_wrap, fg_color="transparent")
+                top_line.pack(fill="x")
+                ctk.CTkLabel(top_line, text=label, font=("Segoe UI", 10),
+                             text_color=COLORS["text_secondary"]).pack(side="left")
+                self._note_manual_fetch_ledger_btn = ctk.CTkButton(
+                    top_line, text="Fetch", width=70, height=26,
+                    font=("Segoe UI", 10, "bold"),
+                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                    text_color=COLORS["text_secondary"],
+                    command=self._note_fetch_party_ledgers_thread)
+                self._note_manual_fetch_ledger_btn.pack(side="right")
 
-        note_excel_frame = ctk.CTkFrame(preview_cont, fg_color=COLORS["bg_dark"],
-                                         corner_radius=8, border_width=1, border_color=COLORS["border"])
-        note_excel_frame.grid(row=0, column=0, sticky="nsew")
-        note_excel_frame.grid_rowconfigure(0, weight=1)
-        note_excel_frame.grid_columnconfigure(0, weight=1)
+                search_row = ctk.CTkFrame(field_wrap, fg_color="transparent")
+                search_row.pack(fill="x", pady=(4, 2))
+                search_entry = ctk.CTkEntry(
+                    search_row, textvariable=self._note_manual_party_search_var,
+                    placeholder_text="Search party ledger...", height=34,
+                    fg_color=COLORS["bg_input"], border_color=COLORS["border"], font=("Segoe UI", 10))
+                search_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+                search_entry.bind("<KeyRelease>", self._on_note_party_search_change)
 
-        _sy = ttk.Scrollbar(note_excel_frame, orient="vertical")
-        _sx = ttk.Scrollbar(note_excel_frame, orient="horizontal")
-        tree = ttk.Treeview(note_excel_frame, show="headings",
-                            yscrollcommand=_sy.set, xscrollcommand=_sx.set)
-        _sy.config(command=tree.yview); _sx.config(command=tree.xview)
-        tree.grid(row=0, column=0, sticky="nsew")
-        _sy.grid(row=0, column=1, sticky="ns"); _sx.grid(row=1, column=0, sticky="ew")
+                self._note_manual_party_search_clear_btn = ctk.CTkButton(
+                    search_row, text="Clear", width=58, height=30,
+                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                    text_color=COLORS["text_secondary"], font=("Segoe UI", 9, "bold"),
+                    command=lambda: (self._note_manual_party_search_var.set(""), self._on_note_party_search_change()))
+                self._note_manual_party_search_clear_btn.pack(side="right")
 
-        note_xml_frame = ctk.CTkFrame(preview_cont, fg_color=COLORS["bg_dark"],
-                                       corner_radius=8, border_width=1, border_color=COLORS["border"])
-        note_xml_frame.grid(row=0, column=0, sticky="nsew")
-        note_xml_frame.grid_rowconfigure(0, weight=1)
-        note_xml_frame.grid_columnconfigure(0, weight=1)
+                var = ctk.StringVar(value="")
+                combo = ctk.CTkComboBox(field_wrap, values=[""], variable=var, height=36,
+                                        fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                                        button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
+                                        font=("Segoe UI", 10), state="readonly")
+                combo.pack(fill="x", pady=(0, 2))
+                self._note_manual_party_match_label = ctk.CTkLabel(
+                    field_wrap, text="Type in search box after fetching ledgers",
+                    font=("Segoe UI", 9), text_color=COLORS["text_muted"])
+                self._note_manual_party_match_label.pack(anchor="w")
+                self._note_manual_party_search_var.trace_add("write", lambda *_: self._on_note_party_search_change())
+                self._note_manual_party_ledger_combo = combo
+                self._note_manual_form_vars[key] = var
+                continue
 
-        _xbg = self._resolve_theme_color("bg_card")
-        _xfg = self._resolve_theme_color("text_primary")
-        note_xml_text = tk.Text(note_xml_frame, wrap="none", font=("Consolas", 10),
-                                bg=_xbg, fg=_xfg, relief="flat", borderwidth=0)
-        _xsy = ttk.Scrollbar(note_xml_frame, orient="vertical", command=note_xml_text.yview)
-        _xsx = ttk.Scrollbar(note_xml_frame, orient="horizontal", command=note_xml_text.xview)
-        note_xml_text.configure(yscrollcommand=_xsy.set, xscrollcommand=_xsx.set)
-        note_xml_text.grid(row=0, column=0, sticky="nsew")
-        _xsy.grid(row=0, column=1, sticky="ns"); _xsx.grid(row=1, column=0, sticky="ew")
-        note_xml_text.insert("end", "Browse an XML file above to preview its contents here.")
-        note_xml_text.configure(state="disabled")
+            ctk.CTkLabel(field_wrap, text=label, font=("Segoe UI", 10),
+                         text_color=COLORS["text_secondary"]).pack(anchor="w")
+            var = ctk.StringVar(value="")
+            ctk.CTkEntry(field_wrap, textvariable=var, placeholder_text=placeholder,
+                         height=36, fg_color=COLORS["bg_input"], border_color=COLORS["border"]).pack(fill="x")
+            self._note_manual_form_vars[key] = var
 
-        # Wire toggle buttons now that all refs exist
-        note_excel_btn.configure(command=lambda: self._show_preview_mode(
-            note_excel_frame, note_xml_frame, "excel",
-            note_excel_btn, note_xml_btn, mode_key="note"))
-        note_xml_btn.configure(command=lambda: self._show_preview_mode(
-            note_xml_frame, note_excel_frame, "xml",
-            note_excel_btn, note_xml_btn, mode_key="note"))
+        if "Date" in self._note_manual_form_vars:
+            self._note_manual_form_vars["Date"].set(datetime.today().strftime("%d-%m-%y"))
 
-        note_excel_frame.tkraise()
+        btn_row = ctk.CTkFrame(left_panel, fg_color="transparent")
+        btn_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
+        for ci in range(3):
+            btn_row.grid_columnconfigure(ci, weight=1)
 
-        # Action buttons
-        btn_row = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_row.grid(row=5, column=0, sticky="ew", padx=10, pady=(4, 10))
+        add_btn = ctk.CTkButton(btn_row, text="Add Entry", fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                height=34, command=self._note_add_manual_entry)
+        add_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=(0, 6))
 
-        ctk.CTkButton(
-            btn_row, text="💾  Save XML File", fg_color=SUCCESS, hover_color="#15803D", width=155,
-            command=lambda: self._generate_note("save", note_fp_var.get())
-        ).pack(side="left", padx=(0, 8))
+        edit_btn = ctk.CTkButton(btn_row, text="Edit Selected", fg_color="#0EA5E9", hover_color="#0284C7",
+                                  text_color="#FFFFFF", height=34, command=self._note_edit_selected_manual)
+        edit_btn.grid(row=0, column=1, sticky="ew", padx=3, pady=(0, 6))
 
-        ctk.CTkButton(
-            btn_row, text="🚀  Push to Tally", fg_color=ACCENT, hover_color=ACCENT_HOVER, width=165,
-            command=lambda: self._smart_push_note(note_fp_var, note_xml_fp_var)
-        ).pack(side="left", padx=(0, 8))
+        self._note_manual_update_btn = ctk.CTkButton(
+            btn_row, text="Update Entry", fg_color="#10B981", hover_color="#059669",
+            text_color="#FFFFFF", height=34, state="disabled", command=self._note_update_manual_entry)
+        self._note_manual_update_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0), pady=(0, 6))
 
-        ctk.CTkLabel(btn_row, text="Push uses active preview (Excel or XML)",
-                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=8)
+        ctk.CTkButton(btn_row, text="Clear Form", fg_color=COLORS["bg_input"],
+                      hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_secondary"],
+                      height=34, command=self._note_clear_manual_form).grid(row=1, column=0, sticky="ew", padx=(0, 6))
+
+        ctk.CTkButton(btn_row, text="Remove Selected", fg_color=COLORS["warning"], hover_color="#B45309",
+                      text_color="#FFFFFF", height=34, command=self._note_remove_selected_manual).grid(
+            row=1, column=1, sticky="ew", padx=3)
+
+        ctk.CTkButton(btn_row, text="Clear All", fg_color=COLORS["error"], hover_color="#B91C1C",
+                      text_color="#FFFFFF", height=34, command=self._note_clear_all_manual).grid(
+            row=1, column=2, sticky="ew", padx=(6, 0))
+
+        # Right panel: review treeview
+        right_panel = ctk.CTkFrame(wrapper, fg_color=COLORS["bg_card"],
+                                    border_width=1, border_color=COLORS["border"], corner_radius=10)
+        right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        right_panel.grid_columnconfigure(0, weight=1)
+        right_panel.grid_rowconfigure(1, weight=1)
+
+        right_header = ctk.CTkFrame(right_panel, fg_color="transparent")
+        right_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+        ctk.CTkLabel(right_header, text="Review (Excel Format)", font=("Segoe UI", 12, "bold"),
+                     text_color=COLORS["text_primary"]).pack(side="left")
+        self._note_manual_info_label = ctk.CTkLabel(right_header, text="Manual entries: 0",
+                                                     font=("Segoe UI", 11), text_color=TEXT_MUTED)
+        self._note_manual_info_label.pack(side="right")
+
+        tree_frame = ctk.CTkFrame(right_panel, fg_color=COLORS["bg_dark"],
+                                   corner_radius=8, border_width=1, border_color=COLORS["border"])
+        tree_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+
+        _sy = ttk.Scrollbar(tree_frame, orient="vertical")
+        _sx = ttk.Scrollbar(tree_frame, orient="horizontal")
+        self._note_manual_tree = ttk.Treeview(tree_frame, show="headings", selectmode="extended",
+                                               yscrollcommand=_sy.set, xscrollcommand=_sx.set)
+        _sy.config(command=self._note_manual_tree.yview)
+        _sx.config(command=self._note_manual_tree.xview)
+        _sy.pack(side="right", fill="y")
+        _sx.pack(side="bottom", fill="x")
+        self._note_manual_tree.pack(fill="both", expand=True)
+        self._note_manual_tree.bind("<Double-1>", lambda e: self._note_edit_selected_manual())
+
+        ctk.CTkLabel(right_panel, text="Double-click a row to edit it.",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).grid(
+            row=2, column=0, sticky="w", padx=10, pady=(0, 8))
+
+        self._note_populate_tree(self._note_manual_tree, _NOTE_HDRS, [])
+
+    def _build_note_create_party_tab(self, parent):
+        """Create Party Ledger sub-tab for the Note panel."""
+        wrapper = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        wrapper.pack(fill="both", expand=True, padx=10, pady=8)
+
+        card = ctk.CTkFrame(wrapper, fg_color=COLORS["bg_card"],
+                             border_width=1, border_color=COLORS["border"], corner_radius=10)
+        card.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(card, text="Create Party Ledger In Tally",
+                     font=("Segoe UI", 13, "bold"), text_color=COLORS["text_primary"]).pack(
+            anchor="w", padx=12, pady=(12, 4))
+        ctk.CTkLabel(card, text="Uses current Host, Port, and selected Target Company.",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(
+            anchor="w", padx=12, pady=(0, 8))
+
+        ctk.CTkLabel(card, text="Ledger Name", font=("Segoe UI", 10),
+                     text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12)
+        self._note_create_party_name_entry = ctk.CTkEntry(
+            card, height=34, fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], placeholder_text="Required party ledger name",
+            font=("Segoe UI", 10))
+        self._note_create_party_name_entry.pack(fill="x", padx=12, pady=(4, 8))
+
+        row_parent = ctk.CTkFrame(card, fg_color="transparent")
+        row_parent.pack(fill="x", padx=12, pady=(0, 8))
+        ctk.CTkLabel(row_parent, text="Parent Group", font=("Segoe UI", 10),
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        self._note_create_party_parent_cb = ctk.CTkComboBox(
+            row_parent, values=["Sundry Debtors", "Sundry Creditors"], width=200, height=32,
+            fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"], font=("Segoe UI", 10))
+        self._note_create_party_parent_cb.set("Sundry Debtors")
+        self._note_create_party_parent_cb.pack(side="right")
+
+        ctk.CTkLabel(card, text="Mailing Name", font=("Segoe UI", 10),
+                     text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12)
+        self._note_create_party_mailing_entry = ctk.CTkEntry(
+            card, height=34, fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], placeholder_text="Optional mailing name", font=("Segoe UI", 10))
+        self._note_create_party_mailing_entry.pack(fill="x", padx=12, pady=(4, 8))
+
+        row_gst = ctk.CTkFrame(card, fg_color="transparent")
+        row_gst.pack(fill="x", padx=12, pady=(0, 8))
+        self._note_create_party_gstin_entry = ctk.CTkEntry(
+            row_gst, height=34, fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], placeholder_text="GSTIN", font=("Segoe UI", 10))
+        self._note_create_party_gstin_entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self._note_create_party_pincode_entry = ctk.CTkEntry(
+            row_gst, width=130, height=34, fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], placeholder_text="Pincode", font=("Segoe UI", 10))
+        self._note_create_party_pincode_entry.pack(side="left", padx=(4, 0))
+
+        row_geo = ctk.CTkFrame(card, fg_color="transparent")
+        row_geo.pack(fill="x", padx=12, pady=(0, 8))
+        self._note_create_party_state_entry = ctk.CTkEntry(
+            row_geo, height=34, fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], placeholder_text="State", font=("Segoe UI", 10))
+        self._note_create_party_state_entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self._note_create_party_country_entry = ctk.CTkEntry(
+            row_geo, width=130, height=34, fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], font=("Segoe UI", 10))
+        self._note_create_party_country_entry.insert(0, "India")
+        self._note_create_party_country_entry.pack(side="left", padx=(4, 0))
+
+        self._note_create_party_address1_entry = ctk.CTkEntry(
+            card, height=34, fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], placeholder_text="Address line 1", font=("Segoe UI", 10))
+        self._note_create_party_address1_entry.pack(fill="x", padx=12, pady=(0, 6))
+        self._note_create_party_address2_entry = ctk.CTkEntry(
+            card, height=34, fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], placeholder_text="Address line 2", font=("Segoe UI", 10))
+        self._note_create_party_address2_entry.pack(fill="x", padx=12, pady=(0, 8))
+
+        row_billwise = ctk.CTkFrame(card, fg_color="transparent")
+        row_billwise.pack(fill="x", padx=12, pady=(0, 10))
+        ctk.CTkLabel(row_billwise, text="Billwise", font=("Segoe UI", 10),
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        self._note_create_party_billwise_cb = ctk.CTkComboBox(
+            row_billwise, values=["Yes", "No"], width=120, height=32,
+            fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"], font=("Segoe UI", 10))
+        self._note_create_party_billwise_cb.set("Yes")
+        self._note_create_party_billwise_cb.pack(side="right")
+
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x", padx=12, pady=(0, 12))
+
+        self._note_create_party_fetch_btn = ctk.CTkButton(
+            btn_row, text="Fetch Party Ledgers", width=160, height=34,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"], command=self._note_fetch_party_ledgers_thread)
+        self._note_create_party_fetch_btn.pack(side="left", padx=(0, 8))
+
+        self._note_create_party_clear_btn = ctk.CTkButton(
+            btn_row, text="Clear", width=90, height=34,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"], command=self._note_clear_create_party_form)
+        self._note_create_party_clear_btn.pack(side="left", padx=(0, 8))
+
+        self._note_create_party_create_btn = ctk.CTkButton(
+            btn_row, text="Create Party Ledger", height=34,
+            fg_color=COLORS["success"], hover_color="#047857",
+            text_color="#FFFFFF", command=self._note_create_party_ledger_thread)
+        self._note_create_party_create_btn.pack(side="left", fill="x", expand=True)
+
+        self._note_create_party_status_var = ctk.StringVar(value="Ready to create party ledger")
+        ctk.CTkLabel(card, textvariable=self._note_create_party_status_var,
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(
+            anchor="w", padx=12, pady=(0, 12))
+
+    # ─── NOTE MANUAL ENTRY METHODS ────────────────────────────────────────────
+
+    def _note_populate_tree(self, tree, headers, rows, limit=500):
+        tree.delete(*tree.get_children())
+        tree["columns"] = headers
+        for h in headers:
+            tree.heading(h, text=h)
+            tree.column(h, width=max(120, min(260, len(h) * 12)), minwidth=80)
+        for idx, row in enumerate(rows[:limit]):
+            values = [str(_row_get(row, h, "") or "") for h in headers]
+            tree.insert("", "end", iid=str(idx), values=values)
+
+    def _on_note_party_search_change(self, _event=None):
+        combo = self._note_manual_party_ledger_combo
+        if combo is None:
+            return
+        if not self.fetched_party_ledgers:
+            combo.configure(values=[""])
+            combo.set("")
+            if self._note_manual_party_match_label is not None:
+                self._note_manual_party_match_label.configure(text="No fetched party ledgers yet")
+            return
+        typed_text = (self._note_manual_party_search_var.get() or "").strip()
+        typed = typed_text.casefold()
+        current_value = (self._note_manual_form_vars.get("PartyLedger", ctk.StringVar()).get() or "").strip()
+        if not typed:
+            filtered = self.fetched_party_ledgers[:200]
+        else:
+            starts = [n for n in self.fetched_party_ledgers if n.casefold().startswith(typed)]
+            contains = [n for n in self.fetched_party_ledgers if typed in n.casefold() and n not in starts]
+            filtered = (starts + contains)[:200]
+        if typed and not filtered:
+            combo.configure(values=[""])
+            combo.set("")
+            if "PartyLedger" in self._note_manual_form_vars:
+                self._note_manual_form_vars["PartyLedger"].set("")
+            if self._note_manual_party_match_label is not None:
+                self._note_manual_party_match_label.configure(text=f"Search '{typed_text}': no match")
+            return
+        display_values = filtered if filtered else self.fetched_party_ledgers[:200]
+        combo.configure(values=display_values)
+        if typed and display_values and current_value not in display_values:
+            combo.set(display_values[0])
+            if "PartyLedger" in self._note_manual_form_vars:
+                self._note_manual_form_vars["PartyLedger"].set(display_values[0])
+        elif current_value:
+            combo.set(current_value)
+        if self._note_manual_party_match_label is not None:
+            shown = len(display_values)
+            total = len(self.fetched_party_ledgers)
+            if typed:
+                self._note_manual_party_match_label.configure(
+                    text=f"Search '{typed_text}': showing {shown} of {total}")
+            else:
+                self._note_manual_party_match_label.configure(text=f"Showing {shown} of {total} party ledgers")
+
+    def _note_fetch_party_ledgers_thread(self, silent=False):
+        if self._ledger_fetch_running:
+            return
+        try:
+            tally_url = self._get_tally_url()
+        except ValueError as exc:
+            if not silent:
+                messagebox.showerror("Invalid Settings", str(exc))
+            return
+        selected_company = self._get_selected_company()
+        self._ledger_fetch_running = True
+        if self._note_manual_fetch_ledger_btn is not None:
+            self._note_manual_fetch_ledger_btn.configure(state="disabled", text="...")
+        if hasattr(self, '_note_create_party_fetch_btn') and self._note_create_party_fetch_btn is not None:
+            self._note_create_party_fetch_btn.configure(state="disabled", text="Fetching...")
+
+        def worker():
+            result = _fetch_tally_ledgers(tally_url, timeout=15, company_name=selected_company)
+
+            def done():
+                self._ledger_fetch_running = False
+                if self._note_manual_fetch_ledger_btn is not None:
+                    self._note_manual_fetch_ledger_btn.configure(state="normal", text="Fetch")
+                if hasattr(self, '_note_create_party_fetch_btn') and self._note_create_party_fetch_btn is not None:
+                    self._note_create_party_fetch_btn.configure(state="normal", text="Fetch Party Ledgers")
+                if result.get("success"):
+                    party_ledgers = result.get("party_ledgers") or result.get("ledgers") or []
+                    cleaned = []
+                    seen = set()
+                    for name in party_ledgers:
+                        norm = _normalize_ledger_name(name)
+                        if norm and _ledger_key(norm) not in seen:
+                            seen.add(_ledger_key(norm))
+                            cleaned.append(norm)
+                    self.fetched_party_ledgers = sorted(cleaned, key=lambda x: _ledger_key(x))
+                    if self._note_manual_party_ledger_combo is not None:
+                        self._note_manual_party_ledger_combo.configure(
+                            values=self.fetched_party_ledgers[:200] if self.fetched_party_ledgers else [""])
+                    self._on_note_party_search_change()
+                    self.status_var.set(f"Fetched {len(self.fetched_party_ledgers)} party ledger(s) from Tally")
+                else:
+                    err = str(result.get("error") or "Unknown error")
+                    self.status_var.set("Party ledger fetch failed")
+                    if not silent:
+                        messagebox.showwarning("Party Ledger Fetch Failed",
+                                               f"Could not fetch ledgers from Tally.\n\n{err}")
+            self.after(0, done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _note_manual_row_from_form(self):
+        row = {}
+        for header in self.NOTE_TEMPLATE_HEADERS:
+            row[header] = self._note_manual_form_vars.get(header, ctk.StringVar()).get().strip()
+        return row
+
+    def _note_validate_manual_row(self, row):
+        party = str(row.get("PartyLedger", "")).strip()
+        particular = str(row.get("Particular", "")).strip()
+        if not party:
+            messagebox.showwarning("Missing Field", "Party Ledger is required.")
+            return None
+        if not particular:
+            messagebox.showwarning("Missing Field", "Particular is required.")
+            return None
+        try:
+            taxable = float(str(row.get("TaxableValue") or "0").strip())
+        except ValueError:
+            messagebox.showwarning("Invalid Value", "Taxable Value must be numeric.")
+            return None
+        if taxable <= 0:
+            messagebox.showwarning("Invalid Value", "Taxable Value must be greater than zero.")
+            return None
+        if not str(row.get("Date") or "").strip():
+            row["Date"] = datetime.today().strftime("%d-%m-%y")
+        for key in ["CGSTRate", "SGSTRate", "IGSTRate"]:
+            if not str(row.get(key) or "").strip():
+                row[key] = "0"
+        return row
+
+    def _note_set_manual_edit_mode(self, index=None):
+        self._note_manual_editing_index = index
+        if self._note_manual_update_btn is not None:
+            self._note_manual_update_btn.configure(state="normal" if index is not None else "disabled")
+
+    def _note_selected_manual_index(self):
+        if self._note_manual_tree is None:
+            return None
+        selected = list(self._note_manual_tree.selection())
+        if not selected:
+            return None
+        try:
+            return int(selected[0])
+        except ValueError:
+            return None
+
+    def _note_refresh_manual_tree(self, focus_index=None):
+        if self._note_manual_tree is None:
+            return
+        self._note_populate_tree(self._note_manual_tree, self.NOTE_TEMPLATE_HEADERS,
+                                  self._note_manual_rows, limit=500)
+        if focus_index is not None:
+            iid = str(focus_index)
+            if iid in self._note_manual_tree.get_children():
+                self._note_manual_tree.selection_set(iid)
+                self._note_manual_tree.focus(iid)
+                self._note_manual_tree.see(iid)
+        if self._note_manual_info_label is not None:
+            self._note_manual_info_label.configure(text=f"Manual entries: {len(self._note_manual_rows)}")
+
+    def _note_add_manual_entry(self):
+        row = self._note_manual_row_from_form()
+        validated = self._note_validate_manual_row(row)
+        if validated is None:
+            return
+        if not str(validated.get("VoucherNo") or "").strip():
+            validated["VoucherNo"] = str(len(self._note_manual_rows) + 1)
+        self._note_manual_rows.append(validated)
+        self._note_refresh_manual_tree(focus_index=len(self._note_manual_rows) - 1)
+        self._note_set_manual_edit_mode(None)
+        self.status_var.set(f"Note manual entry added. Total: {len(self._note_manual_rows)}")
+
+    def _note_edit_selected_manual(self):
+        idx = self._note_selected_manual_index()
+        if idx is None:
+            messagebox.showinfo("Edit Entry", "Select one row in the table to edit.")
+            return
+        if idx < 0 or idx >= len(self._note_manual_rows):
+            return
+        row = self._note_manual_rows[idx]
+        for header in self.NOTE_TEMPLATE_HEADERS:
+            value = _row_get(row, header, "")
+            if header in self._note_manual_form_vars:
+                self._note_manual_form_vars[header].set("" if value is None else str(value))
+        self._note_set_manual_edit_mode(idx)
+        self.status_var.set(f"Editing note entry #{idx + 1}. Update Entry to save changes.")
+
+    def _note_update_manual_entry(self):
+        idx = self._note_manual_editing_index
+        if idx is None:
+            messagebox.showinfo("Update Entry", "Select and edit a row first.")
+            return
+        if idx < 0 or idx >= len(self._note_manual_rows):
+            self._note_set_manual_edit_mode(None)
+            messagebox.showwarning("Update Entry", "Selected row is no longer available.")
+            return
+        row = self._note_manual_row_from_form()
+        validated = self._note_validate_manual_row(row)
+        if validated is None:
+            return
+        if not str(validated.get("VoucherNo") or "").strip():
+            validated["VoucherNo"] = str(idx + 1)
+        self._note_manual_rows[idx] = validated
+        self._note_refresh_manual_tree(focus_index=idx)
+        self._note_set_manual_edit_mode(None)
+        self.status_var.set(f"Note manual entry #{idx + 1} updated.")
+
+    def _note_clear_manual_form(self):
+        keep_date = datetime.today().strftime("%d-%m-%y")
+        for key, var in self._note_manual_form_vars.items():
+            if key == "Date":
+                var.set(keep_date)
+            elif key in {"CGSTRate", "SGSTRate", "IGSTRate"}:
+                var.set("0")
+            else:
+                var.set("")
+        self._note_set_manual_edit_mode(None)
+        self._note_manual_party_search_var.set("")
+        self._on_note_party_search_change()
+
+    def _note_remove_selected_manual(self):
+        if self._note_manual_tree is None:
+            return
+        selected = list(self._note_manual_tree.selection())
+        if not selected:
+            messagebox.showinfo("Remove Entry", "Select at least one row to remove.")
+            return
+        indexes = []
+        for iid in selected:
+            try:
+                indexes.append(int(iid))
+            except ValueError:
+                continue
+        for idx in sorted(indexes, reverse=True):
+            if 0 <= idx < len(self._note_manual_rows):
+                self._note_manual_rows.pop(idx)
+        self._note_refresh_manual_tree()
+        self._note_set_manual_edit_mode(None)
+        self.status_var.set(f"Removed. Remaining: {len(self._note_manual_rows)}")
+
+    def _note_clear_all_manual(self):
+        if not self._note_manual_rows:
+            return
+        if not messagebox.askyesno("Clear All", "Remove all note manual entries?"):
+            return
+        self._note_manual_rows = []
+        self._note_refresh_manual_tree()
+        self._note_set_manual_edit_mode(None)
+        self.status_var.set("All note manual entries cleared.")
+
+    def _note_clear_create_party_form(self):
+        for attr in ['_note_create_party_name_entry', '_note_create_party_mailing_entry',
+                     '_note_create_party_gstin_entry', '_note_create_party_state_entry',
+                     '_note_create_party_pincode_entry', '_note_create_party_address1_entry',
+                     '_note_create_party_address2_entry']:
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.delete(0, "end")
+        w = getattr(self, '_note_create_party_country_entry', None)
+        if w is not None:
+            w.delete(0, "end")
+            w.insert(0, "India")
+        if hasattr(self, '_note_create_party_parent_cb') and self._note_create_party_parent_cb:
+            self._note_create_party_parent_cb.set("Sundry Debtors")
+        if hasattr(self, '_note_create_party_billwise_cb') and self._note_create_party_billwise_cb:
+            self._note_create_party_billwise_cb.set("Yes")
+        if hasattr(self, '_note_create_party_status_var'):
+            self._note_create_party_status_var.set("Ready to create party ledger")
+
+    def _note_create_party_ledger_thread(self):
+        name_entry = getattr(self, '_note_create_party_name_entry', None)
+        ledger_name = _normalize_ledger_name(name_entry.get() if name_entry else "")
+        if not ledger_name:
+            messagebox.showwarning("Missing Field", "Ledger Name is required.")
+            return
+        try:
+            tally_url = self._get_tally_url()
+        except ValueError as exc:
+            messagebox.showerror("Invalid Settings", str(exc))
+            return
+        selected_company = self._get_selected_company()
+        parent_cb = getattr(self, '_note_create_party_parent_cb', None)
+        parent_name = parent_cb.get().strip() if parent_cb else "Sundry Debtors"
+        mailing_entry = getattr(self, '_note_create_party_mailing_entry', None)
+        gstin_entry = getattr(self, '_note_create_party_gstin_entry', None)
+        state_entry = getattr(self, '_note_create_party_state_entry', None)
+        country_entry = getattr(self, '_note_create_party_country_entry', None)
+        pincode_entry = getattr(self, '_note_create_party_pincode_entry', None)
+        addr1_entry = getattr(self, '_note_create_party_address1_entry', None)
+        addr2_entry = getattr(self, '_note_create_party_address2_entry', None)
+        billwise_cb = getattr(self, '_note_create_party_billwise_cb', None)
+
+        mailing_name = mailing_entry.get().strip() if mailing_entry else ""
+        gstin = gstin_entry.get().strip() if gstin_entry else ""
+        state = state_entry.get().strip() if state_entry else ""
+        country = country_entry.get().strip() if country_entry else "India"
+        pincode = pincode_entry.get().strip() if pincode_entry else ""
+        address1 = addr1_entry.get().strip() if addr1_entry else ""
+        address2 = addr2_entry.get().strip() if addr2_entry else ""
+        billwise_raw = billwise_cb.get().strip().upper() if billwise_cb else "YES"
+        billwise_on = billwise_raw in {"YES", "Y", "TRUE", "1"}
+
+        status_var = getattr(self, '_note_create_party_status_var', None)
+        if status_var:
+            status_var.set("Creating ledger in Tally...")
+        self.status_var.set("Creating party ledger...")
+
+        def worker():
+            try:
+                result = _create_tally_ledger(
+                    tally_url=tally_url,
+                    ledger_name=ledger_name,
+                    parent_name=parent_name,
+                    company_name=selected_company,
+                    gstin=gstin,
+                    state=state,
+                    country=country,
+                    pincode=pincode,
+                    mailing_name=mailing_name,
+                    address1=address1,
+                    address2=address2,
+                    billwise_on=billwise_on,
+                    timeout=30,
+                )
+            except Exception as exc:
+                result = {"success": False, "error": str(exc)}
+
+            def done():
+                if result.get("success"):
+                    created = int(result.get("created", 0) or 0)
+                    altered = int(result.get("altered", 0) or 0)
+                    if status_var:
+                        status_var.set(f"Created/updated. Created={created}, Altered={altered}")
+                    self.status_var.set("Party ledger created successfully")
+                    if "PartyLedger" in self._note_manual_form_vars:
+                        self._note_manual_form_vars["PartyLedger"].set(ledger_name)
+                    self._note_fetch_party_ledgers_thread(silent=True)
+                    messagebox.showinfo("Create Party Ledger",
+                                        f"Ledger created/updated successfully.\n\nName: {ledger_name}\nParent: {parent_name}")
+                else:
+                    err = str(result.get("error") or "Ledger creation failed in Tally.")
+                    if status_var:
+                        status_var.set(f"Create failed: {err}")
+                    self.status_var.set("Party ledger create failed")
+                    messagebox.showerror("Create Party Ledger", err)
+            self.after(0, done)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ─── NOTE TEMPLATE DOWNLOAD ───────────────────────────────────────────────
 
     def _download_note_template(self):
         note_type = self._note_type_var.get() or "Credit Note"
-        headers = [
-            "Date", "VoucherNo", "GSTIN", "PartyLedger", "Particular",
-            "TaxableValue", "CGSTLedger", "CGSTRate", "SGSTLedger", "SGSTRate",
-            "IGSTLedger", "IGSTRate", "Narration",
-        ]
+        headers = self.NOTE_TEMPLATE_HEADERS
         sample = ["16-12-25", "1", "", "Interactive Media Pvt Ltd", "Lecture Income",
                   100000, "CGST", 9, "SGST", 9, "", 0, "Test Note"]
         out = filedialog.asksaveasfilename(
@@ -6158,7 +7196,8 @@ class TallySalesApp(ctk.CTk):
             return
         try:
             import openpyxl as _xl
-            wb = _xl.Workbook(); ws = wb.active
+            wb = _xl.Workbook()
+            ws = wb.active
             ws.title = note_type
             ws.append(headers)
             ws.append(sample)
@@ -6166,6 +7205,688 @@ class TallySalesApp(ctk.CTk):
             messagebox.showinfo("Template Saved", f"{note_type} template saved:\n{out}")
         except Exception as exc:
             messagebox.showerror("Template Error", str(exc))
+
+    # ─── JOURNAL PANEL BUILDER ────────────────────────────────────────────────
+
+    JNL_TEMPLATE_HEADERS = [
+        "Date", "VoucherNo", "PartyLedger", "Particular", "TaxableValue",
+        "CGSTLedger", "CGSTRate", "SGSTLedger", "SGSTRate",
+        "IGSTLedger", "IGSTRate", "Narration",
+    ]
+
+    def _build_journal_panel(self, parent):
+        """Build the Journal Entry panel."""
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=0)
+        parent.grid_rowconfigure(1, weight=1)
+        parent.grid_rowconfigure(2, weight=0)
+
+        # Row 0: Journal Type + header
+        top_row = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"],
+                                border_width=1, border_color=COLORS["border"], corner_radius=8)
+        top_row.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
+        inner = ctk.CTkFrame(top_row, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=8)
+
+        ctk.CTkLabel(inner, text="Journal Type:", font=("Segoe UI", 10),
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        for _lbl, _val in (("Purchase  (Dr Expense / Cr Party)", "purchase"),
+                            ("Sale  (Dr Party / Cr Income)", "sale")):
+            ctk.CTkRadioButton(
+                inner, text=_lbl, variable=self._journal_type_var, value=_val,
+                font=("Segoe UI", 10), text_color=COLORS["text_secondary"],
+                fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                border_color=COLORS["border"]).pack(side="left", padx=(12, 0))
+
+        ctk.CTkButton(
+            inner, text="📥  Download Template",
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"], width=170,
+            command=self._download_journal_template).pack(side="right")
+
+        # Row 1: Tabview
+        self._jnl_source_tabs = ctk.CTkTabview(
+            parent,
+            fg_color="transparent",
+            segmented_button_fg_color=COLORS["bg_input"],
+            segmented_button_selected_color=COLORS["accent"],
+            segmented_button_selected_hover_color=COLORS["accent_hover"],
+            segmented_button_unselected_color=COLORS["bg_input"],
+            segmented_button_unselected_hover_color=COLORS["bg_card_hover"],
+        )
+        self._jnl_source_tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 4))
+
+        excel_tab = self._jnl_source_tabs.add("Excel Upload")
+        manual_tab = self._jnl_source_tabs.add("Manual Entry")
+        self._jnl_source_tabs.set("Excel Upload")
+
+        self._build_journal_excel_tab(excel_tab)
+        self._build_journal_manual_tab(manual_tab)
+
+        # Row 2: Action buttons
+        btn_row = ctk.CTkFrame(parent, fg_color="transparent")
+        btn_row.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+
+        ctk.CTkButton(
+            btn_row, text="💾  Save XML File", fg_color=SUCCESS, hover_color="#15803D", width=155,
+            command=lambda: self._generate_journal("save")
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row, text="🚀  Push to Tally", fg_color=ACCENT, hover_color=ACCENT_HOVER, width=165,
+            command=lambda: self._generate_journal("push")
+        ).pack(side="left", padx=(0, 8))
+
+    def _build_journal_excel_tab(self, parent):
+        """Excel Upload sub-tab for Journal Entry panel."""
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(2, weight=1)
+
+        load_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        load_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
+        jnl_fp_var = ctk.StringVar()
+        ctk.CTkEntry(load_frame, textvariable=jnl_fp_var,
+                     placeholder_text="Select Journal Entry Excel (.xlsx/.xlsm/.xls)...",
+                     state="readonly", fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                     ).pack(side="left", padx=(0, 8), fill="x", expand=True)
+
+        def browse_jnl_excel():
+            f = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx *.xlsm *.xls")])
+            if not f:
+                return
+            jnl_fp_var.set(f)
+            try:
+                headers, rows = read_excel(f)
+                self._jnl_loaded_headers = headers
+                self._jnl_loaded_rows = rows
+                if self._jnl_excel_tree is not None:
+                    self._jnl_excel_tree.delete(*self._jnl_excel_tree.get_children())
+                    self._jnl_excel_tree["columns"] = headers
+                    for col in headers:
+                        self._jnl_excel_tree.heading(col, text=col)
+                        self._jnl_excel_tree.column(col, width=max(80, len(col) * 9), minwidth=50)
+                    for row in rows[:300]:
+                        self._jnl_excel_tree.insert("", "end", values=[row.get(h, "") for h in headers])
+                if self._jnl_excel_info_label is not None:
+                    self._jnl_excel_info_label.configure(
+                        text=f"📊 {len(rows)} row(s) — {len(headers)} column(s)")
+                self.status_var.set(f"Loaded: {os.path.basename(f)}")
+            except Exception as exc:
+                messagebox.showerror("Load Error", str(exc))
+
+        ctk.CTkButton(load_frame, text="Browse Excel", command=browse_jnl_excel,
+                      width=120, fg_color=ACCENT, hover_color=ACCENT_HOVER).pack(side="left")
+
+        info_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        info_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 4))
+        self._jnl_excel_info_label = ctk.CTkLabel(info_frame, text="", font=("Segoe UI", 11),
+                                                    text_color=TEXT_MUTED)
+        self._jnl_excel_info_label.pack(side="left")
+
+        tree_frame = ctk.CTkFrame(parent, fg_color=COLORS["bg_dark"],
+                                   corner_radius=8, border_width=1, border_color=COLORS["border"])
+        tree_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 8))
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
+        _sy = ttk.Scrollbar(tree_frame, orient="vertical")
+        _sx = ttk.Scrollbar(tree_frame, orient="horizontal")
+        self._jnl_excel_tree = ttk.Treeview(tree_frame, show="headings",
+                                              yscrollcommand=_sy.set, xscrollcommand=_sx.set)
+        _sy.config(command=self._jnl_excel_tree.yview)
+        _sx.config(command=self._jnl_excel_tree.xview)
+        self._jnl_excel_tree.grid(row=0, column=0, sticky="nsew")
+        _sy.grid(row=0, column=1, sticky="ns")
+        _sx.grid(row=1, column=0, sticky="ew")
+
+    def _build_journal_manual_tab(self, parent):
+        """Manual Entry sub-tab for Journal Entry panel."""
+        _JNL_HDRS = self.JNL_TEMPLATE_HEADERS
+        wrapper = ctk.CTkFrame(parent, fg_color="transparent")
+        wrapper.pack(fill="both", expand=True, padx=10, pady=8)
+        wrapper.grid_columnconfigure(0, weight=1, uniform="jnl_manual_split")
+        wrapper.grid_columnconfigure(1, weight=1, uniform="jnl_manual_split")
+        wrapper.grid_rowconfigure(0, weight=1)
+
+        left_panel = ctk.CTkFrame(wrapper, fg_color=COLORS["bg_card"],
+                                   border_width=1, border_color=COLORS["border"], corner_radius=10)
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        left_panel.grid_columnconfigure(0, weight=1)
+        left_panel.grid_rowconfigure(0, weight=1)
+
+        form_scroll = ctk.CTkScrollableFrame(left_panel, fg_color="transparent", corner_radius=8)
+        form_scroll.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8, 6))
+        form_card = ctk.CTkFrame(form_scroll, fg_color="transparent")
+        form_card.pack(fill="x", padx=2, pady=2)
+
+        fields = [
+            ("Date", "Date", "DD-MM-YY"),
+            ("VoucherNo", "Voucher No", "Optional"),
+            ("PartyLedger", "Party Ledger", "Required"),
+            ("Particular", "Particular", "Required"),
+            ("TaxableValue", "Taxable Value", "Required Amount"),
+            ("CGSTLedger", "CGST Ledger", "Optional"),
+            ("CGSTRate", "CGST Rate", "0"),
+            ("SGSTLedger", "SGST Ledger", "Optional"),
+            ("SGSTRate", "SGST Rate", "0"),
+            ("IGSTLedger", "IGST Ledger", "Optional"),
+            ("IGSTRate", "IGST Rate", "0"),
+            ("Narration", "Narration", "Optional"),
+        ]
+
+        cols = 2
+        for i, (key, label, placeholder) in enumerate(fields):
+            row_idx = i // cols
+            col_idx = i % cols
+            field_wrap = ctk.CTkFrame(form_card, fg_color="transparent")
+            field_wrap.grid(row=row_idx, column=col_idx, sticky="ew", padx=8, pady=6)
+            form_card.grid_columnconfigure(col_idx, weight=1)
+
+            if key == "PartyLedger":
+                top_line = ctk.CTkFrame(field_wrap, fg_color="transparent")
+                top_line.pack(fill="x")
+                ctk.CTkLabel(top_line, text=label, font=("Segoe UI", 10),
+                             text_color=COLORS["text_secondary"]).pack(side="left")
+                self._jnl_manual_fetch_ledger_btn = ctk.CTkButton(
+                    top_line, text="Fetch", width=70, height=26,
+                    font=("Segoe UI", 10, "bold"),
+                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                    text_color=COLORS["text_secondary"],
+                    command=self._jnl_fetch_party_ledgers_thread)
+                self._jnl_manual_fetch_ledger_btn.pack(side="right")
+
+                search_row = ctk.CTkFrame(field_wrap, fg_color="transparent")
+                search_row.pack(fill="x", pady=(4, 2))
+                search_entry = ctk.CTkEntry(
+                    search_row, textvariable=self._jnl_manual_party_search_var,
+                    placeholder_text="Search party ledger...", height=34,
+                    fg_color=COLORS["bg_input"], border_color=COLORS["border"], font=("Segoe UI", 10))
+                search_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+                search_entry.bind("<KeyRelease>", self._on_jnl_party_search_change)
+
+                self._jnl_manual_party_search_clear_btn = ctk.CTkButton(
+                    search_row, text="Clear", width=58, height=30,
+                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                    text_color=COLORS["text_secondary"], font=("Segoe UI", 9, "bold"),
+                    command=lambda: (self._jnl_manual_party_search_var.set(""), self._on_jnl_party_search_change()))
+                self._jnl_manual_party_search_clear_btn.pack(side="right")
+
+                var = ctk.StringVar(value="")
+                combo = ctk.CTkComboBox(field_wrap, values=[""], variable=var, height=36,
+                                        fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                                        button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
+                                        font=("Segoe UI", 10), state="readonly")
+                combo.pack(fill="x", pady=(0, 2))
+                self._jnl_manual_party_match_label = ctk.CTkLabel(
+                    field_wrap, text="Type in search box after fetching ledgers",
+                    font=("Segoe UI", 9), text_color=COLORS["text_muted"])
+                self._jnl_manual_party_match_label.pack(anchor="w")
+                self._jnl_manual_party_search_var.trace_add("write", lambda *_: self._on_jnl_party_search_change())
+                self._jnl_manual_party_ledger_combo = combo
+                self._jnl_manual_form_vars[key] = var
+                continue
+
+            ctk.CTkLabel(field_wrap, text=label, font=("Segoe UI", 10),
+                         text_color=COLORS["text_secondary"]).pack(anchor="w")
+            var = ctk.StringVar(value="")
+            ctk.CTkEntry(field_wrap, textvariable=var, placeholder_text=placeholder,
+                         height=36, fg_color=COLORS["bg_input"], border_color=COLORS["border"]).pack(fill="x")
+            self._jnl_manual_form_vars[key] = var
+
+        if "Date" in self._jnl_manual_form_vars:
+            self._jnl_manual_form_vars["Date"].set(datetime.today().strftime("%d-%m-%y"))
+
+        btn_row = ctk.CTkFrame(left_panel, fg_color="transparent")
+        btn_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
+        for ci in range(3):
+            btn_row.grid_columnconfigure(ci, weight=1)
+
+        add_btn = ctk.CTkButton(btn_row, text="Add Entry", fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                height=34, command=self._jnl_add_manual_entry)
+        add_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=(0, 6))
+
+        edit_btn = ctk.CTkButton(btn_row, text="Edit Selected", fg_color="#0EA5E9", hover_color="#0284C7",
+                                  text_color="#FFFFFF", height=34, command=self._jnl_edit_selected_manual)
+        edit_btn.grid(row=0, column=1, sticky="ew", padx=3, pady=(0, 6))
+
+        self._jnl_manual_update_btn = ctk.CTkButton(
+            btn_row, text="Update Entry", fg_color="#10B981", hover_color="#059669",
+            text_color="#FFFFFF", height=34, state="disabled", command=self._jnl_update_manual_entry)
+        self._jnl_manual_update_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0), pady=(0, 6))
+
+        ctk.CTkButton(btn_row, text="Clear Form", fg_color=COLORS["bg_input"],
+                      hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_secondary"],
+                      height=34, command=self._jnl_clear_manual_form).grid(row=1, column=0, sticky="ew", padx=(0, 6))
+
+        ctk.CTkButton(btn_row, text="Remove Selected", fg_color=COLORS["warning"], hover_color="#B45309",
+                      text_color="#FFFFFF", height=34, command=self._jnl_remove_selected_manual).grid(
+            row=1, column=1, sticky="ew", padx=3)
+
+        ctk.CTkButton(btn_row, text="Clear All", fg_color=COLORS["error"], hover_color="#B91C1C",
+                      text_color="#FFFFFF", height=34, command=self._jnl_clear_all_manual).grid(
+            row=1, column=2, sticky="ew", padx=(6, 0))
+
+        # Right panel: review treeview
+        right_panel = ctk.CTkFrame(wrapper, fg_color=COLORS["bg_card"],
+                                    border_width=1, border_color=COLORS["border"], corner_radius=10)
+        right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        right_panel.grid_columnconfigure(0, weight=1)
+        right_panel.grid_rowconfigure(1, weight=1)
+
+        right_header = ctk.CTkFrame(right_panel, fg_color="transparent")
+        right_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+        ctk.CTkLabel(right_header, text="Review (Excel Format)", font=("Segoe UI", 12, "bold"),
+                     text_color=COLORS["text_primary"]).pack(side="left")
+        self._jnl_manual_info_label = ctk.CTkLabel(right_header, text="Manual entries: 0",
+                                                     font=("Segoe UI", 11), text_color=TEXT_MUTED)
+        self._jnl_manual_info_label.pack(side="right")
+
+        tree_frame = ctk.CTkFrame(right_panel, fg_color=COLORS["bg_dark"],
+                                   corner_radius=8, border_width=1, border_color=COLORS["border"])
+        tree_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+
+        _sy = ttk.Scrollbar(tree_frame, orient="vertical")
+        _sx = ttk.Scrollbar(tree_frame, orient="horizontal")
+        self._jnl_manual_tree = ttk.Treeview(tree_frame, show="headings", selectmode="extended",
+                                               yscrollcommand=_sy.set, xscrollcommand=_sx.set)
+        _sy.config(command=self._jnl_manual_tree.yview)
+        _sx.config(command=self._jnl_manual_tree.xview)
+        _sy.pack(side="right", fill="y")
+        _sx.pack(side="bottom", fill="x")
+        self._jnl_manual_tree.pack(fill="both", expand=True)
+        self._jnl_manual_tree.bind("<Double-1>", lambda e: self._jnl_edit_selected_manual())
+
+        ctk.CTkLabel(right_panel, text="Double-click a row to edit it.",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).grid(
+            row=2, column=0, sticky="w", padx=10, pady=(0, 8))
+
+        self._jnl_populate_tree(self._jnl_manual_tree, _JNL_HDRS, [])
+
+    # ─── JOURNAL MANUAL ENTRY METHODS ─────────────────────────────────────────
+
+    def _jnl_populate_tree(self, tree, headers, rows, limit=500):
+        tree.delete(*tree.get_children())
+        tree["columns"] = headers
+        for h in headers:
+            tree.heading(h, text=h)
+            tree.column(h, width=max(120, min(260, len(h) * 12)), minwidth=80)
+        for idx, row in enumerate(rows[:limit]):
+            values = [str(_row_get(row, h, "") or "") for h in headers]
+            tree.insert("", "end", iid=str(idx), values=values)
+
+    def _on_jnl_party_search_change(self, _event=None):
+        combo = self._jnl_manual_party_ledger_combo
+        if combo is None:
+            return
+        if not self.fetched_party_ledgers:
+            combo.configure(values=[""])
+            combo.set("")
+            if self._jnl_manual_party_match_label is not None:
+                self._jnl_manual_party_match_label.configure(text="No fetched party ledgers yet")
+            return
+        typed_text = (self._jnl_manual_party_search_var.get() or "").strip()
+        typed = typed_text.casefold()
+        current_value = (self._jnl_manual_form_vars.get("PartyLedger", ctk.StringVar()).get() or "").strip()
+        if not typed:
+            filtered = self.fetched_party_ledgers[:200]
+        else:
+            starts = [n for n in self.fetched_party_ledgers if n.casefold().startswith(typed)]
+            contains = [n for n in self.fetched_party_ledgers if typed in n.casefold() and n not in starts]
+            filtered = (starts + contains)[:200]
+        if typed and not filtered:
+            combo.configure(values=[""])
+            combo.set("")
+            if "PartyLedger" in self._jnl_manual_form_vars:
+                self._jnl_manual_form_vars["PartyLedger"].set("")
+            if self._jnl_manual_party_match_label is not None:
+                self._jnl_manual_party_match_label.configure(text=f"Search '{typed_text}': no match")
+            return
+        display_values = filtered if filtered else self.fetched_party_ledgers[:200]
+        combo.configure(values=display_values)
+        if typed and display_values and current_value not in display_values:
+            combo.set(display_values[0])
+            if "PartyLedger" in self._jnl_manual_form_vars:
+                self._jnl_manual_form_vars["PartyLedger"].set(display_values[0])
+        elif current_value:
+            combo.set(current_value)
+        if self._jnl_manual_party_match_label is not None:
+            shown = len(display_values)
+            total = len(self.fetched_party_ledgers)
+            if typed:
+                self._jnl_manual_party_match_label.configure(
+                    text=f"Search '{typed_text}': showing {shown} of {total}")
+            else:
+                self._jnl_manual_party_match_label.configure(text=f"Showing {shown} of {total} party ledgers")
+
+    def _jnl_fetch_party_ledgers_thread(self, silent=False):
+        if self._ledger_fetch_running:
+            return
+        try:
+            tally_url = self._get_tally_url()
+        except ValueError as exc:
+            if not silent:
+                messagebox.showerror("Invalid Settings", str(exc))
+            return
+        selected_company = self._get_selected_company()
+        self._ledger_fetch_running = True
+        if self._jnl_manual_fetch_ledger_btn is not None:
+            self._jnl_manual_fetch_ledger_btn.configure(state="disabled", text="...")
+
+        def worker():
+            result = _fetch_tally_ledgers(tally_url, timeout=15, company_name=selected_company)
+
+            def done():
+                self._ledger_fetch_running = False
+                if self._jnl_manual_fetch_ledger_btn is not None:
+                    self._jnl_manual_fetch_ledger_btn.configure(state="normal", text="Fetch")
+                if result.get("success"):
+                    party_ledgers = result.get("party_ledgers") or result.get("ledgers") or []
+                    cleaned = []
+                    seen = set()
+                    for name in party_ledgers:
+                        norm = _normalize_ledger_name(name)
+                        if norm and _ledger_key(norm) not in seen:
+                            seen.add(_ledger_key(norm))
+                            cleaned.append(norm)
+                    self.fetched_party_ledgers = sorted(cleaned, key=lambda x: _ledger_key(x))
+                    if self._jnl_manual_party_ledger_combo is not None:
+                        self._jnl_manual_party_ledger_combo.configure(
+                            values=self.fetched_party_ledgers[:200] if self.fetched_party_ledgers else [""])
+                    self._on_jnl_party_search_change()
+                    self.status_var.set(f"Fetched {len(self.fetched_party_ledgers)} party ledger(s) from Tally")
+                else:
+                    err = str(result.get("error") or "Unknown error")
+                    self.status_var.set("Party ledger fetch failed")
+                    if not silent:
+                        messagebox.showwarning("Party Ledger Fetch Failed",
+                                               f"Could not fetch ledgers from Tally.\n\n{err}")
+            self.after(0, done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _jnl_manual_row_from_form(self):
+        row = {}
+        for header in self.JNL_TEMPLATE_HEADERS:
+            row[header] = self._jnl_manual_form_vars.get(header, ctk.StringVar()).get().strip()
+        return row
+
+    def _jnl_validate_manual_row(self, row):
+        party = str(row.get("PartyLedger", "")).strip()
+        particular = str(row.get("Particular", "")).strip()
+        if not party:
+            messagebox.showwarning("Missing Field", "Party Ledger is required.")
+            return None
+        if not particular:
+            messagebox.showwarning("Missing Field", "Particular is required.")
+            return None
+        try:
+            taxable = float(str(row.get("TaxableValue") or "0").strip())
+        except ValueError:
+            messagebox.showwarning("Invalid Value", "Taxable Value must be numeric.")
+            return None
+        if taxable <= 0:
+            messagebox.showwarning("Invalid Value", "Taxable Value must be greater than zero.")
+            return None
+        if not str(row.get("Date") or "").strip():
+            row["Date"] = datetime.today().strftime("%d-%m-%y")
+        for key in ["CGSTRate", "SGSTRate", "IGSTRate"]:
+            if not str(row.get(key) or "").strip():
+                row[key] = "0"
+        return row
+
+    def _jnl_set_manual_edit_mode(self, index=None):
+        self._jnl_manual_editing_index = index
+        if self._jnl_manual_update_btn is not None:
+            self._jnl_manual_update_btn.configure(state="normal" if index is not None else "disabled")
+
+    def _jnl_selected_manual_index(self):
+        if self._jnl_manual_tree is None:
+            return None
+        selected = list(self._jnl_manual_tree.selection())
+        if not selected:
+            return None
+        try:
+            return int(selected[0])
+        except ValueError:
+            return None
+
+    def _jnl_refresh_manual_tree(self, focus_index=None):
+        if self._jnl_manual_tree is None:
+            return
+        self._jnl_populate_tree(self._jnl_manual_tree, self.JNL_TEMPLATE_HEADERS,
+                                  self._jnl_manual_rows, limit=500)
+        if focus_index is not None:
+            iid = str(focus_index)
+            if iid in self._jnl_manual_tree.get_children():
+                self._jnl_manual_tree.selection_set(iid)
+                self._jnl_manual_tree.focus(iid)
+                self._jnl_manual_tree.see(iid)
+        if self._jnl_manual_info_label is not None:
+            self._jnl_manual_info_label.configure(text=f"Manual entries: {len(self._jnl_manual_rows)}")
+
+    def _jnl_add_manual_entry(self):
+        row = self._jnl_manual_row_from_form()
+        validated = self._jnl_validate_manual_row(row)
+        if validated is None:
+            return
+        if not str(validated.get("VoucherNo") or "").strip():
+            validated["VoucherNo"] = str(len(self._jnl_manual_rows) + 1)
+        self._jnl_manual_rows.append(validated)
+        self._jnl_refresh_manual_tree(focus_index=len(self._jnl_manual_rows) - 1)
+        self._jnl_set_manual_edit_mode(None)
+        self.status_var.set(f"Journal manual entry added. Total: {len(self._jnl_manual_rows)}")
+
+    def _jnl_edit_selected_manual(self):
+        idx = self._jnl_selected_manual_index()
+        if idx is None:
+            messagebox.showinfo("Edit Entry", "Select one row in the table to edit.")
+            return
+        if idx < 0 or idx >= len(self._jnl_manual_rows):
+            return
+        row = self._jnl_manual_rows[idx]
+        for header in self.JNL_TEMPLATE_HEADERS:
+            value = _row_get(row, header, "")
+            if header in self._jnl_manual_form_vars:
+                self._jnl_manual_form_vars[header].set("" if value is None else str(value))
+        self._jnl_set_manual_edit_mode(idx)
+        self.status_var.set(f"Editing journal entry #{idx + 1}. Update Entry to save changes.")
+
+    def _jnl_update_manual_entry(self):
+        idx = self._jnl_manual_editing_index
+        if idx is None:
+            messagebox.showinfo("Update Entry", "Select and edit a row first.")
+            return
+        if idx < 0 or idx >= len(self._jnl_manual_rows):
+            self._jnl_set_manual_edit_mode(None)
+            messagebox.showwarning("Update Entry", "Selected row is no longer available.")
+            return
+        row = self._jnl_manual_row_from_form()
+        validated = self._jnl_validate_manual_row(row)
+        if validated is None:
+            return
+        if not str(validated.get("VoucherNo") or "").strip():
+            validated["VoucherNo"] = str(idx + 1)
+        self._jnl_manual_rows[idx] = validated
+        self._jnl_refresh_manual_tree(focus_index=idx)
+        self._jnl_set_manual_edit_mode(None)
+        self.status_var.set(f"Journal manual entry #{idx + 1} updated.")
+
+    def _jnl_clear_manual_form(self):
+        keep_date = datetime.today().strftime("%d-%m-%y")
+        for key, var in self._jnl_manual_form_vars.items():
+            if key == "Date":
+                var.set(keep_date)
+            elif key in {"CGSTRate", "SGSTRate", "IGSTRate"}:
+                var.set("0")
+            else:
+                var.set("")
+        self._jnl_set_manual_edit_mode(None)
+        self._jnl_manual_party_search_var.set("")
+        self._on_jnl_party_search_change()
+
+    def _jnl_remove_selected_manual(self):
+        if self._jnl_manual_tree is None:
+            return
+        selected = list(self._jnl_manual_tree.selection())
+        if not selected:
+            messagebox.showinfo("Remove Entry", "Select at least one row to remove.")
+            return
+        indexes = []
+        for iid in selected:
+            try:
+                indexes.append(int(iid))
+            except ValueError:
+                continue
+        for idx in sorted(indexes, reverse=True):
+            if 0 <= idx < len(self._jnl_manual_rows):
+                self._jnl_manual_rows.pop(idx)
+        self._jnl_refresh_manual_tree()
+        self._jnl_set_manual_edit_mode(None)
+        self.status_var.set(f"Removed. Remaining: {len(self._jnl_manual_rows)}")
+
+    def _jnl_clear_all_manual(self):
+        if not self._jnl_manual_rows:
+            return
+        if not messagebox.askyesno("Clear All", "Remove all journal manual entries?"):
+            return
+        self._jnl_manual_rows = []
+        self._jnl_refresh_manual_tree()
+        self._jnl_set_manual_edit_mode(None)
+        self.status_var.set("All journal manual entries cleared.")
+
+    def _download_journal_template(self):
+        out = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            initialfile="Template_Journal Voucher.xlsx",
+            filetypes=[("Excel", "*.xlsx")],
+        )
+        if not out:
+            return
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Sheet1"
+            ws.append(self.JNL_TEMPLATE_HEADERS)
+            ws.append(["16-12-25", "1", "Interactive Media Pvt Ltd", "Water Expense",
+                        100000, "", 0, "", 0, "IGST", 18, "This is Testing Voucher"])
+            wb.save(out)
+            messagebox.showinfo("Template Saved", f"Journal template saved to:\n{out}")
+        except Exception as exc:
+            messagebox.showerror("Template Error", str(exc))
+
+    # ─── JOURNAL GENERATION ───────────────────────────────────────────────────
+
+    def _generate_journal(self, action: str):
+        if self._push_running:
+            self.status_var.set("Push already in progress...")
+            return
+
+        if hasattr(self, '_jnl_source_tabs') and self._jnl_source_tabs is not None:
+            active_tab = self._jnl_source_tabs.get()
+            if active_tab == "Manual Entry":
+                rows = getattr(self, '_jnl_manual_rows', [])
+                source_label = "Manual Entry"
+            else:
+                rows = getattr(self, '_jnl_loaded_rows', [])
+                source_label = "Excel Upload"
+        else:
+            rows = getattr(self, '_jnl_loaded_rows', [])
+            source_label = "Excel Upload"
+
+        if not rows:
+            messagebox.showwarning("No Data", f"No rows available in {source_label}.")
+            return
+
+        company = self._get_selected_company()
+        if action == "push" and not company and len(getattr(self, "fetched_companies", [])) > 1:
+            messagebox.showwarning("Select Company", "Please select a target company before pushing.")
+            return
+
+        try:
+            date_mode, custom_tally_date = self._get_voucher_date_selection()
+            journal_type = self._journal_type_var.get() if self._journal_type_var else "purchase"
+            _cmp_regs = list(self.company_gst_registrations or [])
+            if not _cmp_regs:
+                try:
+                    _r = _fetch_cmp_gst_regs_for_journal(self._get_tally_url(), company=company, timeout=10)
+                    if _r.get("success"):
+                        _cmp_regs = _r["registrations"]
+                        self.company_gst_registrations = _cmp_regs
+                except Exception:
+                    pass
+
+            xml_payload, voucher_count = generate_journal_xml(
+                rows,
+                company=company,
+                date_mode=date_mode,
+                custom_tally_date=custom_tally_date,
+                journal_type=journal_type,
+                company_gst_registrations=_cmp_regs,
+            )
+            if voucher_count <= 0:
+                messagebox.showwarning("No Vouchers", "No valid rows found (TaxableValue must be greater than zero).")
+                return
+
+            if action == "save":
+                out = filedialog.asksaveasfilename(
+                    defaultextension=".xml",
+                    initialfile="Journal.xml",
+                    filetypes=[("XML", "*.xml")],
+                )
+                if not out:
+                    return
+                with open(out, "w", encoding="utf-8") as f:
+                    f.write(xml_payload)
+                self.status_var.set(f"Journal XML saved: {os.path.basename(out)} ({voucher_count} voucher(s))")
+                messagebox.showinfo("Saved", f"Journal XML saved successfully.\n{out}")
+                return
+
+            host = (self.tally_host_var.get() or "localhost").strip()
+            port_text = (self.tally_port_var.get() or "9000").strip()
+            if not port_text.isdigit():
+                raise ValueError("Port must be numeric.")
+            port = int(port_text)
+
+            self._set_push_loading_state(True, f"Pushing {voucher_count} Journal voucher(s) from {source_label}...")
+            self.status_var.set("Pushing to Tally...")
+
+            def worker():
+                try:
+                    resp = push_to_tally(xml_payload, host=host, port=port)
+                    parsed = _parse_tally_response_details(resp)
+                    result = {"ok": True, "parsed": parsed}
+                except Exception as exc:
+                    result = {"ok": False, "error": str(exc)}
+
+                def done():
+                    self._set_push_loading_state(False)
+                    if not result.get("ok"):
+                        err = str(result.get("error", "Unknown error"))
+                        self.status_var.set(f"Push failed: {err}")
+                        messagebox.showerror("Push Failed", err)
+                        return
+                    parsed = result["parsed"]
+                    created = parsed.get("created", 0)
+                    altered = parsed.get("altered", 0)
+                    errors = parsed.get("errors", 0)
+                    line_errors = parsed.get("line_errors", [])
+                    summary = (f"Created: {created}\nAltered: {altered}\nErrors: {errors}")
+                    if parsed.get("success"):
+                        self.status_var.set(f"Journal push successful: Created {created}, Altered {altered}")
+                        messagebox.showinfo("Push Successful", summary)
+                    else:
+                        if line_errors:
+                            summary += "\n\nLine Errors:\n- " + "\n- ".join(line_errors[:8])
+                        self.status_var.set("Journal push completed with errors.")
+                        messagebox.showwarning("Push Completed With Errors", summary)
+                self.after(0, done)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        except ValueError as exc:
+            messagebox.showerror("Validation Error", str(exc))
+        except Exception as exc:
+            messagebox.showerror("Error", str(exc))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
