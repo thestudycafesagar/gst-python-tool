@@ -585,7 +585,7 @@ TALLY_TOOLS = [
     {"key": "Tally_Bank", "tab": "🏦  Bank Statement → Tally", "module": os.path.join(_TALLY_BASE, "Bank_Statment_to_Tally.py"), "class": "TallyBankApp", "desc": "Convert bank statement Excel to Tally Payment/Receipt vouchers and push XML directly to Tally."},
     {"key": "Tally_Sales", "tab": "🛒  Tally Entry", "module": os.path.join(_TALLY_BASE, "sale_purchase_entry.py"), "class": "TallySalesApp", "desc": "Automate sales and purchase entries in Tally."},
     # {"key": "Tally_Credit_Debit_Note", "tab": "📝  Credit/Debit Note", "module": os.path.join(_TALLY_BASE, "credit-debit-note.py"), "class": "TallyNoteEntryApp", "desc": "Create Credit/Debit Note vouchers from Excel or manual entry, then export or push XML directly to TallyPrime."},
-    {"key": "Tally_Journal", "tab": "📒  Journal Entry", "module": os.path.join(_TALLY_BASE, "journal_entry.py"), "class": "TallyJournalApp", "desc": "Create Journal vouchers from Excel upload or manual entry, with XML export and direct push to TallyPrime."},
+    # {"key": "Tally_Journal", "tab": "📒  Journal Entry", "module": os.path.join(_TALLY_BASE, "journal_entry.py"), "class": "TallyJournalApp", "desc": "Create Journal vouchers from Excel upload or manual entry, with XML export and direct push to TallyPrime."},
 ]
 _RECO_ACCENTS = [
     ("#0f766e", "#2dd4bf"),

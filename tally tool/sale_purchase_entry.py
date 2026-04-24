@@ -4108,14 +4108,9 @@ class TallySalesApp(ctk.CTk):
         self.voucher_custom_date_entry.pack(side="left", padx=(8, 0))
         self._set_voucher_date_mode("excel")
 
-        # ─── Panel Selector Dropdown ─────────────────────────────────────────────
-        _sel_row_outer = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=10,
-                                       border_width=1, border_color=COLORS["border"])
-        _sel_row_outer.pack(fill="x", padx=16, pady=(0, 6))
-        _sel_row = ctk.CTkFrame(_sel_row_outer, fg_color="transparent")
-        _sel_row.pack(fill="x", padx=14, pady=10)
-        ctk.CTkLabel(_sel_row, text="Select Mode", font=("Segoe UI", 11, "bold"),
-                     text_color=COLORS["text_secondary"]).pack(side="left")
+        # --- Shifted Select Mode into date_mode_row ---
+        ctk.CTkLabel(date_mode_row, text="Select Mode", font=("Segoe UI", 10, "bold"),
+                     text_color=COLORS["text_secondary"]).pack(side="left", padx=(40, 10))
 
         _panel_options = [
             "📋  Sales Accounting Invoice",
@@ -4141,12 +4136,12 @@ class TallySalesApp(ctk.CTk):
         }
         self._panel_var = ctk.StringVar(value=_panel_options[0])
         self._panel_option_menu = ctk.CTkOptionMenu(
-            _sel_row,
+            date_mode_row,
             variable=self._panel_var,
             values=_panel_options,
-            width=380,
-            height=36,
-            font=("Segoe UI", 11, "bold"),
+            width=300,
+            height=34,
+            font=("Segoe UI", 10, "bold"),
             fg_color=COLORS["accent"],
             button_color=COLORS["accent_hover"],
             button_hover_color=COLORS["accent_hover"],
@@ -4157,7 +4152,9 @@ class TallySalesApp(ctk.CTk):
             corner_radius=8,
             command=self._switch_panel,
         )
-        self._panel_option_menu.pack(side="left", padx=(12, 0))
+        self._panel_option_menu.pack(side="left", padx=(2, 0))
+
+
 
         # ─── Content container (all panels stacked in same grid cell) ────────────
         _content_outer = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=10,
@@ -7224,7 +7221,7 @@ class TallySalesApp(ctk.CTk):
         # Row 0: Journal Type + header
         top_row = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"],
                                 border_width=1, border_color=COLORS["border"], corner_radius=8)
-        top_row.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
+        top_row.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 0))
         inner = ctk.CTkFrame(top_row, fg_color="transparent")
         inner.pack(fill="x", padx=14, pady=8)
 
@@ -7254,7 +7251,7 @@ class TallySalesApp(ctk.CTk):
             segmented_button_unselected_color=COLORS["bg_input"],
             segmented_button_unselected_hover_color=COLORS["bg_card_hover"],
         )
-        self._jnl_source_tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 4))
+        self._jnl_source_tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 2))
 
         excel_tab = self._jnl_source_tabs.add("Excel Upload")
         manual_tab = self._jnl_source_tabs.add("Manual Entry")
@@ -7442,28 +7439,28 @@ class TallySalesApp(ctk.CTk):
             btn_row.grid_columnconfigure(ci, weight=1)
 
         add_btn = ctk.CTkButton(btn_row, text="Add Entry", fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                                height=34, command=self._jnl_add_manual_entry)
-        add_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=(0, 6))
+                                height=28, font=("Segoe UI", 10, "bold"), command=self._jnl_add_manual_entry)
+        add_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=(0, 4))
 
         edit_btn = ctk.CTkButton(btn_row, text="Edit Selected", fg_color="#0EA5E9", hover_color="#0284C7",
-                                  text_color="#FFFFFF", height=34, command=self._jnl_edit_selected_manual)
-        edit_btn.grid(row=0, column=1, sticky="ew", padx=3, pady=(0, 6))
+                                  text_color="#FFFFFF", height=28, font=("Segoe UI", 10, "bold"), command=self._jnl_edit_selected_manual)
+        edit_btn.grid(row=0, column=1, sticky="ew", padx=3, pady=(0, 4))
 
         self._jnl_manual_update_btn = ctk.CTkButton(
             btn_row, text="Update Entry", fg_color="#10B981", hover_color="#059669",
-            text_color="#FFFFFF", height=34, state="disabled", command=self._jnl_update_manual_entry)
-        self._jnl_manual_update_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0), pady=(0, 6))
+            text_color="#FFFFFF", height=28, font=("Segoe UI", 10, "bold"), state="disabled", command=self._jnl_update_manual_entry)
+        self._jnl_manual_update_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0), pady=(0, 4))
 
         ctk.CTkButton(btn_row, text="Clear Form", fg_color=COLORS["bg_input"],
                       hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_secondary"],
-                      height=34, command=self._jnl_clear_manual_form).grid(row=1, column=0, sticky="ew", padx=(0, 6))
+                      height=28, font=("Segoe UI", 10, "bold"), command=self._jnl_clear_manual_form).grid(row=1, column=0, sticky="ew", padx=(0, 6))
 
         ctk.CTkButton(btn_row, text="Remove Selected", fg_color=COLORS["warning"], hover_color="#B45309",
-                      text_color="#FFFFFF", height=34, command=self._jnl_remove_selected_manual).grid(
+                      text_color="#FFFFFF", height=28, font=("Segoe UI", 10, "bold"), command=self._jnl_remove_selected_manual).grid(
             row=1, column=1, sticky="ew", padx=3)
 
         ctk.CTkButton(btn_row, text="Clear All", fg_color=COLORS["error"], hover_color="#B91C1C",
-                      text_color="#FFFFFF", height=34, command=self._jnl_clear_all_manual).grid(
+                      text_color="#FFFFFF", height=28, font=("Segoe UI", 10, "bold"), command=self._jnl_clear_all_manual).grid(
             row=1, column=2, sticky="ew", padx=(6, 0))
 
         # Right panel: review treeview
