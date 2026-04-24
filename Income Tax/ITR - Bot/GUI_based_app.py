@@ -143,7 +143,7 @@ class IncomeTaxWorker:
 
                 # --- FOLDER ROOT (actual folder created after login with name) ---
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "ITR Bot")
                 if not os.path.exists(download_root): os.makedirs(download_root, exist_ok=True)
 
                 # START BROWSER
@@ -192,10 +192,7 @@ class IncomeTaxWorker:
         """
         driver = None
         # Temp PAN-only folder (Chrome needs a path at startup)
-        safe_name = re.sub(r'[<>:"/\\|?*]', '_', user_id).strip()
-        main_download_folder = os.path.join(download_root, safe_name)
-        if not os.path.exists(main_download_folder):
-            os.makedirs(main_download_folder)
+        main_download_folder = tempfile.gettempdir() # temporary path until name is known
         try:
             # --- BROWSER CONFIG ---
             options = webdriver.ChromeOptions()
@@ -452,6 +449,7 @@ class App(ctk.CTk):
         self.geometry("800x700")
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=0)
 
         # Variables
         self.excel_file_path = ""
@@ -465,7 +463,7 @@ class App(ctk.CTk):
 
         # --- HEADER SECTION ---
         self.header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
-        self.header_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 10))
+        self.header_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(10, 5))
         
         self.title_label = ctk.CTkLabel(self.header_frame, text="INCOME TAX BULK DOWNLOADER", 
                                       font=ctk.CTkFont(size=24, weight="bold"))
@@ -543,12 +541,12 @@ class App(ctk.CTk):
 
         self.step3_label = ctk.CTkLabel(self.log_frame, text="3. LIVE EXECUTION LOG", 
                                       font=ctk.CTkFont(size=14, weight="bold"))
-        self.step3_label.grid(row=0, column=0, sticky="w", padx=15, pady=(15, 5))
+        self.step3_label.grid(row=0, column=0, sticky="w", padx=15, pady=(2, 2))
 
         # Terminal-like Textbox
         self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), 
                                     text_color="#10B981", fg_color="#0F172A",
-                                    activate_scrollbars=True, height=250)
+                                    activate_scrollbars=True, height=100)
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box.insert("0.0", "System Ready...\nWaiting for input...\n")
         self.log_box.configure(state="disabled")
@@ -559,7 +557,7 @@ class App(ctk.CTk):
         self.progress_bar.set(0)
 
         # --- 3. CONTROLS ---
-        btn_footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
+        btn_footer = ctk.CTkFrame(self, fg_color="transparent")
         btn_footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 20))
         btn_footer.grid_columnconfigure(0, weight=1)
         self.btn_start = ctk.CTkButton(btn_footer, text="INITIATE BATCH DOWNLOAD",

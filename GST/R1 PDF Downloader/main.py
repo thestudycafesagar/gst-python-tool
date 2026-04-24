@@ -533,6 +533,7 @@ class App(ctk.CTk):
         
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(3, weight=0)
 
         self.worker = None
         self.excel_file = ""
@@ -670,8 +671,8 @@ class App(ctk.CTk):
 
 
 
-        # Footer
-        self.footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
+        # FOOTER (FIXED AT BOTTOM)
+        self.footer = ctk.CTkFrame(self, fg_color="transparent")
         self.footer.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 20))
         self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#10B981")
         self.prog_bar.pack(fill="x", pady=(0, 10))

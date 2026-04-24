@@ -42,8 +42,6 @@ ASSESSMENT_YEAR_OPTIONS = [
     "2024-2025",
     "2023-2024",
     "2022-2023",
-    "Current and Last Year",
-    "Current and Last 2 Years",
     "Manual Selection (Popup)",
 ]
 
@@ -392,7 +390,7 @@ class Tax26ASWorker:
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "26 AS")
 
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 
@@ -427,7 +425,7 @@ class Tax26ASWorker:
 
     def process_single_user(self, user_id, password, dob, download_root):
         driver = None
-        download_folder = create_unique_folder(download_root, user_id)  # temp fallback folder
+        download_folder = tempfile.gettempdir()  # temporary path until name is known
         try:
             options = webdriver.ChromeOptions()
             options.add_argument("--start-maximized")
@@ -718,10 +716,7 @@ class Tax26ASWorker:
                     start_yr, end_yr = self.year_mode.split("-")
                     target_ay = f"{start_yr}-{end_yr[2:]}"
                     self.current_user_selected_years = [target_ay] if target_ay in available_years else []
-                elif self.year_mode == "Current and Last Year":
-                    self.current_user_selected_years = available_years[:2]
-                elif self.year_mode == "Current and Last 2 Years":
-                    self.current_user_selected_years = available_years[:3]
+
                 else:
                     self.user_selection_event.wait()
 
@@ -1315,7 +1310,7 @@ class AISTISWorker:
                 self.app.update_progress_safe_aistis(index / total_users)
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "AIS-TIS")
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 self.report_data.append({
                     "PAN": user_id, "Status": status, "Details": reason,
@@ -1333,7 +1328,7 @@ class AISTISWorker:
 
     def process_single_user(self, user_id, password, dob, download_root):
         driver = None
-        download_folder = create_unique_folder(download_root, user_id)
+        download_folder = tempfile.gettempdir()  # temporary path until name is known
         try:
             options = webdriver.ChromeOptions()
             options.add_argument("--start-maximized")
@@ -1455,7 +1450,7 @@ class AISTISWorker:
                 self.log(f"   👤 Taxpayer: {name_from_header}")
             else:
                 self.log("   ⚠️ Name not found; using PAN as folder name.")
-            folder_name = f"{name_from_header}_{user_id}"
+            folder_name = f"{user_id}_{name_from_header}"
             download_folder = create_unique_folder(download_root, folder_name)
             self.log(f"   📁 Folder: {os.path.basename(download_folder)}")
             try:
@@ -1537,8 +1532,7 @@ class AISTISWorker:
                     fy_end = ay_start
                     target_fy = f"F.Y. {fy_start}-{str(fy_end)[2:]}"
                     self.current_user_selected_years = [target_fy] if target_fy in available_years else []
-                elif self.year_mode == "Current and Last Year": self.current_user_selected_years = available_years[:2]
-                elif self.year_mode == "Current and Last 2 Years": self.current_user_selected_years = available_years[:3]
+
                 else:
                     if self.year_mode == "Manual Selection (Popup)":
                         self.log(f"   🛑 PAUSED: Found {len(available_years)} years. Waiting for you...")
@@ -1559,11 +1553,8 @@ class AISTISWorker:
 
                 for year in years_to_download:
                     self.log(f"   📅 Year: {year}")
-                    safe_year_folder = year.replace('/', '-').replace(' ', '_').strip()
-                    year_folder_path = os.path.join(download_folder, safe_year_folder)
-                    os.makedirs(year_folder_path, exist_ok=True)
                     try:
-                        driver.execute_cdp_cmd('Page.setDownloadBehavior', {'behavior': 'allow', 'downloadPath': year_folder_path})
+                        driver.execute_cdp_cmd('Page.setDownloadBehavior', {'behavior': 'allow', 'downloadPath': download_folder})
                     except: pass
 
                     # AIS download
@@ -1594,23 +1585,24 @@ class AISTISWorker:
                             try:
                                 if pdf_attempt > 1:
                                     self.log(f"        ⚠️ AIS PDF Retry {pdf_attempt}/3..."); time.sleep(2)
-                                clean_temp_files(year_folder_path, prefixes=("AIS_",))
-                                modal_dl_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Download' and contains(@class, 'btn-outline-primary')]")))
+                                clean_temp_files(download_folder, prefixes=("AIS_",))
+                                wait.until(EC.element_to_be_clickable((By.XPATH, "//p[contains(text(), 'Annual Information Statement')]/ancestor::app-download//button[contains(@class, 'btn-outline-primary')]")))
+                                modal_dl_btn = driver.find_element(By.XPATH, "//p[contains(text(), 'Annual Information Statement')]/ancestor::app-download//button[contains(@class, 'btn-outline-primary')]")
                                 modal_click_time = time.time()
                                 driver.execute_script("arguments[0].click();", modal_dl_btn)
                                 self.log("        Generating AIS Document...")
                                 direct_download = False
                                 for _ in range(8):
                                     time.sleep(1)
-                                    for f in os.listdir(year_folder_path):
-                                        fp = os.path.join(year_folder_path, f)
+                                    for f in os.listdir(download_folder):
+                                        fp = os.path.join(download_folder, f)
                                         if os.path.isfile(fp) and os.path.getmtime(fp) >= modal_click_time - 2:
                                             if f.endswith(".crdownload") or f.endswith(".pdf"):
                                                 direct_download = True; break
                                     if direct_download: break
                                 if direct_download:
                                     self.log("        ✅ AIS Direct download detected.")
-                                    saved_path = wait_and_rename_file(year_folder_path, year, self.log, prefix="AIS_", start_time=modal_click_time-2, taxpayer_name=name_from_header)
+                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="AIS_", start_time=modal_click_time-2, taxpayer_name=name_from_header)
                                     if saved_path:
                                         ais_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
                                     else:
@@ -1627,12 +1619,12 @@ class AISTISWorker:
                                     except: pass
                                     history_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Go To Activity History']")))
                                     driver.execute_script("arguments[0].click();", history_btn); time.sleep(3)
-                                    clean_temp_files(year_folder_path, prefixes=("AIS_",))
+                                    clean_temp_files(download_folder, prefixes=("AIS_", "TIS_", "20", name_from_header))
                                     hist_click_time = time.time()
                                     final_dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "(//img[@alt='Download'])[1]")))
                                     driver.execute_script("arguments[0].click();", final_dl_icon)
                                     self.log("        ✅ AIS Export Triggered from History.")
-                                    saved_path = wait_and_rename_file(year_folder_path, year, self.log, prefix="AIS_", start_time=hist_click_time-2, taxpayer_name=name_from_header)
+                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="AIS_", start_time=hist_click_time-2, taxpayer_name=name_from_header)
                                     if saved_path:
                                         ais_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
                             except Exception as e:
@@ -1672,23 +1664,24 @@ class AISTISWorker:
                             try:
                                 if pdf_attempt > 1:
                                     self.log(f"        ⚠️ TIS PDF Retry {pdf_attempt}/3..."); time.sleep(2)
-                                clean_temp_files(year_folder_path, prefixes=("TIS_",))
-                                modal_dl_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Download' and contains(@class, 'btn-outline-primary')]")))
+                                clean_temp_files(download_folder, prefixes=("AIS_", "TIS_", "20", name_from_header))
+                                wait.until(EC.element_to_be_clickable((By.XPATH, "//p[contains(text(), 'Taxpayer Information Summary')]/ancestor::app-download//button[contains(@class, 'btn-outline-primary')]")))
+                                modal_dl_btn = driver.find_element(By.XPATH, "//p[contains(text(), 'Taxpayer Information Summary')]/ancestor::app-download//button[contains(@class, 'btn-outline-primary')]")
                                 modal_click_time = time.time()
                                 driver.execute_script("arguments[0].click();", modal_dl_btn)
                                 self.log("        Generating TIS Document...")
                                 direct_download = False
                                 for _ in range(8):
                                     time.sleep(1)
-                                    for f in os.listdir(year_folder_path):
-                                        fp = os.path.join(year_folder_path, f)
+                                    for f in os.listdir(download_folder):
+                                        fp = os.path.join(download_folder, f)
                                         if os.path.isfile(fp) and os.path.getmtime(fp) >= modal_click_time - 2:
                                             if f.endswith(".crdownload") or f.endswith(".pdf"):
                                                 direct_download = True; break
                                     if direct_download: break
                                 if direct_download:
                                     self.log("        ✅ TIS Direct download detected.")
-                                    saved_path = wait_and_rename_file(year_folder_path, year, self.log, prefix="TIS_", start_time=modal_click_time-2, taxpayer_name=name_from_header)
+                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="TIS_", start_time=modal_click_time-2, taxpayer_name=name_from_header)
                                     if saved_path:
                                         tis_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
                                     else:
@@ -1705,12 +1698,12 @@ class AISTISWorker:
                                     except: pass
                                     history_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Go To Activity History']")))
                                     driver.execute_script("arguments[0].click();", history_btn); time.sleep(3)
-                                    clean_temp_files(year_folder_path, prefixes=("TIS_",))
+                                    clean_temp_files(download_folder, prefixes=("AIS_", "TIS_", "20", name_from_header))
                                     hist_click_time = time.time()
                                     final_dl_icon = wait.until(EC.element_to_be_clickable((By.XPATH, "(//img[@alt='Download'])[1]")))
                                     driver.execute_script("arguments[0].click();", final_dl_icon)
                                     self.log("        ✅ TIS Export Triggered from History.")
-                                    saved_path = wait_and_rename_file(year_folder_path, year, self.log, prefix="TIS_", start_time=hist_click_time-2, taxpayer_name=name_from_header)
+                                    saved_path = wait_and_rename_file(download_folder, year, self.log, prefix="TIS_", start_time=hist_click_time-2, taxpayer_name=name_from_header)
                                     if saved_path:
                                         tis_count += 1; unlock_pdf(saved_path, user_id, dob, self.log); break
                             except Exception as e:
@@ -1746,7 +1739,7 @@ class App(ctk.CTk):
 
         # --- Header ---
         self.header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
-        self.header_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 10))
+        self.header_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(10, 5))
         self.title_label = ctk.CTkLabel(self.header_frame, text="INCOME TAX AUTOMATION SUITE", font=ctk.CTkFont(size=24, weight="bold"))
         self.title_label.pack(side="left")
         
@@ -1754,7 +1747,7 @@ class App(ctk.CTk):
         self.tabview = ctk.CTkTabview(self, width=860)
         self.tabview.add("26AS")
         self.tabview.add("AIS & TIS")
-        self.tabview.grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
+        self.tabview.grid(row=1, column=0, sticky="nsew", padx=20, pady=5)
 
         self.tab_26as = self.tabview.tab("26AS")
         self.tab_aistis = self.tabview.tab("AIS & TIS")
@@ -1772,6 +1765,8 @@ class App(ctk.CTk):
         self.scroll_26as = ctk.CTkScrollableFrame(self.tab_26as, fg_color="transparent")
         self.scroll_26as.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         self.scroll_26as.grid_columnconfigure(0, weight=1)
+        self.tab_26as.grid_rowconfigure(0, weight=1)
+        self.tab_26as.grid_rowconfigure(1, weight=0)
 
         self.config_26as = ctk.CTkFrame(self.scroll_26as)
         self.config_26as.grid(row=0, column=0, sticky="ew", padx=10, pady=(2, 5))
@@ -1806,8 +1801,8 @@ class App(ctk.CTk):
         self.log_frame_26as.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 5))
         self.log_frame_26as.grid_rowconfigure(1, weight=1)
         self.log_frame_26as.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self.log_frame_26as, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
-        self.log_box_26as = ctk.CTkTextbox(self.log_frame_26as, font=("Consolas", 12), activate_scrollbars=True, height=250)
+        ctk.CTkLabel(self.log_frame_26as, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(2, 2))
+        self.log_box_26as = ctk.CTkTextbox(self.log_frame_26as, font=("Consolas", 12), activate_scrollbars=True, height=100)
         self.log_box_26as.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box_26as.configure(state="disabled")
         
@@ -1815,8 +1810,8 @@ class App(ctk.CTk):
         self.progress_26as.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_26as.set(0)
 
-        btn_footer_26as = ctk.CTkFrame(self.scroll_26as, fg_color="transparent")
-        btn_footer_26as.grid(row=2, column=0, sticky="ew", padx=10, pady=(5, 10))
+        btn_footer_26as = ctk.CTkFrame(self.tab_26as, fg_color="transparent")
+        btn_footer_26as.grid(row=1, column=0, sticky="ew", padx=10, pady=(5, 10))
         self.btn_start_26as = ctk.CTkButton(btn_footer_26as, text="START 26AS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("26as"))
         self.btn_start_26as.pack(side="left", expand=True, fill="x")
         self.btn_stop_26as = ctk.CTkButton(btn_footer_26as, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("26as"), width=150)
@@ -1834,6 +1829,8 @@ class App(ctk.CTk):
         self.scroll_aistis = ctk.CTkScrollableFrame(self.tab_aistis, fg_color="transparent")
         self.scroll_aistis.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         self.scroll_aistis.grid_columnconfigure(0, weight=1)
+        self.tab_aistis.grid_rowconfigure(0, weight=1)
+        self.tab_aistis.grid_rowconfigure(1, weight=0)
 
         self.config_aistis = ctk.CTkFrame(self.scroll_aistis)
         self.config_aistis.grid(row=0, column=0, sticky="ew", padx=10, pady=(2, 5))
@@ -1856,7 +1853,7 @@ class App(ctk.CTk):
 
         pref_frame = ctk.CTkFrame(self.config_aistis, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
-        ctk.CTkLabel(pref_frame, text="Financial Year:", text_color="gray").pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(pref_frame, text="Assessment Year:", text_color="gray").pack(side="left", padx=(0, 10))
         self.combo_years_aistis = ctk.CTkComboBox(pref_frame, values=ASSESSMENT_YEAR_OPTIONS, width=250, state="readonly")
         self.combo_years_aistis.set(ASSESSMENT_YEAR_OPTIONS[0])
         self.combo_years_aistis.pack(side="left")
@@ -1865,8 +1862,8 @@ class App(ctk.CTk):
         self.log_frame_aistis.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 5))
         self.log_frame_aistis.grid_rowconfigure(1, weight=1)
         self.log_frame_aistis.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self.log_frame_aistis, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
-        self.log_box_aistis = ctk.CTkTextbox(self.log_frame_aistis, font=("Consolas", 12), activate_scrollbars=True, height=250)
+        ctk.CTkLabel(self.log_frame_aistis, text="3. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(2, 2))
+        self.log_box_aistis = ctk.CTkTextbox(self.log_frame_aistis, font=("Consolas", 12), activate_scrollbars=True, height=100)
         self.log_box_aistis.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box_aistis.configure(state="disabled")
 
@@ -1874,8 +1871,8 @@ class App(ctk.CTk):
         self.progress_aistis.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_aistis.set(0)
 
-        btn_footer_aistis = ctk.CTkFrame(self.scroll_aistis, fg_color="transparent")
-        btn_footer_aistis.grid(row=2, column=0, sticky="ew", padx=10, pady=(5, 10))
+        btn_footer_aistis = ctk.CTkFrame(self.tab_aistis, fg_color="transparent")
+        btn_footer_aistis.grid(row=1, column=0, sticky="ew", padx=10, pady=(5, 10))
         self.btn_start_aistis = ctk.CTkButton(btn_footer_aistis, text="START AIS & TIS DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=lambda: self.start_process("aistis"))
         self.btn_start_aistis.pack(side="left", expand=True, fill="x")
         self.btn_stop_aistis = ctk.CTkButton(btn_footer_aistis, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=lambda: self.stop_process("aistis"), width=150)

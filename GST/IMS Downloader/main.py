@@ -479,7 +479,9 @@ class App(ctk.CTk):
         self.geometry("800x700")
 
         self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=0)
         self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=0)
 
         self.worker = None
         self.excel_file = ""
@@ -547,8 +549,8 @@ class App(ctk.CTk):
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         self.log_box.configure(state="disabled")
 
-        # FOOTER (row=2, fixed — always visible)
-        self.footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
+        # FOOTER (FIXED AT BOTTOM)
+        self.footer = ctk.CTkFrame(self, fg_color="transparent")
         self.footer.grid(row=2, column=0, sticky="sew", padx=10, pady=(8, 16))
 
         self.btn_row_footer = ctk.CTkFrame(self.footer, fg_color="transparent")

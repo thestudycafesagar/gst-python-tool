@@ -874,7 +874,9 @@ class App(ctk.CTk):
         self.geometry("900x850")
         
         self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=0)
         self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=0)
 
         self.worker = None
         self.excel_file = ""
@@ -997,7 +999,7 @@ class App(ctk.CTk):
         self.toggle_inputs()
 
         # CAPTCHA SECTION
-        self.cap_frame = ctk.CTkFrame(self, border_color="#DC2626", border_width=1)
+        self.cap_frame = ctk.CTkFrame(self.scroll_container, border_color="#DC2626", border_width=1)
         self.cap_frame.grid_columnconfigure(0, weight=1)
         
         cap_inner = ctk.CTkFrame(self.cap_frame, fg_color="transparent")
@@ -1028,9 +1030,9 @@ class App(ctk.CTk):
 
 
 
-        # FOOTER
-        self.footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
-        self.footer.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 20))
+        # FOOTER (FIXED AT BOTTOM)
+        self.footer = ctk.CTkFrame(self, fg_color="transparent")
+        self.footer.grid(row=2, column=0, sticky="sew", padx=10, pady=(0, 20))
         self.prog_bar = ctk.CTkProgressBar(self.footer, height=15, progress_color="#10B981")
         self.prog_bar.pack(fill="x", pady=(0, 10))
         self.prog_bar.set(0)
@@ -1242,6 +1244,21 @@ class App(ctk.CTk):
             else:
                 self.btn_open_folder.pack(side="left", padx=(10, 0))
         self.after(0, _finish_ui)
+    def submit_captcha(self, event=None):
+        ans = self.cap_ent.get().strip()
+        if not ans:
+            messagebox.showwarning("Warning", "Captcha cannot be empty")
+            return
+        if self.worker:
+            self.worker.captcha_response = ans
+        self.cap_ent.delete(0, "end")
+        self.close_captcha_safe()
+
+    def close_captcha_safe(self):
+        try:
+            self.cap_frame.grid_forget()
+        except:
+            pass
 
     def request_captcha_safe(self, img_path):
         def show():
@@ -1267,7 +1284,7 @@ class App(ctk.CTk):
             self.cap_lbl_img.image = self._captcha_ctk_img
             self.cap_lbl_img.configure(image=self._captcha_ctk_img)
             self.cap_btn.configure(state="normal", text="SUBMIT CAPTCHA", fg_color="#DC2626")
-            self.cap_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=10)
+            self.cap_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
             self.cap_ent.delete(0, "end")
             self.attributes('-topmost', True)
             self.deiconify()

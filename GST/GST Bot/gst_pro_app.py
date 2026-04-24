@@ -510,6 +510,7 @@ class GSTApp(ctk.CTk):
         
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=0)
 
         # HEADER
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -593,10 +594,11 @@ class GSTApp(ctk.CTk):
         self.progress_bar.pack(fill="x", padx=15, pady=15)
         self.progress_bar.set(0)
 
-        # --- 3. ACTION BUTTON ---
-        btn_footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
-        btn_footer.grid(row=3, column=0, padx=10, pady=(10, 20), sticky="ew")
+        # --- 3. ACTION BUTTON (FIXED AT BOTTOM) ---
+        btn_footer = ctk.CTkFrame(self, fg_color="transparent")
+        btn_footer.grid(row=2, column=0, padx=10, pady=(10, 20), sticky="ew")
         btn_footer.grid_columnconfigure(0, weight=1)
+        
         self.btn_start = ctk.CTkButton(btn_footer, text="START AUTOMATION", font=("Segoe UI", 16, "bold"), height=50, command=self.start_process, fg_color="#2563EB", hover_color="#1D4ED8")
         self.btn_start.grid(row=0, column=0, sticky="ew")
         

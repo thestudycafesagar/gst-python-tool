@@ -527,6 +527,7 @@ class DemandCheckerApp(ctk.CTk):
         self.content.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
         self.content.grid_columnconfigure(0, weight=1)
         self.content.grid_rowconfigure(0, weight=1)
+        self.content.grid_rowconfigure(1, weight=0)
 
         # SCROLLABLE CONTAINER
         self.scroll_container = ctk.CTkScrollableFrame(self.content, fg_color="transparent")
@@ -569,8 +570,8 @@ class DemandCheckerApp(ctk.CTk):
         log_frame.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(log_frame, text="2. LIVE LOG",
-                     font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
-        self.log_box_demand = ctk.CTkTextbox(log_frame, font=("Consolas", 12), activate_scrollbars=True, height=250)
+                     font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(2, 2))
+        self.log_box_demand = ctk.CTkTextbox(log_frame, font=("Consolas", 12), activate_scrollbars=True, height=100)
         self.log_box_demand.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box_demand.configure(state="disabled")
 
@@ -578,8 +579,8 @@ class DemandCheckerApp(ctk.CTk):
         self.progress_demand.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress_demand.set(0)
 
-        btn_footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
-        btn_footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
+        btn_footer = ctk.CTkFrame(self.content, fg_color="transparent")
+        btn_footer.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 20))
         btn_footer.grid_columnconfigure(0, weight=1)
         self.btn_start_demand = ctk.CTkButton(btn_footer, text="START DEMAND CHECKER",
                                               font=ctk.CTkFont(size=16, weight="bold"), height=50,

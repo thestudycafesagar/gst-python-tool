@@ -579,7 +579,8 @@ def launch_gui(embedded=False):
     if not embedded:
         root.state("zoomed")
     root.resizable(True, True)
-    root.columnconfigure(0, weight=1)
+    root.grid_columnconfigure(0, weight=1)
+    root.grid_rowconfigure(0, weight=1)
 
     content_row = 0
     if not embedded:
@@ -619,9 +620,10 @@ def launch_gui(embedded=False):
     main_frame = ctk.CTkFrame(root, corner_radius=0, fg_color=("gray92", "gray10"))
     main_frame.grid(row=content_row, column=0, sticky="nsew")
     main_frame.grid_rowconfigure(0, weight=1)
+    main_frame.grid_columnconfigure(0, weight=1)
 
-    # CONTENT AREA (SCROLLABLE)
-    scroll_container = ctk.CTkScrollableFrame(main_frame, fg_color="transparent")
+    # CONTENT AREA (FIXED)
+    scroll_container = ctk.CTkFrame(main_frame, fg_color="transparent")
     scroll_container.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
     scroll_container.grid_columnconfigure(0, weight=1)
 
@@ -1007,31 +1009,8 @@ def launch_gui(embedded=False):
     ctk.CTkLabel(sum_card, text="", height=4,
                  ).grid(row=100, column=0, columnspan=3)
 
-    # ═══════════════════════════════════════════════════
-    # CARD 4 — Console Log  (expands to fill remaining height)
-    # ═══════════════════════════════════════════════════
-    log_card = ctk.CTkFrame(scroll_container, corner_radius=12)
-    log_card.grid(row=3, column=0, sticky="nsew", padx=20, pady=(10, 20))
-    log_card.columnconfigure(0, weight=1)
-    log_card.rowconfigure(2, weight=1)
-
-    ctk.CTkLabel(log_card, text="Console Log",
-                 font=("Arial", 13, "bold"),
-                 ).grid(row=0, column=0, sticky="w", padx=16, pady=(12, 2))
-    ctk.CTkFrame(log_card, height=1, fg_color=("gray75", "gray35"),
-                 ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 6))
-
-    log_box = ctk.CTkTextbox(log_card, font=("Courier", 11),
-                              state="disabled", wrap="word",
-                              corner_radius=6, height=300)
-    log_box.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 14))
-
     def append_log(msg: str):
-        log_box.configure(state="normal")
-        log_box.insert(tk.END, msg + "\n")
-        log_box.see(tk.END)
-        log_box.configure(state="disabled")
-        root.update_idletasks()
+        pass
 
 
     def run_reco():
@@ -1069,9 +1048,6 @@ def launch_gui(embedded=False):
             run_btn.configure(state="disabled", text="  Processing…")
             progress_bar.grid()
             progress_bar.start()
-            log_box.configure(state="normal")
-            log_box.delete("0.0", tk.END)
-            log_box.configure(state="disabled")
             try:
                 reconcile_and_write(g, t, o, progress_cb=append_log,
                                     matched_threshold=matched_thr,

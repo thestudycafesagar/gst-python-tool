@@ -143,7 +143,7 @@ class ChallanWorker:
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "Challan Downloader")
 
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
 
@@ -194,7 +194,7 @@ class ChallanWorker:
 
     def process_single_user(self, user_id, password, dob, download_root):
         driver = None
-        download_folder = create_unique_folder(download_root, user_id)  # temp fallback
+        download_folder = tempfile.gettempdir()  # temporary path until name is known
         try:
             options = webdriver.ChromeOptions()
             options.add_argument("--start-maximized")
@@ -1168,7 +1168,7 @@ class App(ctk.CTk):
 
         # --- Header ---
         self.header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
-        self.header_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 10))
+        self.header_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(10, 5))
         self.title_label = ctk.CTkLabel(self.header_frame, text="AUTOMATION SUITE PRO", font=ctk.CTkFont(size=24, weight="bold"))
         self.title_label.pack(side="left")
 
@@ -1182,6 +1182,8 @@ class App(ctk.CTk):
         self.scroll_container = ctk.CTkScrollableFrame(self.tab_challan, fg_color="transparent")
         self.scroll_container.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         self.scroll_container.grid_columnconfigure(0, weight=1)
+        self.tab_challan.grid_rowconfigure(0, weight=1)
+        self.tab_challan.grid_rowconfigure(1, weight=0)
 
         self._build_challan_ui()
 
@@ -1214,7 +1216,7 @@ class App(ctk.CTk):
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
         ctk.CTkLabel(pref_frame, text="Assessment Year:", text_color="gray").pack(side="left", padx=(0, 10))
         # Provide last 5 financial years (newest first). Change these values if you want a different range.
-        fy_values = ["2027-2028", "2026-2027", "2025-2026", "2024-2025", "2023-2024", "2022-2023", "Last 2 Years", "All History"]
+        fy_values = ["2027-2028", "2026-2027", "2025-2026", "2024-2025", "2023-2024", "2022-2023"]
         self.combo_filter = ctk.CTkComboBox(pref_frame, values=fy_values, width=250, state="readonly")
         self.combo_filter.set(fy_values[0])
         self.combo_filter.pack(side="left")
@@ -1225,8 +1227,8 @@ class App(ctk.CTk):
         self.log_frame.grid_rowconfigure(1, weight=1)
         self.log_frame.grid_columnconfigure(0, weight=1)
         
-        ctk.CTkLabel(self.log_frame, text="2. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(5, 5))
-        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), activate_scrollbars=True, height=250)
+        ctk.CTkLabel(self.log_frame, text="2. LIVE LOG", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(2, 2))
+        self.log_box = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), activate_scrollbars=True, height=100)
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=15, pady=(0, 10))
         self.log_box.configure(state="disabled")
         
@@ -1234,8 +1236,8 @@ class App(ctk.CTk):
         self.progress.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.progress.set(0)
 
-        btn_row_footer = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
-        btn_row_footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(5, 20))
+        btn_row_footer = ctk.CTkFrame(self.tab_challan, fg_color="transparent")
+        btn_row_footer.grid(row=1, column=0, sticky="ew", padx=20, pady=(5, 20))
         self.btn_start = ctk.CTkButton(btn_row_footer, text="START CHALLAN DOWNLOAD", font=ctk.CTkFont(size=16, weight="bold"), height=50, command=self.start_process)
         self.btn_start.pack(side="left", expand=True, fill="x")
         self.btn_stop = ctk.CTkButton(btn_row_footer, text="⏹ STOP", font=ctk.CTkFont(size=16, weight="bold"), height=50, fg_color="#DC2626", hover_color="#B91C1C", command=self.stop_process, width=150)
