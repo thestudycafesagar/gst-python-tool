@@ -183,7 +183,7 @@ class ChallanWorker:
             if not self.report_data: return
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"Challan_Report_{timestamp}.xlsx"
-            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "reports")
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Challan Downloader", "reports")
             os.makedirs(report_dir, exist_ok=True)
             report_path = os.path.join(report_dir, filename)
             df_report = pd.DataFrame(self.report_data)
@@ -700,15 +700,19 @@ class DemandCheckerWorker:
                     }
                 else:
                     entry = {
-                        "PAN":                      user_id,
-                        "Status":                   status,
-                        "Worklist_Status":          reason,
-                        "Worklist_Items":           "",
-                        "Outstanding_Demand_Status": "",
-                        "Outstanding_Demand_Items":  "",
-                        "Timestamp":                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        "PAN": user_id, "Status": status, "Details": reason,
+                        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }
+                
+                # Create user folder and save individual report
+                name = reason.get("TaxpayerName", user_id) if isinstance(reason, dict) else user_id
+                base_dir = os.getcwd()
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "Demand Checker")
+                folder_name = f"{user_id}_{name}"
+                final_path = create_unique_folder(download_root, folder_name)
+                
                 self.report_data.append(entry)
+                self._save_user_report(entry, final_path)
                 self.log("-" * 40)
 
             self.generate_report()
@@ -719,6 +723,16 @@ class DemandCheckerWorker:
         except Exception as e:
             self.log(f"❌ CRITICAL ERROR: {str(e)}")
             self.app.process_finished_safe_demand("Critical Error Occurred")
+
+    def _save_user_report(self, entry, folder_path):
+        try:
+            if not folder_path or not os.path.exists(folder_path): return
+            pan = entry.get("PAN", "unknown")
+            report_path = os.path.join(folder_path, f"Report_{pan}.xlsx")
+            pd.DataFrame([entry]).to_excel(report_path, index=False)
+            self.log(f"   📄 User Report saved: Report_{pan}.xlsx")
+        except Exception as e:
+            self.log(f"   ⚠️ Failed to save user report: {e}")
 
     def generate_report(self):
         try:
@@ -736,8 +750,11 @@ class DemandCheckerWorker:
                     df_report[c] = ""
             df_report = df_report[[c for c in col_order if c in df_report.columns]]
             filename = f"Demand_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            df_report.to_excel(filename, index=False)
-            self.log(f"📄 Report saved: {filename}")
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Demand Checker", "reports")
+            os.makedirs(report_dir, exist_ok=True)
+            report_path = os.path.join(report_dir, filename)
+            df_report.to_excel(report_path, index=False)
+            self.log(f"📄 Report saved: {report_path}")
         except: pass
 
     def process_single_user(self, user_id, password, dob):
@@ -874,6 +891,10 @@ class DemandCheckerWorker:
                         time.sleep(2)
 
             if not login_success: return "Failed", "Login Timeout"
+
+            name_from_header = get_taxpayer_name(driver, fallback=user_id)
+            if name_from_header != user_id:
+                self.log(f"   👤 Taxpayer Name: {name_from_header}")
 
             self.log("   ✅ Login Successful! Reached Dashboard.")
 
@@ -1145,6 +1166,7 @@ class DemandCheckerWorker:
                 "Worklist_Items":           " | ".join(worklist_raw) if worklist_raw else "",
                 "Outstanding_Demand_Status": outstanding_data,
                 "Outstanding_Demand_Items":  " | ".join(outstanding_raw) if outstanding_raw else "",
+                "TaxpayerName":             name_from_header
             }
 
         except Exception as e:

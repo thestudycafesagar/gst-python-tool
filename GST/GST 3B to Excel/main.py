@@ -6,6 +6,8 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import re
 import os
 import sys
+import threading
+import time
 
 # --- Configuration ---
 ctk.set_appearance_mode("System")
@@ -134,6 +136,16 @@ class GSTR3BConverterPro(ctk.CTk):
         self.textbox = ctk.CTkTextbox(self.scroll_container, height=200, width=600)
         self.textbox.pack(pady=10)
         self.textbox.insert("0.0", "Status log will appear here...\n")
+        self.textbox.configure(state="disabled")
+
+    def log(self, message):
+        """Thread-safe logging to the UI textbox."""
+        self.after(0, self._log_to_gui, message)
+
+    def _log_to_gui(self, message):
+        self.textbox.configure(state="normal")
+        self.textbox.insert("end", f"[{time.strftime('%H:%M:%S')}] {message}\n")
+        self.textbox.see("end")
         self.textbox.configure(state="disabled")
 
     def open_demo_link(self):
@@ -312,87 +324,99 @@ class GSTR3BConverterPro(ctk.CTk):
             return
 
         self.convert_btn.configure(state="disabled")
-        
-        # --- Output Folder Setup ---
-        output_folder = os.path.join(os.getcwd(), "GST Downloaded", "GSTR 3B to Excel")
-        if not os.path.exists(output_folder):
-            os.makedirs(output_folder, exist_ok=True)
-        
         self.open_folder_btn.pack_forget()
-
-        # --- LOGIC BRANCHING ---
-        is_merge = self.merge_mode.get()
         
-        if is_merge:
-            # === BUNCH CONVERTER MODE ===
-            self.log(f"Starting Bunch Merge for {len(self.selected_files)} files...")
-            
-            master_data = {"supplies": [], "itc": [], "nil": []}
-            first_meta = None
+        # Run the heavy processing in a background thread to prevent UI freezing
+        threading.Thread(target=self._run_conversion, daemon=True).start()
 
-            for idx, file_path in enumerate(self.selected_files):
-                filename = os.path.basename(file_path)
-                self.log(f"Reading ({idx+1}/{len(self.selected_files)}): {filename}...")
+    def _run_conversion(self):
+        try:
+            # --- Output Folder Setup ---
+            output_folder = os.path.join(os.getcwd(), "GST Downloaded", "GSTR 3B to Excel")
+            if not os.path.exists(output_folder):
+                os.makedirs(output_folder, exist_ok=True)
+            
+            # --- LOGIC BRANCHING ---
+            is_merge = self.merge_mode.get()
+            
+            if is_merge:
+                # === BUNCH CONVERTER MODE ===
+                self.log(f"Starting Bunch Merge for {len(self.selected_files)} files...")
                 
-                # Extract
-                raw_data = self.extract_data(file_path)
-                if not first_meta: first_meta = raw_data["meta"]
-                
-                # Prepare (Flatten)
-                flat_rows = self.prepare_rows(raw_data)
-                
-                # Merge
-                master_data["supplies"].extend(flat_rows["supplies"])
-                master_data["itc"].extend(flat_rows["itc"])
-                master_data["nil"].extend(flat_rows["nil"])
+                master_data = {"supplies": [], "itc": [], "nil": []}
+                first_meta = None
 
-            # Save Consolidated File
-            out_name = "GSTR3B_Consolidated.xlsx"
-            if first_meta and first_meta["Year"] != "Unknown":
-                out_name = f"GSTR3B_Consolidated_{first_meta['Year']}.xlsx"
-            
-            out_path = os.path.join(output_folder, out_name)
-            self.write_excel(master_data, out_path)
-            
-            self.log("----------------")
-            self.log(f"MERGE SUCCESSFUL!")
-            self.log(f"Saved: {out_name}")
-            messagebox.showinfo("Success", f"Merged {len(self.selected_files)} files into:\n{out_name}")
-            self.open_folder_btn.pack(pady=(0, 10))
+                for idx, file_path in enumerate(self.selected_files):
+                    filename = os.path.basename(file_path)
+                    self.log(f"Reading ({idx+1}/{len(self.selected_files)}): {filename}...")
+                    
+                    # Extract
+                    raw_data = self.extract_data(file_path)
+                    if not first_meta: first_meta = raw_data["meta"]
+                    
+                    # Prepare (Flatten)
+                    flat_rows = self.prepare_rows(raw_data)
+                    
+                    # Merge
+                    master_data["supplies"].extend(flat_rows["supplies"])
+                    master_data["itc"].extend(flat_rows["itc"])
+                    master_data["nil"].extend(flat_rows["nil"])
 
-        else:
-            # === INDIVIDUAL MODE ===
-            self.log(f"Starting Individual Conversion...")
-            
-            for idx, file_path in enumerate(self.selected_files):
-                filename = os.path.basename(file_path)
-                self.log(f"Processing ({idx+1}/{len(self.selected_files)}): {filename}")
-                
-                # Extract
-                raw_data = self.extract_data(file_path)
-                
-                # Prepare
-                flat_rows = self.prepare_rows(raw_data)
-                
-                # Naming
-                safe_month = raw_data["meta"]["Month"].replace(" ", "_")
-                safe_year = raw_data["meta"]["Year"].replace("-", "_")
-                if safe_month == "Unknown":
-                    out_name = filename.replace(".pdf", ".xlsx")
-                else:
-                    out_name = f"GSTR3B_{safe_month}_{safe_year}.xlsx"
+                # Save Consolidated File
+                out_name = "GSTR3B_Consolidated.xlsx"
+                if first_meta and first_meta["Year"] != "Unknown":
+                    out_name = f"GSTR3B_Consolidated_{first_meta['Year']}.xlsx"
                 
                 out_path = os.path.join(output_folder, out_name)
+                self.write_excel(master_data, out_path)
                 
-                # Write
-                self.write_excel(flat_rows, out_path)
-                self.log(f" -> Saved: {out_name}")
+                self.log("----------------")
+                self.log(f"MERGE SUCCESSFUL!")
+                self.log(f"Saved: {out_name}")
+                self.after(0, lambda: messagebox.showinfo("Success", f"Merged {len(self.selected_files)} files into:\n{out_name}"))
+                self.after(0, lambda: self.open_folder_btn.pack(pady=(0, 10), before=self.textbox))
 
-            self.log("----------------")
-            self.log("Batch Complete.")
-            self.open_folder_btn.pack(pady=(0, 10))
-            messagebox.showinfo("Done", f"Processed {len(self.selected_files)} files.")
+            else:
+                # === INDIVIDUAL MODE ===
+                self.log(f"Starting Individual Conversion...")
+                
+                for idx, file_path in enumerate(self.selected_files):
+                    filename = os.path.basename(file_path)
+                    self.log(f"Processing ({idx+1}/{len(self.selected_files)}): {filename}")
+                    
+                    # Extract
+                    raw_data = self.extract_data(file_path)
+                    
+                    # Prepare
+                    flat_rows = self.prepare_rows(raw_data)
+                    
+                    # Naming
+                    safe_month = raw_data["meta"]["Month"].replace(" ", "_")
+                    safe_year = raw_data["meta"]["Year"].replace("-", "_")
+                    if safe_month == "Unknown":
+                        out_name = filename.replace(".pdf", ".xlsx")
+                    else:
+                        out_name = f"GSTR3B_{safe_month}_{safe_year}.xlsx"
+                    
+                    out_path = os.path.join(output_folder, out_name)
+                    
+                    # Write
+                    self.write_excel(flat_rows, out_path)
+                    self.log(f" -> Saved: {out_name}")
 
+                self.log("----------------")
+                self.log("Batch Complete.")
+                self.after(0, lambda: self.open_folder_btn.pack(pady=(0, 10), before=self.textbox))
+                self.after(0, lambda: messagebox.showinfo("Done", f"Processed {len(self.selected_files)} files."))
+
+        except Exception as e:
+            self.log(f"❌ Critical Error: {str(e)}")
+            self.after(0, lambda: messagebox.showerror("Error", f"An unexpected error occurred:\n{e}"))
+        
+        finally:
+            self.after(0, self._reset_ui)
+
+    def _reset_ui(self):
         self.convert_btn.configure(state="normal")
         self.selected_files = []
         self.file_count_label.configure(text="No files selected", text_color="gray")

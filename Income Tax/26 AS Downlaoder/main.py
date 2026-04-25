@@ -287,23 +287,48 @@ def unlock_pdf(file_path, pan, dob_str, logger):
         return False
         
     if pd.isna(dob_str) or str(dob_str).strip() == "" or str(dob_str).lower() in ['nan', 'nat', 'none']:
-        logger("        ⚠️ No DOB found in Excel. Skipping auto-unlock.")
+        logger("        ⚠️ No DOB found in Excel for this user. Skipping auto-unlock.")
         return False
 
+    dob_formatted = None
     try:
-        if isinstance(dob_str, pd.Timestamp) or isinstance(dob_str, datetime):
+        if isinstance(dob_str, (pd.Timestamp, datetime)):
             dob_formatted = dob_str.strftime("%d%m%Y")
         else:
-            dob_dt = pd.to_datetime(str(dob_str).strip(), dayfirst=True)
-            dob_formatted = dob_dt.strftime("%d%m%Y")
+            # Try parsing string DOB
+            ds = str(dob_str).strip()
+            # Remove ordinal suffixes (st, nd, rd, th)
+            ds = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', ds, flags=re.IGNORECASE)
+            
+            # Common case: DDMMYYYY as a string
+            if len(ds) == 8 and ds.isdigit():
+                dob_formatted = ds
+            else:
+                # Try various formats
+                for fmt in ["%d %B %Y", "%d %b %Y", "%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y"]:
+                    try:
+                        dob_formatted = datetime.strptime(ds, fmt).strftime("%d%m%Y")
+                        break
+                    except: continue
+                
+                if not dob_formatted:
+                    dob_dt = pd.to_datetime(ds, dayfirst=True)
+                    dob_formatted = dob_dt.strftime("%d%m%Y")
     except Exception as e:
-        logger(f"        ⚠️ Invalid DOB format in Excel: {dob_str}")
+        logger(f"        ⚠️ Invalid DOB format in Excel: {dob_str}. Error: {e}")
         return False
 
-    pan_lower = str(pan).strip().lower()
+    if not dob_formatted:
+        logger(f"        ⚠️ Could not format DOB: {dob_str}")
+        return False
+
+    pan_clean = str(pan).strip()
+    pan_lower = pan_clean.lower()
+    pan_upper = pan_clean.upper()
     
     passwords_to_try = [
-        f"{pan_lower}{dob_formatted}", # AIS/TIS Standard
+        f"{pan_upper}{dob_formatted}", # AIS/TIS Official (CAPS PAN)
+        f"{pan_lower}{dob_formatted}", # AIS/TIS Alternative (Lower PAN)
         dob_formatted                   # 26AS Standard
     ]
 
@@ -315,12 +340,15 @@ def unlock_pdf(file_path, pan, dob_str, logger):
 
         unlocked = False
         for pwd in passwords_to_try:
-            if reader.decrypt(pwd) != 0:
-                unlocked = True
-                break
+            try:
+                if reader.decrypt(pwd) != 0:
+                    unlocked = True
+                    break
+            except:
+                continue
         
         if not unlocked:
-            logger(f"        🔒 Unlock failed. Invalid PAN/DOB combinations.")
+            logger(f"        🔒 Unlock failed. Tried combinations with DOB {dob_formatted}. Please check if PAN/DOB are correct.")
             return False
 
         writer = PdfWriter()
@@ -333,7 +361,7 @@ def unlock_pdf(file_path, pan, dob_str, logger):
         
         os.remove(file_path)
         os.rename(unlocked_path, file_path)
-        logger("        🔓 PDF successfully decrypted!")
+        logger(f"        🔓 PDF successfully decrypted (DOB used: {dob_formatted})!")
         return True
 
     except Exception as e:
@@ -390,7 +418,7 @@ class Tax26ASWorker:
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 base_dir = os.getcwd()
-                download_root = os.path.join(base_dir, "Income Tax Downloaded", "26 AS")
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "26AS")
 
                 status, reason, final_path = self.process_single_user(user_id, password, dob, download_root)
                 
@@ -399,6 +427,7 @@ class Tax26ASWorker:
                     "Folder Saved": os.path.basename(final_path) if final_path else user_id,
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
+                self._save_user_report(self.report_data[-1], final_path)
                 self.log("-" * 40)
             
             self.generate_report()
@@ -410,12 +439,22 @@ class Tax26ASWorker:
             self.log(f"❌ CRITICAL ERROR: {str(e)}")
             self.app.process_finished_safe_26as("Critical Error Occurred")
 
+    def _save_user_report(self, entry, folder_path):
+        try:
+            if not folder_path or not os.path.exists(folder_path): return
+            pan = entry.get("PAN", "unknown")
+            report_path = os.path.join(folder_path, f"Report_{pan}.xlsx")
+            pd.DataFrame([entry]).to_excel(report_path, index=False)
+            self.log(f"   📄 User Report saved: Report_{pan}.xlsx")
+        except Exception as e:
+            self.log(f"   ⚠️ Failed to save user report: {e}")
+
     def generate_report(self):
         try:
             if not self.report_data: return
             df_report = pd.DataFrame(self.report_data)
-            filename = f"26AS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "reports")
+            filename = f"Tax_26AS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "26AS", "reports")
             os.makedirs(report_dir, exist_ok=True)
             report_path = os.path.join(report_dir, filename)
             df_report.to_excel(report_path, index=False)
@@ -718,7 +757,15 @@ class Tax26ASWorker:
                     self.current_user_selected_years = [target_ay] if target_ay in available_years else []
 
                 else:
-                    self.user_selection_event.wait()
+                    if self.year_mode == "Manual Selection (Popup)":
+                        self.log(f"   🛑 PAUSED: Found {len(available_years)} years. Waiting for selection...")
+                        self.user_selection_event.clear()
+                        self.current_user_selected_years = None
+                        self.app.trigger_year_selection(available_years, user_id, self.set_years_and_resume)
+                        self.user_selection_event.wait()
+                    else:
+                        # Fallback to current year if not specified
+                        self.current_user_selected_years = available_years[:1]
 
                 years_to_download = [y for y in self.current_user_selected_years if y in available_years]
                 if not years_to_download: return "Warning", "No valid years selected"
@@ -1317,6 +1364,7 @@ class AISTISWorker:
                     "Folder Saved": os.path.basename(final_path) if final_path else user_id,
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
+                self._save_user_report(self.report_data[-1], final_path)
                 self.log("-" * 40)
             self.generate_report()
             self.app.update_progress_safe_aistis(1.0)
@@ -1325,6 +1373,29 @@ class AISTISWorker:
         except Exception as e:
             self.log(f"❌ CRITICAL ERROR: {str(e)}")
             self.app.process_finished_safe_aistis("Critical Error Occurred")
+
+    def _save_user_report(self, entry, folder_path):
+        try:
+            if not folder_path or not os.path.exists(folder_path): return
+            pan = entry.get("PAN", "unknown")
+            report_path = os.path.join(folder_path, f"Report_{pan}.xlsx")
+            pd.DataFrame([entry]).to_excel(report_path, index=False)
+            self.log(f"   📄 User Report saved: Report_{pan}.xlsx")
+        except Exception as e:
+            self.log(f"   ⚠️ Failed to save user report: {e}")
+
+    def generate_report(self):
+        try:
+            if not self.report_data: return
+            df_report = pd.DataFrame(self.report_data)
+            filename = f"AIS_TIS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "AIS-TIS", "reports")
+            os.makedirs(report_dir, exist_ok=True)
+            report_path = os.path.join(report_dir, filename)
+            df_report.to_excel(report_path, index=False)
+            self.log(f"📄 Report saved: {report_path}")
+        except Exception as e:
+            self.log(f"❌ Failed to save report: {e}")
 
     def process_single_user(self, user_id, password, dob, download_root):
         driver = None

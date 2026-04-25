@@ -585,6 +585,10 @@ class App(ctk.CTk):
                            font=("Segoe UI", 11, "bold"))
         self.btn_delete_id.pack(side="left", padx=(8, 0))
         self.btn_delete_id.configure(state="disabled")
+        
+        self.chk_manual_login_var = ctk.BooleanVar(value=True)
+        self.chk_manual_login = ctk.CTkCheckBox(self.card_cred, text="Manual Login Mode", variable=self.chk_manual_login_var, font=("Segoe UI", 12))
+        self.chk_manual_login.pack(anchor="w", padx=15, pady=(0, 10))
 
 
 

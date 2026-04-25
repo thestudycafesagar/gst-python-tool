@@ -106,6 +106,7 @@ hiddenimports = [
     'tkinter.simpledialog',
     'tkinter.font',
     'stealth_driver',
+    'pypdf',
 ]
 
 for pkg in ('customtkinter', 'darkdetect', 'selenium', 'webdriver_manager',

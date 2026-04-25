@@ -150,13 +150,15 @@ class IncomeTaxWorker:
                 status, reason, final_path = self.process_single_user(user_id, password, download_root)
                 
                 # Add to Report
-                self.report_data.append({
+                entry = {
                     "PAN / User ID": user_id,
                     "Status": status,
                     "Reason/Details": reason,
                     "Folder": os.path.basename(final_path) if final_path else user_id,
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                })
+                }
+                self.report_data.append(entry)
+                self._save_user_report(entry, final_path)
                 
                 self.log("-" * 40)
             
@@ -171,18 +173,28 @@ class IncomeTaxWorker:
             self.log(f"❌ CRITICAL ERROR: {str(e)}")
             self.app.process_finished_safe("Critical Error Occurred")
 
+    def _save_user_report(self, entry, folder_path):
+        try:
+            if not folder_path or not os.path.exists(folder_path): return
+            pan = entry.get("PAN / User ID", "unknown")
+            report_path = os.path.join(folder_path, f"Report_{pan}.xlsx")
+            pd.DataFrame([entry]).to_excel(report_path, index=False)
+            self.log(f"   📄 User Report saved: Report_{pan}.xlsx")
+        except Exception as e:
+            self.log(f"   ⚠️ Failed to save user report: {e}")
+
     def generate_report(self):
         try:
             if not self.report_data: return
             
             df_report = pd.DataFrame(self.report_data)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"Processing_Report_{timestamp}.xlsx"
-            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "reports")
-            if not os.path.exists(report_dir): os.makedirs(report_dir, exist_ok=True)
+            filename = f"ITR_Bot_Report_{timestamp}.xlsx"
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "ITR Bot", "reports")
+            os.makedirs(report_dir, exist_ok=True)
             report_path = os.path.join(report_dir, filename)
             df_report.to_excel(report_path, index=False)
-            self.log(f"📄 Summary Report saved as: {filename}")
+            self.log(f"📄 Summary Report saved as: {report_path}")
         except Exception as e:
             self.log(f"⚠️ Failed to save report: {e}")
 

@@ -96,6 +96,43 @@ def normalize_columns(df):
 
     return user_col, pass_col, dob_col
 
+def create_unique_folder(base_dir, folder_name):
+    # Sanitize folder name to remove characters invalid on Windows
+    import re
+    folder_name = re.sub(r'[<>:"/\\|?*]', '_', folder_name).strip()
+    if not os.path.exists(base_dir):
+        os.makedirs(base_dir)
+        
+    full_path = os.path.join(base_dir, folder_name)
+    if not os.path.exists(full_path):
+        os.makedirs(full_path)
+        return full_path
+    
+    counter = 1
+    while True:
+        new_name = f"{folder_name} ({counter})"
+        full_path = os.path.join(base_dir, new_name)
+        if not os.path.exists(full_path):
+            os.makedirs(full_path)
+            return full_path
+        counter += 1
+
+def get_taxpayer_name(driver, fallback=""):
+    strategies = [
+        lambda d: d.execute_script("var el = document.querySelector('.userNameVal span:first-child'); return el ? el.innerText.trim() : '';"),
+        lambda d: d.execute_script("var el = document.querySelector('.profileMenubtn .userNameVal span'); return el ? el.innerText.trim() : '';"),
+        lambda d: d.find_element(By.XPATH, "//span[contains(@class,'userNameVal')]/span[1]").text.strip(),
+        lambda d: d.find_element(By.XPATH, "//button[contains(@class,'profileMenubtn')]//span[contains(@class,'userNameVal')]//span[1]").text.strip(),
+    ]
+    for strategy in strategies:
+        try:
+            result = strategy(driver)
+            if result and len(result) > 1 and result.lower() not in ['expand_more']:
+                result = result.split('\n')[0].strip()
+                if result: return result
+        except: continue
+    return fallback
+
 
 # ============================================================
 #  WORKER: FILED RETURN / REFUND CHECKER
@@ -147,7 +184,23 @@ class FiledReturnWorker:
 
                 status, reason = self.process_single_user(user_id, password, dob)
 
-                self.log(f"   📊 Result: {status} - {reason}")
+                entry = {
+                    "PAN": user_id, "Status": status, "Details": reason if not isinstance(reason, dict) else "Data Extracted",
+                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                if isinstance(reason, dict):
+                    entry.update({k: v for k, v in reason.items() if k != "TaxpayerName"})
+
+                # Create user folder and save individual report
+                name = reason.get("TaxpayerName", user_id) if isinstance(reason, dict) else user_id
+                base_dir = os.getcwd()
+                download_root = os.path.join(base_dir, "Income Tax Downloaded", "Refund Checker")
+                folder_name = f"{user_id}_{name}"
+                final_path = create_unique_folder(download_root, folder_name)
+
+                self.report_data.append(entry)
+                self._save_user_report(entry, final_path)
+                self.log(f"   📊 Result: {status}")
                 self.log("-" * 40)
 
             self.generate_report()
@@ -158,6 +211,16 @@ class FiledReturnWorker:
         except Exception as e:
             self.log(f"❌ CRITICAL ERROR: {str(e)}")
             self.app.process_finished_safe_filed("Critical Error Occurred")
+
+    def _save_user_report(self, entry, folder_path):
+        try:
+            if not folder_path or not os.path.exists(folder_path): return
+            pan = entry.get("PAN", "unknown")
+            report_path = os.path.join(folder_path, f"Report_{pan}.xlsx")
+            pd.DataFrame([entry]).to_excel(report_path, index=False)
+            self.log(f"   📄 User Report saved: Report_{pan}.xlsx")
+        except Exception as e:
+            self.log(f"   ⚠️ Failed to save user report: {e}")
 
     def process_single_user(self, user_id, password, dob):
         driver = None
@@ -290,6 +353,10 @@ class FiledReturnWorker:
 
             if not login_success: return "Failed", "Login Timeout"
 
+            name_from_header = get_taxpayer_name(driver, fallback=user_id)
+            if name_from_header != user_id:
+                self.log(f"   👤 Taxpayer: {name_from_header}")
+
             # NAVIGATE TO VIEW FILED RETURNS
             self.log("   🚀 Navigating to View Filed Returns...")
             nav_success = False
@@ -362,7 +429,7 @@ class FiledReturnWorker:
 
                 if not available_years:
                     self.log("   ⚠️ No filed returns found")
-                    return "Success", "No Filed Returns Found"
+                    return "Success", {"Message": "No Filed Returns Found", "TaxpayerName": name_from_header}
 
                 self.log(f"   📋 Found {len(available_years)} Assessment Years: {', '.join(available_years)}")
 
@@ -385,7 +452,7 @@ class FiledReturnWorker:
                 years_to_extract = [y for y in self.current_user_selected_years if y in available_years]
                 if not years_to_extract:
                     self.log("   ⚠️ No matching years selected")
-                    return "Success", "No Matching Years"
+                    return "Success", {"Message": "No Matching Years", "TaxpayerName": name_from_header}
 
                 self.log(f"   ⬇️ Extracting data for {len(years_to_extract)} years: {', '.join(years_to_extract)}")
 
@@ -446,9 +513,9 @@ class FiledReturnWorker:
                     for data in extracted_data:
                         self.report_data.append(data)
                     self.log(f"   ✅ Extracted {len(extracted_data)} return records")
-                    return "Success", f"Extracted {len(extracted_data)} returns"
+                    return "Success", {"Message": f"Extracted {len(extracted_data)} returns", "TaxpayerName": name_from_header}
                 else:
-                    return "Success", "No data extracted"
+                    return "Success", {"Message": "No data extracted", "TaxpayerName": name_from_header}
 
             except Exception as e:
                 self.log(f"   ❌ Data extraction error: {str(e)[:50]}")
@@ -468,8 +535,8 @@ class FiledReturnWorker:
             df_report = pd.DataFrame(self.report_data)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"Filed_Return_Report_{timestamp}.xlsx"
-            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Refund Checker")
-            if not os.path.exists(report_dir): os.makedirs(report_dir, exist_ok=True)
+            report_dir = os.path.join(os.getcwd(), "Income Tax Downloaded", "Refund Checker", "reports")
+            os.makedirs(report_dir, exist_ok=True)
             report_path = os.path.join(report_dir, filename)
             
             self.log(f"📝 Generating report: {filename}")
