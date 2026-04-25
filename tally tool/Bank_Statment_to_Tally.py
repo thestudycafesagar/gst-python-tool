@@ -2773,7 +2773,7 @@ class TallyBankApp(ctk.CTk):
         self.connection_status_var = ctk.StringVar(value="Connection: Not checked")
         self.company_status_var = ctk.StringVar(value="Companies: Not fetched")
         self.bank_status_var = ctk.StringVar(value="Banks: Not fetched")
-        self.workflow_demo_url = ""  # Add YouTube demo link later.
+        self.workflow_demo_url = "https://youtu.be/lEDW1YcY2fg"  # Add YouTube demo link later.
         self.fetched_companies = []
         self.fetched_banks = []
         self._company_fetch_running = False
@@ -2882,7 +2882,7 @@ class TallyBankApp(ctk.CTk):
         demo_url = (self.workflow_demo_url or "").strip()
         if demo_url:
             try:
-                webbrowser.open(demo_url)
+                webbrowser.open_new_tab(demo_url)
                 return
             except Exception as exc:
                 messagebox.showwarning("View Demo", f"Could not open demo link.\n\n{exc}")

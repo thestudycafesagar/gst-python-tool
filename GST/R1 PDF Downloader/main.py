@@ -20,7 +20,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException,
 import sys
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
-from stealth_driver import create_chrome_driver, build_chrome_options
+from stealth_driver import create_chrome_driver, build_chrome_options, show_browser_alert
 
 # --- UI CONFIGURATION ---
 # Commented out: theme is controlled globally by GST_Suite.py
@@ -419,15 +419,46 @@ class GSTWorker:
                 self.driver = None
 
     def perform_login(self, username, password, wait):
-        self.log("   🚀 MANUAL LOGIN MODE.")
-        self.log("   👉 Please LOGIN manually in the Chrome window.")
+        self.log("   🔐 Attempting login (auto-fill if credentials provided)...")
         self.driver.maximize_window()
         self.driver.get("https://services.gst.gov.in/services/login")
+
+        # Try to auto-fill credentials if available
+        try:
+            if username:
+                try:
+                    usr = WebDriverWait(self.driver, 6).until(EC.visibility_of_element_located((By.ID, "username")))
+                    self.type_like_human(usr, username)
+                except Exception:
+                    usr = None
+
+                try:
+                    pwd = self.driver.find_element(By.ID, "user_pass")
+                    self.type_like_human(pwd, password)
+                except Exception:
+                    pwd = None
+
+                # Try clicking submit — captcha may be required and will be handled manually
+                try:
+                    btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
+                    self.driver.execute_script("arguments[0].click();", btn)
+                except Exception:
+                    pass
+
+                # If captcha present, show a browser banner
+                try:
+                    if self.driver.find_elements(By.ID, "imgCaptcha"):
+                        show_browser_alert(self.driver, "Please enter captcha in the browser and submit to continue.")
+                        self.log("   🟨 Captcha detected — please complete it in the browser.")
+                except Exception:
+                    pass
+        except Exception as e:
+            self.log(f"   ⚠️ Auto-fill issue: {str(e)[:20]}")
         
         while self.keep_running:
             try:
-                url = self.driver.current_url.lower()
-                src = self.driver.page_source.lower()
+                url = (self.driver.current_url or "").lower()
+                src = (self.driver.page_source or "").lower()
                 
                 # Strictly check for post-login indicators
                 is_logged_in = any(k in url for k in ("dashboard", "auth/home", "services/auth")) or \
@@ -586,9 +617,7 @@ class App(ctk.CTk):
         self.btn_delete_id.pack(side="left", padx=(8, 0))
         self.btn_delete_id.configure(state="disabled")
         
-        self.chk_manual_login_var = ctk.BooleanVar(value=True)
-        self.chk_manual_login = ctk.CTkCheckBox(self.card_cred, text="Manual Login Mode", variable=self.chk_manual_login_var, font=("Segoe UI", 12))
-        self.chk_manual_login.pack(anchor="w", padx=15, pady=(0, 10))
+
 
 
 

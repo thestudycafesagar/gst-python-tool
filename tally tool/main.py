@@ -4117,7 +4117,7 @@ class GSTR2BTallyApp(ctk.CTk):
     # ─── MODE SWITCHING ───
 
     def _view_workflow_demo(self):
-        demo_url = (self.workflow_demo_url or "").strip()
+        demo_url = (self.workflow_demo_url or "https://www.youtube.com/watch?v=OEJ7H5bJNcM").strip()
         if demo_url:
             try:
                 webbrowser.open_new_tab(demo_url)

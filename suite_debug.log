@@ -2206,3 +2206,176 @@
 [2026-04-24 17:52:55] warmup ok requests
 [2026-04-24 17:52:55] warmup ok PIL
 [2026-04-24 17:52:55] dependency warmup done
+[2026-04-25 13:22:48] dependency warmup start
+[2026-04-25 13:22:51] warmup ok pandas
+[2026-04-25 13:22:51] warmup ok numpy
+[2026-04-25 13:22:52] warmup ok openpyxl
+[2026-04-25 13:22:52] warmup ok fitz
+[2026-04-25 13:22:53] warmup ok pdfplumber
+[2026-04-25 13:22:53] warmup ok pdfminer
+[2026-04-25 13:22:53] warmup ok selenium
+[2026-04-25 13:22:53] warmup ok webdriver_manager
+[2026-04-25 13:22:53] warmup ok requests
+[2026-04-25 13:22:53] warmup ok PIL
+[2026-04-25 13:22:53] dependency warmup done
+[2026-04-25 13:23:28] activate_tab start cat=gmail tab=✏  Custom Email module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py exists=True tk=False
+[2026-04-25 13:23:28] main_import begin tab=✏  Custom Email uid=_suite_mod_0_Gmail-Tools
+[2026-04-25 13:23:28] main_import success tab=✏  Custom Email class=CustomMailApp
+[2026-04-25 13:23:28] instantiate success tab=✏  Custom Email instance=CustomMailApp
+[2026-04-25 13:23:30] activate_tab start cat=gmail tab=📋  GST Return Request module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py exists=True tk=False
+[2026-04-25 13:23:30] main_import cache_hit tab=📋  GST Return Request module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py
+[2026-04-25 13:23:30] instantiate success tab=📋  GST Return Request instance=GSTReturnMailApp
+[2026-04-25 13:23:33] activate_tab start cat=gmail tab=🧾  Invoice Sender module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py exists=True tk=False
+[2026-04-25 13:23:33] main_import cache_hit tab=🧾  Invoice Sender module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py
+[2026-04-25 13:23:33] instantiate success tab=🧾  Invoice Sender instance=InvoiceSenderMailApp
+[2026-04-25 13:23:34] activate_tab start cat=gmail tab=💰  Payment Reminder module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py exists=True tk=False
+[2026-04-25 13:23:34] main_import cache_hit tab=💰  Payment Reminder module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py
+[2026-04-25 13:23:35] instantiate success tab=💰  Payment Reminder instance=PaymentReminderMailApp
+[2026-04-25 13:45:26] dependency warmup start
+[2026-04-25 13:45:27] warmup ok pandas
+[2026-04-25 13:45:27] warmup ok numpy
+[2026-04-25 13:45:27] warmup ok openpyxl
+[2026-04-25 13:45:27] warmup ok fitz
+[2026-04-25 13:45:27] warmup ok pdfplumber
+[2026-04-25 13:45:27] warmup ok pdfminer
+[2026-04-25 13:45:27] warmup ok selenium
+[2026-04-25 13:45:27] warmup ok webdriver_manager
+[2026-04-25 13:45:27] warmup ok requests
+[2026-04-25 13:45:27] warmup ok PIL
+[2026-04-25 13:45:27] dependency warmup done
+[2026-04-25 13:45:30] activate_tab start cat=tally tab=🧾  GSTR-2B → Tally module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\main.py exists=True tk=False
+[2026-04-25 13:45:30] main_import begin tab=🧾  GSTR-2B → Tally uid=_suite_mod_0_tally_tool
+[2026-04-25 13:45:31] main_import success tab=🧾  GSTR-2B → Tally class=GSTR2BTallyApp
+[2026-04-25 13:45:32] instantiate success tab=🧾  GSTR-2B → Tally instance=GSTR2BTallyApp
+[2026-04-25 13:50:21] dependency warmup start
+[2026-04-25 13:50:21] warmup ok pandas
+[2026-04-25 13:50:21] warmup ok numpy
+[2026-04-25 13:50:21] warmup ok openpyxl
+[2026-04-25 13:50:21] warmup ok fitz
+[2026-04-25 13:50:22] warmup ok pdfplumber
+[2026-04-25 13:50:22] warmup ok pdfminer
+[2026-04-25 13:50:22] warmup ok selenium
+[2026-04-25 13:50:22] warmup ok webdriver_manager
+[2026-04-25 13:50:22] warmup ok requests
+[2026-04-25 13:50:22] warmup ok PIL
+[2026-04-25 13:50:22] dependency warmup done
+[2026-04-25 13:50:23] activate_tab start cat=tally tab=🧾  GSTR-2B → Tally module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\main.py exists=True tk=False
+[2026-04-25 13:50:23] main_import begin tab=🧾  GSTR-2B → Tally uid=_suite_mod_0_tally_tool
+[2026-04-25 13:50:23] main_import success tab=🧾  GSTR-2B → Tally class=GSTR2BTallyApp
+[2026-04-25 13:50:25] instantiate success tab=🧾  GSTR-2B → Tally instance=GSTR2BTallyApp
+[2026-04-25 13:50:40] activate_tab start cat=tally tab=🏦  Bank Statement → Tally module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\Bank_Statment_to_Tally.py exists=True tk=False
+[2026-04-25 13:50:40] main_import begin tab=🏦  Bank Statement → Tally uid=_suite_mod_1_tally_tool
+[2026-04-25 13:50:41] main_import success tab=🏦  Bank Statement → Tally class=TallyBankApp
+[2026-04-25 13:50:41] instantiate success tab=🏦  Bank Statement → Tally instance=TallyBankApp
+[2026-04-25 13:52:02] dependency warmup start
+[2026-04-25 13:52:02] warmup ok pandas
+[2026-04-25 13:52:02] warmup ok numpy
+[2026-04-25 13:52:03] warmup ok openpyxl
+[2026-04-25 13:52:03] warmup ok fitz
+[2026-04-25 13:52:03] warmup ok pdfplumber
+[2026-04-25 13:52:03] warmup ok pdfminer
+[2026-04-25 13:52:03] warmup ok selenium
+[2026-04-25 13:52:03] warmup ok webdriver_manager
+[2026-04-25 13:52:03] warmup ok requests
+[2026-04-25 13:52:03] warmup ok PIL
+[2026-04-25 13:52:03] dependency warmup done
+[2026-04-25 13:52:05] activate_tab start cat=tally tab=🏦  Bank Statement → Tally module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\Bank_Statment_to_Tally.py exists=True tk=False
+[2026-04-25 13:52:05] main_import begin tab=🏦  Bank Statement → Tally uid=_suite_mod_0_tally_tool
+[2026-04-25 13:52:05] main_import success tab=🏦  Bank Statement → Tally class=TallyBankApp
+[2026-04-25 13:52:05] instantiate success tab=🏦  Bank Statement → Tally instance=TallyBankApp
+[2026-04-25 13:53:23] dependency warmup start
+[2026-04-25 13:53:24] warmup ok pandas
+[2026-04-25 13:53:24] warmup ok numpy
+[2026-04-25 13:53:24] warmup ok openpyxl
+[2026-04-25 13:53:25] warmup ok fitz
+[2026-04-25 13:53:25] warmup ok pdfplumber
+[2026-04-25 13:53:25] warmup ok pdfminer
+[2026-04-25 13:53:25] warmup ok selenium
+[2026-04-25 13:53:25] warmup ok webdriver_manager
+[2026-04-25 13:53:25] warmup ok requests
+[2026-04-25 13:53:25] warmup ok PIL
+[2026-04-25 13:53:25] dependency warmup done
+[2026-04-25 13:53:26] activate_tab start cat=tally tab=🏦  Bank Statement → Tally module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\Bank_Statment_to_Tally.py exists=True tk=False
+[2026-04-25 13:53:26] main_import begin tab=🏦  Bank Statement → Tally uid=_suite_mod_0_tally_tool
+[2026-04-25 13:53:26] main_import success tab=🏦  Bank Statement → Tally class=TallyBankApp
+[2026-04-25 13:53:27] instantiate success tab=🏦  Bank Statement → Tally instance=TallyBankApp
+[2026-04-25 13:53:47] dependency warmup start
+[2026-04-25 13:53:48] warmup ok pandas
+[2026-04-25 13:53:48] warmup ok numpy
+[2026-04-25 13:53:48] warmup ok openpyxl
+[2026-04-25 13:53:48] warmup ok fitz
+[2026-04-25 13:53:48] warmup ok pdfplumber
+[2026-04-25 13:53:48] warmup ok pdfminer
+[2026-04-25 13:53:48] warmup ok selenium
+[2026-04-25 13:53:48] warmup ok webdriver_manager
+[2026-04-25 13:53:48] warmup ok requests
+[2026-04-25 13:53:48] warmup ok PIL
+[2026-04-25 13:53:48] dependency warmup done
+[2026-04-25 13:53:50] activate_tab start cat=tally tab=🏦  Bank Statement → Tally module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\Bank_Statment_to_Tally.py exists=True tk=False
+[2026-04-25 13:53:50] main_import begin tab=🏦  Bank Statement → Tally uid=_suite_mod_0_tally_tool
+[2026-04-25 13:53:50] main_import success tab=🏦  Bank Statement → Tally class=TallyBankApp
+[2026-04-25 13:53:50] instantiate success tab=🏦  Bank Statement → Tally instance=TallyBankApp
+[2026-04-25 13:59:50] dependency warmup start
+[2026-04-25 13:59:50] warmup ok pandas
+[2026-04-25 13:59:50] warmup ok numpy
+[2026-04-25 13:59:50] warmup ok openpyxl
+[2026-04-25 13:59:51] warmup ok fitz
+[2026-04-25 13:59:51] warmup ok pdfplumber
+[2026-04-25 13:59:51] warmup ok pdfminer
+[2026-04-25 13:59:51] warmup ok selenium
+[2026-04-25 13:59:51] warmup ok webdriver_manager
+[2026-04-25 13:59:51] warmup ok requests
+[2026-04-25 13:59:51] warmup ok PIL
+[2026-04-25 13:59:51] dependency warmup done
+[2026-04-25 13:59:54] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-04-25 13:59:54] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_0_R1_PDF_Downloader
+[2026-04-25 13:59:54] main_import success tab=📄  GSTR1 PDF class=App
+[2026-04-25 13:59:54] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-04-25 13:59:59] activate_tab start cat=tally tab=🏦  Bank Statement → Tally module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\Bank_Statment_to_Tally.py exists=True tk=False
+[2026-04-25 13:59:59] main_import begin tab=🏦  Bank Statement → Tally uid=_suite_mod_1_tally_tool
+[2026-04-25 13:59:59] main_import success tab=🏦  Bank Statement → Tally class=TallyBankApp
+[2026-04-25 13:59:59] instantiate success tab=🏦  Bank Statement → Tally instance=TallyBankApp
+[2026-04-25 14:00:11] activate_tab start cat=tally tab=🛒  Tally Entry module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\sale_purchase_entry.py exists=True tk=False
+[2026-04-25 14:00:11] main_import begin tab=🛒  Tally Entry uid=_suite_mod_2_tally_tool
+[2026-04-25 14:00:11] main_import success tab=🛒  Tally Entry class=TallySalesApp
+[2026-04-25 14:00:16] instantiate success tab=🛒  Tally Entry instance=TallySalesApp
+[2026-04-25 14:33:37] dependency warmup start
+[2026-04-25 14:33:38] warmup ok pandas
+[2026-04-25 14:33:38] warmup ok numpy
+[2026-04-25 14:33:38] warmup ok openpyxl
+[2026-04-25 14:33:38] warmup ok fitz
+[2026-04-25 14:33:38] warmup ok pdfplumber
+[2026-04-25 14:33:38] warmup ok pdfminer
+[2026-04-25 14:33:38] warmup ok selenium
+[2026-04-25 14:33:38] warmup ok webdriver_manager
+[2026-04-25 14:33:39] warmup ok requests
+[2026-04-25 14:33:39] warmup ok PIL
+[2026-04-25 14:33:39] dependency warmup done
+[2026-04-25 14:33:42] activate_tab start cat=tally tab=🧾  GSTR-2B → Tally module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\main.py exists=True tk=False
+[2026-04-25 14:33:42] main_import begin tab=🧾  GSTR-2B → Tally uid=_suite_mod_0_tally_tool
+[2026-04-25 14:33:42] main_import success tab=🧾  GSTR-2B → Tally class=GSTR2BTallyApp
+[2026-04-25 14:33:44] instantiate success tab=🧾  GSTR-2B → Tally instance=GSTR2BTallyApp
+[2026-04-25 14:33:44] activate_tab start cat=tally tab=🏦  Bank Statement → Tally module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\Bank_Statment_to_Tally.py exists=True tk=False
+[2026-04-25 14:33:44] main_import begin tab=🏦  Bank Statement → Tally uid=_suite_mod_1_tally_tool
+[2026-04-25 14:33:44] main_import success tab=🏦  Bank Statement → Tally class=TallyBankApp
+[2026-04-25 14:33:44] instantiate success tab=🏦  Bank Statement → Tally instance=TallyBankApp
+[2026-04-25 14:33:47] activate_tab start cat=tally tab=🛒  Tally Entry module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\sale_purchase_entry.py exists=True tk=False
+[2026-04-25 14:33:47] main_import begin tab=🛒  Tally Entry uid=_suite_mod_2_tally_tool
+[2026-04-25 14:33:47] main_import success tab=🛒  Tally Entry class=TallySalesApp
+[2026-04-25 14:33:51] instantiate success tab=🛒  Tally Entry instance=TallySalesApp
+[2026-04-25 17:04:59] dependency warmup start
+[2026-04-25 17:05:02] warmup ok pandas
+[2026-04-25 17:05:02] warmup ok numpy
+[2026-04-25 17:05:03] warmup ok openpyxl
+[2026-04-25 17:05:03] warmup ok fitz
+[2026-04-25 17:05:04] warmup ok pdfplumber
+[2026-04-25 17:05:04] warmup ok pdfminer
+[2026-04-25 17:05:04] warmup ok selenium
+[2026-04-25 17:05:04] warmup ok webdriver_manager
+[2026-04-25 17:05:04] warmup ok requests
+[2026-04-25 17:05:04] warmup ok PIL
+[2026-04-25 17:05:04] dependency warmup done
+[2026-04-25 17:05:05] activate_tab start cat=gmail tab=📋  GST Return Request module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Gmail-Tools\main.py exists=True tk=False
+[2026-04-25 17:05:05] main_import begin tab=📋  GST Return Request uid=_suite_mod_0_Gmail-Tools
+[2026-04-25 17:05:05] main_import success tab=📋  GST Return Request class=GSTReturnMailApp
+[2026-04-25 17:05:06] instantiate success tab=📋  GST Return Request instance=GSTReturnMailApp

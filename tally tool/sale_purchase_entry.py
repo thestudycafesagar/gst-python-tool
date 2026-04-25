@@ -4299,16 +4299,30 @@ class TallySalesApp(ctk.CTk):
         return mode, custom_tally_date
 
     def _view_workflow_demo(self):
-        demo_url = (self.workflow_demo_url or "").strip()
+        # 1. Map current panel selection to specific YouTube links
+        current_selection = self._panel_var.get()
+        current_key = self._panel_option_to_key.get(current_selection, "")
+
+        demo_map = {
+            "accounting": "https://youtu.be/SlVhqglVSzU",           # Sales Accounting Invoice
+            "purchase_accounting": "https://youtu.be/9FSOjQoHmk8",  # Purchase Accounting Invoice
+            "purchase_item": "https://youtu.be/DbXzZsqb9q8",        # Purchase Item Invoice
+        }
+
+        # 2. Determine the URL (Specific -> Instance Var -> Global Default)
+        demo_url = demo_map.get(current_key)
+        if not demo_url:
+            demo_url = (self.workflow_demo_url or "https://www.youtube.com/watch?v=OEJ7H5bJNcM").strip()
+
+        # 3. Open the browser
         if demo_url:
             try:
-                opened = webbrowser.open(demo_url)
-            except webbrowser.Error as exc:
+                # Using open_new_tab for consistent behavior
+                webbrowser.open_new_tab(demo_url)
+                return
+            except Exception as exc:
                 messagebox.showwarning("View Demo", f"Could not open demo link.\n\n{exc}")
                 return
-            if not opened:
-                messagebox.showwarning("View Demo", "Could not open demo link in your default browser.")
-            return
 
         messagebox.showinfo(
             "View Demo",
