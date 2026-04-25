@@ -24,7 +24,7 @@ class GSTR3BConverterPro(ctk.CTk):
 
         # Variables
         self.selected_files = []
-        self.merge_mode = ctk.BooleanVar(value=False) # Checkbox variable
+        self.merge_mode = ctk.BooleanVar(value=False) 
         
         # UI Layout
         self.create_widgets()
@@ -84,7 +84,7 @@ class GSTR3BConverterPro(ctk.CTk):
         )
         self.btn_demo.pack(pady=(0, 15))
 
-        # --- Options Area (New Checkbox) ---
+        # --- Options Area ---
         self.options_frame = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
         self.options_frame.pack(pady=5)
 
@@ -130,7 +130,7 @@ class GSTR3BConverterPro(ctk.CTk):
             hover_color="#475569"
         )
         self.open_folder_btn.pack(pady=(0, 10))
-        self.open_folder_btn.pack_forget() # Initially hidden
+        self.open_folder_btn.pack_forget() 
 
         # Log/Status Area
         self.textbox = ctk.CTkTextbox(self.scroll_container, height=200, width=600)
@@ -139,7 +139,6 @@ class GSTR3BConverterPro(ctk.CTk):
         self.textbox.configure(state="disabled")
 
     def log(self, message):
-        """Thread-safe logging to the UI textbox."""
         self.after(0, self._log_to_gui, message)
 
     def _log_to_gui(self, message):
@@ -171,15 +170,19 @@ class GSTR3BConverterPro(ctk.CTk):
             self.log(f"Selected {count} files.")
 
     def extract_data(self, pdf_path):
-        """
-        Extracts specific tables and returns them.
-        """
+        """Extracts ALL specific tables and returns them in a structured dictionary."""
         data = {
             "meta": {"GSTIN": "Unknown", "Year": "Unknown", "Month": "Unknown"},
-            "supplies": [], 
-            "itc": [],      
-            "nil": []       
+            "supplies": [],        # 3.1
+            "supplies_9_5": [],    # 3.1.1
+            "inter_state": [],     # 3.2
+            "itc": [],             # 4
+            "nil": [],             # 5
+            "interest": [],        # 5.1
+            "payment": []          # 6.1
         }
+        
+        current_6_1_block = "(A) Other than reverse charge" # Default State Tracker
 
         try:
             with pdfplumber.open(pdf_path) as pdf:
@@ -191,32 +194,77 @@ class GSTR3BConverterPro(ctk.CTk):
                     tables = page.extract_tables()
                     for table in tables:
                         if not table: continue
-                        clean_table = [[str(c).replace('\n', ' ') if c else "0.00" for c in row] for row in table]
-                        header = " ".join(clean_table[0]).lower()
+                        clean_table = [[str(c).replace('\n', ' ').strip() if c else "0.00" for c in row] for row in table]
+                        table_text_lower = " ".join([" ".join(row) for row in clean_table]).lower()
 
                         # 1. Identify Table 3.1 (Supplies)
-                        is_supplies = "nature of supplies" in header and "integrated" in header and len(clean_table[0]) >= 5
-                        if is_supplies:
-                            if any("outward" in str(row).lower() for row in clean_table):
-                                for row in clean_table:
-                                    if "nature of supplies" in str(row[0]).lower(): continue
-                                    if len(row) < 5: continue
+                        if "outward taxable supplies" in table_text_lower and "zero rated" in table_text_lower:
+                            for row in clean_table:
+                                r0 = row[0].lower()
+                                if "(a)" in r0 or "(b)" in r0 or "(c)" in r0 or "(d)" in r0 or "(e)" in r0:
                                     data["supplies"].append(row)
 
-                        # 2. Identify Table 4 (ITC)
-                        elif "details" in header and "integrated" in header:
-                             if any("itc" in str(row).lower() for row in clean_table):
-                                for row in clean_table:
-                                    if "details" in str(row[0]).lower(): continue 
-                                    if "itc available" in str(row[0]).lower(): continue
-                                    if len(row) < 5: continue
+                        # 2. Identify Table 3.1.1 (Supplies under 9(5))
+                        elif "electronic commerce operator pays tax u/s 9(5)" in table_text_lower:
+                            for row in clean_table:
+                                if "electronic commerce" in row[0].lower():
+                                    data["supplies_9_5"].append(row)
+
+                        # 3. Identify Table 3.2 (Inter-state Supplies)
+                        elif "unregistered persons" in table_text_lower and "composition" in table_text_lower:
+                            for row in clean_table:
+                                r0 = row[0].lower()
+                                if "unregistered persons" in r0 or "composition taxable" in r0 or "uin holders" in r0:
+                                    data["inter_state"].append(row)
+
+                        # 4. Identify Table 4 (ITC)
+                        elif "itc available" in table_text_lower or "itc reversed" in table_text_lower:
+                            for row in clean_table:
+                                r0 = row[0].lower()
+                                if "import" in r0 or "inward" in r0 or "all other itc" in r0 or "as per rules" in r0 or "others" in r0 or "net itc" in r0 or "itc reclaimed" in r0 or "ineligible itc" in r0:
                                     data["itc"].append(row)
 
-                        # 3. Identify Table 5 (Nil Rated)
-                        elif "nature of supplies" in header and "inter-state" in header:
+                        # 5. Identify Table 5 (Nil Rated)
+                        elif "from a supplier under composition" in table_text_lower and "non gst" in table_text_lower:
                             for row in clean_table:
-                                if "nature of supplies" in str(row[0]).lower(): continue
-                                data["nil"].append(row)
+                                r0 = row[0].lower()
+                                if "composition" in r0 or "non gst" in r0:
+                                    data["nil"].append(row)
+
+                        # 6. Identify Table 6.1 (MUST Process BEFORE 5.1 to prevent Keyword Conflict)
+                        elif ("tax payable" in table_text_lower and "paid in cash" in table_text_lower) or \
+                             ("other than reverse charge" in table_text_lower and "integrated tax" in table_text_lower) or \
+                             ("adjustment" in table_text_lower and "negative liability" in table_text_lower):
+                            for row in clean_table:
+                                row_str = " ".join(row).lower()
+                                
+                                # Skip header/title rows completely
+                                if "tax payable" in row_str or "paid in cash" in row_str or "adjustment" in row_str:
+                                    continue
+                                
+                                # Identify Blocks (Updates Current State)
+                                if "other than reverse charge" in row_str:
+                                    current_6_1_block = "(A) Other than reverse charge"
+                                elif "reverse charge" in row_str and "other than" not in row_str:
+                                    current_6_1_block = "(B) Reverse charge"
+                                
+                                # Extract Tax Head regardless of which column it got pushed into
+                                tax_head = None
+                                if "integrated tax" in row_str: tax_head = "Integrated Tax"
+                                elif "central tax" in row_str: tax_head = "Central Tax"
+                                elif "state/ut tax" in row_str: tax_head = "State/UT Tax"
+                                elif "cess" in row_str: tax_head = "Cess"
+
+                                if tax_head:
+                                    # Store block, head, and raw row values
+                                    data["payment"].append([current_6_1_block, tax_head] + row)
+
+                        # 7. Identify Table 5.1 (Interest & Late fee)
+                        elif "system computed interest" in table_text_lower or ("interest paid" in table_text_lower and "late fee" in table_text_lower):
+                            for row in clean_table:
+                                r0 = row[0].lower()
+                                if "interest" in r0 or "late fee" in r0:
+                                    data["interest"].append(row)
 
                 # Metadata Extraction
                 gstin_match = re.search(r"GSTIN.*?(\d{2}[A-Z]{5}\d{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})", full_text)
@@ -233,44 +281,75 @@ class GSTR3BConverterPro(ctk.CTk):
         return data
 
     def prepare_rows(self, data):
-        """
-        Flattens the data structure: prepends Meta info to every row.
-        Returns: {"supplies": [[meta, row], ...], ...}
-        """
+        """Flattens the data structure for all tables."""
         meta = data["meta"]
-        clean_float = lambda val: float(str(val).replace(",", "")) if str(val).replace(",", "").replace(".", "").isdigit() else 0.00
         
-        prepared = {"supplies": [], "itc": [], "nil": []}
+        def clean_float(val):
+            if not val or str(val).strip() in ("0.00", "0", ""): return 0.00
+            cleaned = str(val).replace(",", "").replace(" ", "")
+            try:
+                return float(cleaned)
+            except ValueError:
+                match = re.search(r"[-+]?\d*\.\d+|\d+", cleaned)
+                return float(match.group()) if match else 0.00
 
-        # Prepare Supplies
-        for row in data["supplies"]:
-            if len(row) >= 5:
-                # Structure: [GSTIN, Year, Month, Nature, Value, IGST, CGST, SGST, Cess]
+        prepared = {
+            "supplies": [], "supplies_9_5": [], "inter_state": [], 
+            "itc": [], "nil": [], "interest": [], "payment": []
+        }
+
+        # 3.1 Supplies & 3.1.1 Supplies 9(5)
+        for target_key in ["supplies", "supplies_9_5"]:
+            for row in data[target_key]:
                 nature = row[0]
                 val = clean_float(row[1]) if len(row) > 1 else 0
                 igst = clean_float(row[2]) if len(row) > 2 else 0
                 cgst = clean_float(row[3]) if len(row) > 3 else 0
                 sgst = clean_float(row[4]) if len(row) > 4 else 0
                 cess = clean_float(row[5]) if len(row) > 5 else 0
-                prepared["supplies"].append([meta["GSTIN"], meta["Year"], meta["Month"], nature, val, igst, cgst, sgst, cess])
+                prepared[target_key].append([meta["GSTIN"], meta["Year"], meta["Month"], nature, val, igst, cgst, sgst, cess])
 
-        # Prepare ITC
-        for row in data["itc"]:
-            if len(row) >= 4:
+        # 3.2 Inter-state
+        for row in data["inter_state"]:
+            cols = [clean_float(x) for x in row[1:] if str(x).strip() != ""]
+            val = cols[0] if len(cols) > 0 else 0.0
+            igst = cols[1] if len(cols) > 1 else 0.0
+            prepared["inter_state"].append([meta["GSTIN"], meta["Year"], meta["Month"], row[0], val, igst])
+
+        # 4 ITC & 5.1 Interest
+        for target_key in ["itc", "interest"]:
+            for row in data[target_key]:
                 details = row[0]
-                igst = clean_float(row[1])
-                cgst = clean_float(row[2])
-                sgst = clean_float(row[3])
+                igst = clean_float(row[1]) if len(row) > 1 else 0
+                cgst = clean_float(row[2]) if len(row) > 2 else 0
+                sgst = clean_float(row[3]) if len(row) > 3 else 0
                 cess = clean_float(row[4]) if len(row) > 4 else 0
-                prepared["itc"].append([meta["GSTIN"], meta["Year"], meta["Month"], details, igst, cgst, sgst, cess])
+                prepared[target_key].append([meta["GSTIN"], meta["Year"], meta["Month"], details, igst, cgst, sgst, cess])
 
-        # Prepare Nil
+        # 5 Nil
         for row in data["nil"]:
-            if len(row) >= 3:
-                nature = row[0]
-                inter = clean_float(row[1])
-                intra = clean_float(row[2])
-                prepared["nil"].append([meta["GSTIN"], meta["Year"], meta["Month"], nature, inter, intra])
+            nature = row[0]
+            inter = clean_float(row[1]) if len(row) > 1 else 0
+            intra = clean_float(row[2]) if len(row) > 2 else 0
+            prepared["nil"].append([meta["GSTIN"], meta["Year"], meta["Month"], nature, inter, intra])
+
+        # 6.1 Payment - SMART ROW EXTRACTION
+        for row in data["payment"]:
+            block = row[0]
+            tax_head = row[1]
+            raw_cells = row[2:]
+            
+            vals = []
+            for cell in raw_cells:
+                cell_str = str(cell).strip().lower()
+                # Dynamically skip cells containing alphabet characters, isolating purely numeric columns
+                if re.search(r'[a-z]{3,}', cell_str):
+                    continue
+                vals.append(clean_float(cell))
+            
+            # Pad or trim to ensure exactly 10 data points per row
+            vals += [0.0] * 10
+            prepared["payment"].append([meta["GSTIN"], meta["Year"], meta["Month"], block, tax_head] + vals[:10])
 
         return prepared
 
@@ -302,22 +381,30 @@ class GSTR3BConverterPro(ctk.CTk):
                     c = ws.cell(row=r_idx, column=c_idx, value=val)
                     c.border = border
 
-        # 1. Supplies Sheet
-        headers_sup = ["GSTIN", "Year", "Month", "Nature of Supplies", "Taxable Value", "Integrated Tax", "Central Tax", "State/UT Tax", "Cess"]
-        setup_sheet("GSTR3B_Supplies", headers_sup, combined_data["supplies"])
+        # Define Sheet Structure
+        sheets_config = [
+            ("GSTR3B_3.1_Supplies", ["GSTIN", "Year", "Month", "Nature of Supplies", "Taxable Value", "Integrated Tax", "Central Tax", "State/UT Tax", "Cess"], combined_data["supplies"]),
+            ("GSTR3B_3.1.1_Supplies_9_5", ["GSTIN", "Year", "Month", "Nature of Supplies", "Taxable Value", "Integrated Tax", "Central Tax", "State/UT Tax", "Cess"], combined_data["supplies_9_5"]),
+            ("GSTR3B_3.2_InterState", ["GSTIN", "Year", "Month", "Nature of Supplies", "Total Taxable Value", "Integrated Tax"], combined_data["inter_state"]),
+            ("GSTR3B_4_ITC", ["GSTIN", "Year", "Month", "Details", "Integrated Tax", "Central Tax", "State/UT Tax", "Cess"], combined_data["itc"]),
+            ("GSTR3B_5_NilRated", ["GSTIN", "Year", "Month", "Nature of Supplies", "Inter-State Supplies", "Intra-State Supplies"], combined_data["nil"]),
+            ("GSTR3B_5.1_Interest", ["GSTIN", "Year", "Month", "Details", "Integrated Tax", "Central Tax", "State/UT Tax", "Cess"], combined_data["interest"]),
+            ("GSTR3B_6.1_Payment", ["GSTIN", "Year", "Month", "Block", "Tax Head", "Tax Payable", "Adjustment", "Net Tax Payable", "Paid via IGST", "Paid via CGST", "Paid via SGST", "Paid via Cess", "Tax Paid in Cash", "Interest Paid in Cash", "Late Fee Paid in Cash"], combined_data["payment"])
+        ]
 
-        # 2. ITC Sheet
-        headers_itc = ["GSTIN", "Year", "Month", "Details", "Integrated Tax", "Central Tax", "State/UT Tax", "Cess"]
-        setup_sheet("GSTR3B_ITC", headers_itc, combined_data["itc"])
+        # Generate Sheets
+        for sheet_name, headers, data_rows in sheets_config:
+            if data_rows: # Only create sheet if there's data to process
+                setup_sheet(sheet_name, headers, data_rows)
 
-        # 3. Nil Sheet
-        headers_nil = ["GSTIN", "Year", "Month", "Nature of Supplies", "Inter-State Supplies", "Intra-State Supplies"]
-        setup_sheet("GSTR3B_Nil", headers_nil, combined_data["nil"])
-
-        # Remove default sheet
-        if "Sheet" in wb.sheetnames: wb.remove(wb["Sheet"])
-        
-        wb.save(output_path)
+        # Remove default empty sheet
+        if "Sheet" in wb.sheetnames and len(wb.sheetnames) > 1: 
+            wb.remove(wb["Sheet"])
+            
+        try:
+            wb.save(output_path)
+        except PermissionError:
+            raise PermissionError(f"The file '{os.path.basename(output_path)}' is currently open in Excel.\n\nPlease close it and try again.")
 
     def process_files(self):
         if not self.selected_files:
@@ -336,31 +423,30 @@ class GSTR3BConverterPro(ctk.CTk):
             if not os.path.exists(output_folder):
                 os.makedirs(output_folder, exist_ok=True)
             
-            # --- LOGIC BRANCHING ---
             is_merge = self.merge_mode.get()
             
             if is_merge:
                 # === BUNCH CONVERTER MODE ===
                 self.log(f"Starting Bunch Merge for {len(self.selected_files)} files...")
                 
-                master_data = {"supplies": [], "itc": [], "nil": []}
+                master_data = {
+                    "supplies": [], "supplies_9_5": [], "inter_state": [], 
+                    "itc": [], "nil": [], "interest": [], "payment": []
+                }
                 first_meta = None
 
                 for idx, file_path in enumerate(self.selected_files):
                     filename = os.path.basename(file_path)
                     self.log(f"Reading ({idx+1}/{len(self.selected_files)}): {filename}...")
                     
-                    # Extract
+                    # Extract & Prepare
                     raw_data = self.extract_data(file_path)
                     if not first_meta: first_meta = raw_data["meta"]
-                    
-                    # Prepare (Flatten)
                     flat_rows = self.prepare_rows(raw_data)
                     
-                    # Merge
-                    master_data["supplies"].extend(flat_rows["supplies"])
-                    master_data["itc"].extend(flat_rows["itc"])
-                    master_data["nil"].extend(flat_rows["nil"])
+                    # Merge all keys natively
+                    for key in master_data.keys():
+                        master_data[key].extend(flat_rows[key])
 
                 # Save Consolidated File
                 out_name = "GSTR3B_Consolidated.xlsx"
@@ -384,10 +470,8 @@ class GSTR3BConverterPro(ctk.CTk):
                     filename = os.path.basename(file_path)
                     self.log(f"Processing ({idx+1}/{len(self.selected_files)}): {filename}")
                     
-                    # Extract
+                    # Extract & Prepare
                     raw_data = self.extract_data(file_path)
-                    
-                    # Prepare
                     flat_rows = self.prepare_rows(raw_data)
                     
                     # Naming
@@ -409,6 +493,10 @@ class GSTR3BConverterPro(ctk.CTk):
                 self.after(0, lambda: self.open_folder_btn.pack(pady=(0, 10), before=self.textbox))
                 self.after(0, lambda: messagebox.showinfo("Done", f"Processed {len(self.selected_files)} files."))
 
+        except PermissionError as pe:
+            self.log(f"❌ Save Error: File is open.")
+            self.after(0, lambda: messagebox.showerror("File Open Error", str(pe)))
+            
         except Exception as e:
             self.log(f"❌ Critical Error: {str(e)}")
             self.after(0, lambda: messagebox.showerror("Error", f"An unexpected error occurred:\n{e}"))
@@ -420,6 +508,7 @@ class GSTR3BConverterPro(ctk.CTk):
         self.convert_btn.configure(state="normal")
         self.selected_files = []
         self.file_count_label.configure(text="No files selected", text_color="gray")
+
 
 if __name__ == "__main__":
     app = GSTR3BConverterPro()
