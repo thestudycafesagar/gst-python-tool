@@ -2375,10 +2375,25 @@ def generate_purchase_accounting_xml(
         ))
         narr = xml_escape(_row_text(r, "Narration"))
 
+        # TDS fields
+        tds_ledger_raw = (
+            _row_text(r, "TDSLedger")
+            or _row_text(r, "TDS Ledger")
+            or _row_text(r, "Tds Ledger")
+        )
+        tds_rate = _row_float(r, "TDSRate", 0.0) or _row_float(r, "TDS Rate", 0.0)
+        tds_amount_raw = _row_float(r, "TDSAmount", 0.0) or _row_float(r, "TDS Amount", 0.0)
+        if tds_ledger_raw and tds_amount_raw <= 0 and tds_rate > 0:
+            tds_amount = round(taxable * tds_rate / 100, 2)
+        else:
+            tds_amount = abs(tds_amount_raw)
+        tds_led = xml_escape(tds_ledger_raw)
+
         cgst_amt = round(taxable * cgst_r / 100, 2) if cgst_r > 0 else 0
         sgst_amt = round(taxable * sgst_r / 100, 2) if sgst_r > 0 else 0
         igst_amt = round(taxable * igst_r / 100, 2) if igst_r > 0 else 0
         total = taxable + cgst_amt + sgst_amt + igst_amt
+        party_total = total + tds_amount if (tds_led and tds_amount > 0) else total
 
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
         a('    <VOUCHER VCHTYPE="Purchase" ACTION="Create" OBJVIEW="Invoice Voucher View">')
@@ -2415,15 +2430,15 @@ def generate_purchase_accounting_xml(
         if narr:
             a(f'     <NARRATION>{narr}</NARRATION>')
 
-        # Party - Credit
+        # Party - Credit (net of TDS)
         a('     <LEDGERENTRIES.LIST>')
         a(f'      <LEDGERNAME>{party}</LEDGERNAME>')
         a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
-        a(f'      <AMOUNT>{fmt_amt(total)}</AMOUNT>')
+        a(f'      <AMOUNT>{fmt_amt(party_total)}</AMOUNT>')
         a('      <BILLALLOCATIONS.LIST>')
         a(f'       <NAME>{supplier_invoice or vno}</NAME>')
         a('       <BILLTYPE>New Ref</BILLTYPE>')
-        a(f'       <AMOUNT>{fmt_amt(total)}</AMOUNT>')
+        a(f'       <AMOUNT>{fmt_amt(party_total)}</AMOUNT>')
         a('      </BILLALLOCATIONS.LIST>')
         a('     </LEDGERENTRIES.LIST>')
 
@@ -2454,6 +2469,14 @@ def generate_purchase_accounting_xml(
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(igst_amt)}</AMOUNT>')
             _append_tax_object_allocation_xml(a, "IGST")
+            a('     </LEDGERENTRIES.LIST>')
+
+        # TDS Payable - shown as negative deduction in Invoice Amount column
+        if tds_led and tds_amount > 0:
+            a('     <LEDGERENTRIES.LIST>')
+            a(f'      <LEDGERNAME>{tds_led}</LEDGERNAME>')
+            a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
+            a(f'      <AMOUNT>-{fmt_amt(tds_amount)}</AMOUNT>')
             a('     </LEDGERENTRIES.LIST>')
 
         a('    </VOUCHER>')
@@ -3417,6 +3440,21 @@ def generate_journal_xml(
         total = taxable + cgst_amt + sgst_amt + igst_amt
         has_gst = (cgst_amt + sgst_amt + igst_amt) > 0
 
+        # TDS fields (only applied for Purchase journal)
+        jnl_tds_ledger_raw = (
+            _row_text(r, "TDSLedger")
+            or _row_text(r, "TDS Ledger")
+            or _row_text(r, "Tds Ledger")
+        ) if not is_sale else ""
+        jnl_tds_rate = (_row_float(r, "TDSRate", 0.0) or _row_float(r, "TDS Rate", 0.0)) if not is_sale else 0.0
+        jnl_tds_amount_raw = (_row_float(r, "TDSAmount", 0.0) or _row_float(r, "TDS Amount", 0.0)) if not is_sale else 0.0
+        if jnl_tds_ledger_raw and jnl_tds_amount_raw <= 0 and jnl_tds_rate > 0:
+            jnl_tds_amount = round(taxable * jnl_tds_rate / 100, 2)
+        else:
+            jnl_tds_amount = abs(jnl_tds_amount_raw)
+        jnl_tds_led = xml_escape(jnl_tds_ledger_raw)
+        jnl_party_total = total - jnl_tds_amount if (jnl_tds_led and jnl_tds_amount > 0) else total
+
         bill_reference_raw = _row_reference_number(r, "")
         voucher_reference_raw = bill_reference_raw or (vno_raw if include_voucher_number else "")
         vno = xml_escape(vno_raw)
@@ -3529,6 +3567,14 @@ def generate_journal_xml(
                 a(f"      <AMOUNT>-{fmt_amt(igst_amt)}</AMOUNT>")
                 a("     </LEDGERENTRIES.LIST>")
 
+            # TDS Payable - Credit (positive amount = Credit in Journal Accounting Voucher View)
+            if jnl_tds_led and jnl_tds_amount > 0:
+                a("     <LEDGERENTRIES.LIST>")
+                a(f"      <LEDGERNAME>{jnl_tds_led}</LEDGERNAME>")
+                _append_common_ledger_flags(a, is_party=False, is_debit=False)
+                a(f"      <AMOUNT>{fmt_amt(jnl_tds_amount)}</AMOUNT>")
+                a("     </LEDGERENTRIES.LIST>")
+
             a("     <LEDGERENTRIES.LIST>")
             a(f"      <LEDGERNAME>{party}</LEDGERNAME>")
             _append_common_ledger_flags(a, is_party=True)
@@ -3539,12 +3585,12 @@ def generate_journal_xml(
                 if party_state:
                     a(f"      <STATENAME>{party_state}</STATENAME>")
                 a("      <COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>")
-            a(f"      <AMOUNT>{fmt_amt(total)}</AMOUNT>")
+            a(f"      <AMOUNT>{fmt_amt(jnl_party_total)}</AMOUNT>")
             if include_bill_allocations and bill_reference:
                 a("      <BILLALLOCATIONS.LIST>")
                 a(f"       <NAME>{bill_reference}</NAME>")
                 a("       <BILLTYPE>New Ref</BILLTYPE>")
-                a(f"       <AMOUNT>{fmt_amt(total)}</AMOUNT>")
+                a(f"       <AMOUNT>{fmt_amt(jnl_party_total)}</AMOUNT>")
                 a("      </BILLALLOCATIONS.LIST>")
             a("     </LEDGERENTRIES.LIST>")
 
@@ -4776,16 +4822,21 @@ class TallySalesApp(ctk.CTk):
                     "IGSTLedger",
                     "IGSTRate",
                     "Narration",
+                    "TDSLedger",
+                    "TDSRate",
+                    "TDSAmount",
                 ],
                 "sample_rows": [
                     ["01/04/2024", "1", "SINV-001", "SINV-001", "PQR Suppliers", "PQR Suppliers", "PQR Suppliers",
                      "789 MIDC Road", "", "411001", "Maharashtra", "Maharashtra", "India",
                      "Applicable", "Regular", "27AAAPQ1234B1Z3", "Purchase Account", 10000,
-                     "CGST", 9, "SGST", 9, "IGST", 0, "Being goods purchased from PQR Suppliers"],
+                     "CGST", 9, "SGST", 9, "IGST", 0, "Being goods purchased from PQR Suppliers",
+                     "TDS Payable on Professional", 10, ""],
                     ["02/04/2024", "2", "SINV-002", "SINV-002", "LMN Industries", "LMN Industries", "LMN Industries",
                      "321 Ring Road", "", "302001", "Rajasthan", "Maharashtra", "India",
                      "Applicable", "Regular", "08AAELM9876C1Z1", "Purchase Account", 20000,
-                     "CGST", 0, "SGST", 0, "IGST", 18, "Being goods purchased from LMN Industries"],
+                     "CGST", 0, "SGST", 0, "IGST", 18, "Being goods purchased from LMN Industries",
+                     "", "", ""],
                 ],
             },
             "purchase_item": {
@@ -7216,7 +7267,7 @@ class TallySalesApp(ctk.CTk):
     JNL_TEMPLATE_HEADERS = [
         "Date", "VoucherNo", "PartyLedger", "Particular", "TaxableValue",
         "CGSTLedger", "CGSTRate", "SGSTLedger", "SGSTRate",
-        "IGSTLedger", "IGSTRate", "Narration",
+        "IGSTLedger", "IGSTRate", "Narration", "TDSLedger", "TDSRate", "TDSAmount",
     ]
 
     def _build_journal_panel(self, parent):
@@ -7772,8 +7823,9 @@ class TallySalesApp(ctk.CTk):
             ws = wb.active
             ws.title = "Sheet1"
             ws.append(self.JNL_TEMPLATE_HEADERS)
-            ws.append(["16-12-25", "1", "Interactive Media Pvt Ltd", "Water Expense",
-                        100000, "", 0, "", 0, "IGST", 18, "This is Testing Voucher"])
+            ws.append(["16-12-25", "1", "Interactive Media Pvt Ltd", "Professional Fee Expense",
+                        100000, "", 0, "", 0, "IGST", 18, "This is Testing Voucher",
+                        "TDS Payable on Professional", 10, ""])
             wb.save(out)
             messagebox.showinfo("Template Saved", f"Journal template saved to:\n{out}")
         except Exception as exc:
