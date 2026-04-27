@@ -4308,6 +4308,9 @@ class TallySalesApp(ctk.CTk):
             "purchase_accounting": "https://youtu.be/9FSOjQoHmk8",  # Purchase Accounting Invoice
             "purchase_item": "https://youtu.be/DbXzZsqb9q8",        # Purchase Item Invoice
             "item": "https://youtu.be/bERcC0uTVws",
+            "credit_note":"https://youtu.be/8zgUBTDyCzY",
+            "debit_note":"https://youtu.be/g1VX4NCLJHg",
+            "journal":"https://youtu.be/jgt5eQiBjZM",
         }
 
         # 2. Determine the URL (Specific -> Instance Var -> Global Default)

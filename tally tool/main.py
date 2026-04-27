@@ -3069,7 +3069,7 @@ class GSTR2BTallyApp(ctk.CTk):
         self.create_ledger_companies = []
         self.output_dir = ""
         self.current_mode = "gstr2b"
-        self.workflow_demo_url = ""  # Add YouTube demo link later.
+        self.workflow_demo_url = "https://youtu.be/OEJ7H5bJNcM"  # Add YouTube demo link later.
         self.tally_push_date_mode = ctk.StringVar(value="current")
         self.tally_push_custom_date_var = ctk.StringVar(value="")
         self.tally_push_date_checks = {
