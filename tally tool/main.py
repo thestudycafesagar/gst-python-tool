@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════╗
-║     GSTR-2B + Tally Sheet → Tally Converter v4.0        ║
+║     GSTR-2B + Tally Sheet → Tally Converter v4.1         ║
 ║     Universal - Works with ALL GSTR-2B Formats           ║
 ║     + Tally Sheet → XML  + Party Ledger Mapping          ║
 ║     By: Studycafe Digital Solutions                      ║
@@ -133,20 +133,20 @@ class B2BColumnMapper:
     HEADER_PATTERNS = {
         "gstin":         ["gstin of supplier"],
         "trade_name":    ["trade/legal name", "trade name", "legal name"],
-        "invoice_no":    ["invoice number"],
-        "invoice_type":  ["invoice type"],
-        "invoice_date":  ["invoice date"],
-        "invoice_value": ["invoice value"],
+        "invoice_no":    ["invoice number", "note number"],
+        "invoice_type":  ["invoice type", "note type"],
+        "invoice_date":  ["invoice date", "note date"],
+        "invoice_value": ["invoice value", "note value"],
         "place_of_supply": ["place of supply"],
-        "reverse_charge": ["reverse charge"],
+        "reverse_charge": ["reverse charge", "supply attract reverse charge"],
         "rate":          ["rate(%)","rate (%)"],
         "taxable_value": ["taxable value"],
         "igst":          ["integrated tax"],
         "cgst":          ["central tax"],
         "sgst":          ["state/ut tax", "state tax", "ut tax"],
         "cess":          ["cess"],
-        "filing_period": ["gstr-1/iff/gstr-5 period", "gstr-1/iff period", "filing period", "gstr-1/1a/iff period"],
-        "filing_date":   ["gstr-1/iff/gstr-5 filing date", "filing date", "gstr-1/1a/iff filing date"],
+        "filing_period": ["gstr-1/iff/gstr-5 period", "gstr-1/iff period", "filing period", "gstr-1/1a/iff period", "gstr-1/iff/gstr-1a period", "gstr-1/iff/1a period"],
+        "filing_date":   ["gstr-1/iff/gstr-5 filing date", "filing date", "gstr-1/1a/iff filing date", "gstr-1/iff/gstr-1a filing date", "gstr-1/iff/1a filing date"],
         "itc_avail":     ["itc availability", "itc avail"],
         "reason":        ["reason"],
         "applicable_pct":["applicable %", "applicable percent"],
@@ -238,7 +238,6 @@ class GSTR2BEngine:
         self.tax_period = ""
         self.errors = []
         self.warnings = []
-        self.mapper = B2BColumnMapper()
         self.stats = self._empty_stats()
         self.party_ledger_map = {}  # party_name → purchase_ledger
         self.party_tds_ledger_map = {}  # party_name → tds_ledger
@@ -436,38 +435,55 @@ class GSTR2BEngine:
             wb = openpyxl.load_workbook(filepath, data_only=True)
             if "Read me" in wb.sheetnames:
                 self._parse_readme(wb["Read me"])
-            if "B2B" not in wb.sheetnames:
-                self.errors.append("B2B sheet not found in the uploaded file!")
+            
+            sheets_to_process = [s for s in wb.sheetnames if s.upper() in ("B2B", "B2B-CDNR")]
+            if not sheets_to_process:
+                self.errors.append("Neither B2B nor B2B-CDNR sheets found in the uploaded file!")
                 return False
-            ws = wb["B2B"]
-            col_map = self.mapper.detect_columns(ws)
-            if not self.mapper.has("gstin"):
-                self.errors.append("Could not detect 'GSTIN of supplier' column in B2B sheet!")
-                return False
-            missing_optional = [f for f in ["rate"] if f not in col_map]
-            if missing_optional:
-                self.warnings.append(f"Optional columns not found: {', '.join(missing_optional)} — will auto-calculate")
+            
             self.records = []
             self.errors = []
-            total_rows = ws.max_row
-            data_start = self.mapper.data_start_row
-            for row_idx in range(data_start, total_rows + 1):
-                row = [cell.value for cell in ws[row_idx]]
-                gstin_col = self.mapper.get("gstin", 0)
-                if gstin_col >= len(row) or not row[gstin_col]:
+            self.warnings = []
+            
+            total_rows = sum(wb[s].max_row for s in sheets_to_process)
+            rows_processed = 0
+            
+            for sheet_name in sheets_to_process:
+                ws = wb[sheet_name]
+                sheet_mapper = B2BColumnMapper()
+                col_map = sheet_mapper.detect_columns(ws)
+                
+                if not sheet_mapper.has("gstin"):
+                    self.warnings.append(f"Could not detect 'GSTIN of supplier' column in {sheet_name} sheet!")
+                    rows_processed += ws.max_row
                     continue
-                try:
-                    record = self._parse_b2b_row(row, row_idx)
-                    if record:
-                        self.records.append(record)
-                except Exception as e:
-                    self.errors.append(f"Row {row_idx}: {str(e)}")
-                if progress_callback and row_idx % 20 == 0:
-                    pct = (row_idx - data_start) / max(1, total_rows - data_start)
-                    progress_callback(min(pct, 1.0), f"Parsing row {row_idx}/{total_rows}...")
+                
+                missing_optional = [f for f in ["rate"] if f not in col_map]
+                if missing_optional:
+                    self.warnings.append(f"{sheet_name}: Optional columns not found: {', '.join(missing_optional)} — will auto-calculate")
+                
+                data_start = sheet_mapper.data_start_row
+                for row_idx in range(data_start, ws.max_row + 1):
+                    row = [cell.value for cell in ws[row_idx]]
+                    gstin_col = sheet_mapper.get("gstin", 0)
+                    if gstin_col >= len(row) or not row[gstin_col]:
+                        rows_processed += 1
+                        continue
+                    try:
+                        record = self._parse_b2b_row(row, row_idx, sheet_mapper)
+                        if record:
+                            self.records.append(record)
+                    except Exception as e:
+                        self.errors.append(f"{sheet_name} Row {row_idx}: {str(e)}")
+                    
+                    rows_processed += 1
+                    if progress_callback and rows_processed % 20 == 0:
+                        pct = rows_processed / max(1, total_rows)
+                        progress_callback(min(pct, 1.0), f"Parsing {sheet_name} row {row_idx}/{ws.max_row}...")
+                        
             self._compute_stats()
             wb.close()
-            return True
+            return len(self.records) > 0
         except Exception as e:
             self.errors.append(f"Failed to open file: {str(e)}")
             import traceback
@@ -565,6 +581,8 @@ class GSTR2BEngine:
                 ).strip()
                 if not itc_avail_val:
                     itc_avail_val = "Yes"
+                    
+                invoice_type = "Credit Note" if taxable < 0 else "Regular"
 
                 record = {
                     "voucher_date": voucher_date,
@@ -578,7 +596,7 @@ class GSTR2BEngine:
                     "party_pincode": party_pincode,
                     "party_state": party_state,
                     "invoice_no": str(get_val(row, "VoucherNo", default="") or "").strip(),
-                    "invoice_type": "Regular",
+                    "invoice_type": invoice_type,
                     "invoice_date": inv_date,
                     "invoice_value": taxable + igst_amt + cgst_amt + sgst_amt,
                     "place_of_supply": place_of_supply,
@@ -633,14 +651,14 @@ class GSTR2BEngine:
             elif label == "Tax Period":
                 self.tax_period = value
 
-    def _safe_get(self, row, field, default=None):
-        col_idx = self.mapper.get(field)
+    def _safe_get(self, row, field, mapper, default=None):
+        col_idx = mapper.get(field)
         if col_idx is None or col_idx >= len(row):
             return default
         return row[col_idx] if row[col_idx] is not None else default
 
-    def _safe_float(self, row, field, default=0.0):
-        val = self._safe_get(row, field)
+    def _safe_float(self, row, field, mapper, default=0.0):
+        val = self._safe_get(row, field, mapper)
         if val is None:
             return default
         try:
@@ -648,62 +666,78 @@ class GSTR2BEngine:
         except (ValueError, TypeError):
             return default
 
-    def _safe_str(self, row, field, default=""):
-        val = self._safe_get(row, field)
+    def _safe_str(self, row, field, mapper, default=""):
+        val = self._safe_get(row, field, mapper)
         if val is None:
             return default
         return str(val).strip()
 
-    def _parse_b2b_row(self, row, row_idx):
-        gstin = self._safe_str(row, "gstin")
+    def _parse_b2b_row(self, row, row_idx, mapper):
+        gstin = self._safe_str(row, "gstin", mapper)
         if not gstin or len(gstin) < 15:
             return None
-        inv_date_raw = self._safe_get(row, "invoice_date")
+        inv_date_raw = self._safe_get(row, "invoice_date", mapper)
         if isinstance(inv_date_raw, datetime.datetime):
             inv_date = inv_date_raw.strftime("%d/%m/%Y")
         elif inv_date_raw:
             inv_date = str(inv_date_raw)
         else:
             inv_date = ""
-        taxable = self._safe_float(row, "taxable_value")
-        igst = self._safe_float(row, "igst")
-        cgst = self._safe_float(row, "cgst")
-        sgst = self._safe_float(row, "sgst")
-        cess = self._safe_float(row, "cess")
-        if self.mapper.has("rate"):
-            rate = self._safe_float(row, "rate")
+            
+        taxable = self._safe_float(row, "taxable_value", mapper)
+        igst = self._safe_float(row, "igst", mapper)
+        cgst = self._safe_float(row, "cgst", mapper)
+        sgst = self._safe_float(row, "sgst", mapper)
+        cess = self._safe_float(row, "cess", mapper)
+        invoice_value = self._safe_float(row, "invoice_value", mapper)
+        
+        invoice_type = self._safe_str(row, "invoice_type", mapper, "Regular")
+        is_credit_note = "credit note" in invoice_type.lower()
+        
+        if is_credit_note:
+            taxable = -abs(taxable) if taxable != 0 else 0.0
+            igst = -abs(igst) if igst != 0 else 0.0
+            cgst = -abs(cgst) if cgst != 0 else 0.0
+            sgst = -abs(sgst) if sgst != 0 else 0.0
+            cess = -abs(cess) if cess != 0 else 0.0
+            invoice_value = -abs(invoice_value) if invoice_value != 0 else 0.0
+            
+        if mapper.has("rate"):
+            rate = self._safe_float(row, "rate", mapper)
         else:
-            total_tax = igst + cgst + sgst
-            if taxable > 0 and total_tax > 0:
-                rate = round((total_tax / taxable) * 100, 0)
+            total_tax = abs(igst) + abs(cgst) + abs(sgst)
+            if abs(taxable) > 0 and total_tax > 0:
+                rate = round((total_tax / abs(taxable)) * 100, 0)
             else:
                 rate = 0
+                
         return {
             "gstin": gstin,
-            "trade_name": self._safe_str(row, "trade_name"),
-            "invoice_no": self._safe_str(row, "invoice_no"),
-            "invoice_type": self._safe_str(row, "invoice_type", "Regular"),
+            "trade_name": self._safe_str(row, "trade_name", mapper),
+            "invoice_no": self._safe_str(row, "invoice_no", mapper),
+            "invoice_type": invoice_type,
             "invoice_date": inv_date,
-            "invoice_value": self._safe_float(row, "invoice_value"),
-            "place_of_supply": self._safe_str(row, "place_of_supply"),
-            "reverse_charge": self._safe_str(row, "reverse_charge", "No"),
-            "rate": rate, "taxable_value": taxable,
+            "invoice_value": invoice_value,
+            "place_of_supply": self._safe_str(row, "place_of_supply", mapper),
+            "reverse_charge": self._safe_str(row, "reverse_charge", mapper, "No"),
+            "rate": rate, 
+            "taxable_value": taxable,
             "igst": igst, "cgst": cgst, "sgst": sgst, "cess": cess,
-            "filing_period": self._safe_str(row, "filing_period"),
-            "itc_avail": self._safe_str(row, "itc_avail"),
+            "filing_period": self._safe_str(row, "filing_period", mapper),
+            "itc_avail": self._safe_str(row, "itc_avail", mapper),
             "row_idx": row_idx,
         }
 
     def _compute_stats(self):
         self.stats = {
             "total_records": len(self.records),
-            "igst_count": sum(1 for r in self.records if r["igst"] > 0),
-            "cgst_sgst_count": sum(1 for r in self.records if r["cgst"] > 0),
-            "total_taxable": sum(r["taxable_value"] for r in self.records),
-            "total_igst": sum(r["igst"] for r in self.records),
-            "total_cgst": sum(r["cgst"] for r in self.records),
-            "total_sgst": sum(r["sgst"] for r in self.records),
-            "total_cess": sum(r.get("cess", 0) for r in self.records),
+            "igst_count": sum(1 for r in self.records if abs(r["igst"]) > 0),
+            "cgst_sgst_count": sum(1 for r in self.records if abs(r["cgst"]) > 0),
+            "total_taxable": sum(abs(r["taxable_value"]) for r in self.records),
+            "total_igst": sum(abs(r["igst"]) for r in self.records),
+            "total_cgst": sum(abs(r["cgst"]) for r in self.records),
+            "total_sgst": sum(abs(r["sgst"]) for r in self.records),
+            "total_cess": sum(abs(r.get("cess", 0)) for r in self.records),
         }
 
     def _nearest_allowed_tax_rate(self, rate_value):
@@ -821,7 +855,7 @@ class GSTR2BEngine:
             total_records = len(source_records)
             for idx, rec in enumerate(source_records):
                 row_num = idx + 2
-                is_igst = rec["igst"] > 0
+                is_igst = abs(rec["igst"]) > 0
 
                 # Determine purchase ledger — mapping takes priority
                 rec_ledger = self.get_purchase_ledger(rec["trade_name"], purchase_ledger)
@@ -928,7 +962,9 @@ class GSTR2BEngine:
         tally_msg.set("xmlns:UDF", "TallyUDF")
         voucher = ET.SubElement(tally_msg, "VOUCHER")
         voucher.set("REMOTEID", "")
-        voucher.set("VCHTYPE", "Purchase")
+        
+        vch_type = "Debit Note" if "credit note" in str(rec.get("invoice_type", "")).lower() else "Purchase"
+        voucher.set("VCHTYPE", vch_type)
         voucher.set("ACTION", "Create")
         voucher.set("OBJVIEW", "Invoice Voucher View")
 
@@ -972,7 +1008,7 @@ class GSTR2BEngine:
             ET.SubElement(voucher, "PARTYGSTIN").text = party_gstin
         if place_of_supply:
             ET.SubElement(voucher, "PLACEOFSUPPLY").text = place_of_supply
-        ET.SubElement(voucher, "VOUCHERTYPENAME").text = "Purchase"
+        ET.SubElement(voucher, "VOUCHERTYPENAME").text = vch_type
         ET.SubElement(voucher, "PARTYNAME").text = party_name
         if company_gstin and company_state:
             gst_reg = ET.SubElement(voucher, "GSTREGISTRATION")
@@ -1024,14 +1060,15 @@ class GSTR2BEngine:
             tds_amount = round(taxable * tds_rate / 100, 2)
         else:
             try:
-                # Force positive deduction value even if source sheet has negative sign.
-                tds_amount = abs(float(tds_amount or 0))
+                raw_tds = abs(float(tds_amount or 0))
+                tds_amount = -raw_tds if taxable < 0 else raw_tds
             except (ValueError, TypeError):
                 tds_amount = 0.0
 
         total_amount = taxable + igst_amt + cgst_amt + sgst_amt + cess_amt
-        if tds_amount > total_amount:
+        if abs(tds_amount) > abs(total_amount):
             tds_amount = total_amount
+            
         party_amount = total_amount - tds_amount
 
         pe = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
@@ -1049,33 +1086,33 @@ class GSTR2BEngine:
         pu.find("ISDEEMEDPOSITIVE").text = "Yes"
         ET.SubElement(pu, "AMOUNT").text = f"{-taxable:.2f}"
 
-        if igst_amt > 0:
+        if abs(igst_amt) > 0:
             ie = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
             ET.SubElement(ie, "LEDGERNAME").text = "IGST"
             self._add_common_ledger_flags(ie, is_party="No")
             ie.find("ISDEEMEDPOSITIVE").text = "Yes"
             ET.SubElement(ie, "AMOUNT").text = f"{-igst_amt:.2f}"
         else:
-            if cgst_amt > 0:
+            if abs(cgst_amt) > 0:
                 ce = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
                 ET.SubElement(ce, "LEDGERNAME").text = "CGST"
                 self._add_common_ledger_flags(ce, is_party="No")
                 ce.find("ISDEEMEDPOSITIVE").text = "Yes"
                 ET.SubElement(ce, "AMOUNT").text = f"{-cgst_amt:.2f}"
-            if sgst_amt > 0:
+            if abs(sgst_amt) > 0:
                 se = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
                 ET.SubElement(se, "LEDGERNAME").text = "SGST"
                 self._add_common_ledger_flags(se, is_party="No")
                 se.find("ISDEEMEDPOSITIVE").text = "Yes"
                 ET.SubElement(se, "AMOUNT").text = f"{-sgst_amt:.2f}"
-        if cess_amt > 0:
+        if abs(cess_amt) > 0:
             cs = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
             ET.SubElement(cs, "LEDGERNAME").text = "Cess"
             self._add_common_ledger_flags(cs, is_party="No")
             cs.find("ISDEEMEDPOSITIVE").text = "Yes"
             ET.SubElement(cs, "AMOUNT").text = f"{-cess_amt:.2f}"
 
-        if tds_ledger and tds_amount > 0:
+        if tds_ledger and abs(tds_amount) > 0:
             te = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
             ET.SubElement(te, "LEDGERNAME").text = tds_ledger
             self._add_common_ledger_flags(te, is_party="No")
@@ -1110,7 +1147,7 @@ class GSTR2BEngine:
         cess_amt = float(rec.get("cess") or 0)
         total_amount = taxable + igst_amt + cgst_amt + sgst_amt + cess_amt
 
-        if total_amount <= 0:
+        if total_amount == 0:
             return
 
         ET.SubElement(voucher, "DATE").text = tally_date
@@ -4103,7 +4140,7 @@ class GSTR2BTallyApp(ctk.CTk):
         # ═══ BOTTOM BAR ═══
         bottom = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], height=36, corner_radius=0)
         bottom.pack(fill="x", side="bottom"); bottom.pack_propagate(False)
-        ctk.CTkLabel(bottom, text="Studycafe PVT LTD  |  GSTR-2B + Tally Sheet → Tally v4.0",
+        ctk.CTkLabel(bottom, text="Studycafe PVT LTD  |  GSTR-2B + Tally Sheet → Tally v4.1",
                      font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=20)
         self.status_label = ctk.CTkLabel(bottom, text="Ready", font=("Segoe UI", 10),
                                           text_color=COLORS["success"])
@@ -4117,7 +4154,7 @@ class GSTR2BTallyApp(ctk.CTk):
     # ─── MODE SWITCHING ───
 
     def _view_workflow_demo(self):
-        demo_url = (self.workflow_demo_url or "https://www.youtube.com/watch?v=OEJ7H5bJNcM").strip()
+        demo_url = (self.workflow_demo_url or "").strip()
         if demo_url:
             try:
                 webbrowser.open_new_tab(demo_url)
