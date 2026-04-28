@@ -963,7 +963,15 @@ class GSTR2BEngine:
         voucher = ET.SubElement(tally_msg, "VOUCHER")
         voucher.set("REMOTEID", "")
         
-        vch_type = "Debit Note" if "credit note" in str(rec.get("invoice_type", "")).lower() else "Purchase"
+        _inv_type_lower = str(rec.get("invoice_type", "")).lower()
+        if "credit note" in _inv_type_lower:
+            vch_type = "Debit Note"
+        elif "debit note" in _inv_type_lower:
+            vch_type = "Credit Note"
+        else:
+            vch_type = "Purchase"
+        is_debit_note = vch_type == "Debit Note"
+        is_note = vch_type in ("Debit Note", "Credit Note")
         voucher.set("VCHTYPE", vch_type)
         voucher.set("ACTION", "Create")
         voucher.set("OBJVIEW", "Invoice Voucher View")
@@ -1034,6 +1042,9 @@ class GSTR2BEngine:
         ET.SubElement(voucher, "PERSISTEDVIEW").text = "Invoice Voucher View"
         ET.SubElement(voucher, "VCHENTRYMODE").text = "Accounting Invoice"
         ET.SubElement(voucher, "ISINVOICE").text = "Yes"
+        if is_note:
+            ET.SubElement(voucher, "ISGSTOVERRIDDEN").text = "No"
+            ET.SubElement(voucher, "GSTTRANSACTIONTYPE").text = "Tax Invoice" if party_gstin else "Unregistered"
         ET.SubElement(voucher, "EFFECTIVEDATE").text = tally_date
         ET.SubElement(voucher, "ISELIGIBLEFORITC").text = "Yes"
         ET.SubElement(voucher, "NARRATION").text = narration
@@ -1071,9 +1082,15 @@ class GSTR2BEngine:
             
         party_amount = total_amount - tds_amount
 
+        # For Debit Note: party is debited (Dr Supplier), purchase/tax are credited (Cr).
+        # For Purchase / Credit Note: party is credited (Cr Supplier), purchase/tax are debited (Dr).
+        party_deemed = "Yes" if is_debit_note else "No"
+        counter_deemed = "No" if is_debit_note else "Yes"
+
         pe = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
         ET.SubElement(pe, "LEDGERNAME").text = party_ledger
         self._add_common_ledger_flags(pe, is_party="Yes")
+        pe.find("ISDEEMEDPOSITIVE").text = party_deemed
         ET.SubElement(pe, "AMOUNT").text = f"{party_amount:.2f}"
         ba = ET.SubElement(pe, "BILLALLOCATIONS.LIST")
         ET.SubElement(ba, "NAME").text = supplier_invoice_no
@@ -1083,40 +1100,40 @@ class GSTR2BEngine:
         pu = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
         ET.SubElement(pu, "LEDGERNAME").text = purchase_ledger
         self._add_common_ledger_flags(pu, is_party="No")
-        pu.find("ISDEEMEDPOSITIVE").text = "Yes"
+        pu.find("ISDEEMEDPOSITIVE").text = counter_deemed
         ET.SubElement(pu, "AMOUNT").text = f"{-taxable:.2f}"
 
         if abs(igst_amt) > 0:
             ie = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
             ET.SubElement(ie, "LEDGERNAME").text = "IGST"
             self._add_common_ledger_flags(ie, is_party="No")
-            ie.find("ISDEEMEDPOSITIVE").text = "Yes"
+            ie.find("ISDEEMEDPOSITIVE").text = counter_deemed
             ET.SubElement(ie, "AMOUNT").text = f"{-igst_amt:.2f}"
         else:
             if abs(cgst_amt) > 0:
                 ce = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
                 ET.SubElement(ce, "LEDGERNAME").text = "CGST"
                 self._add_common_ledger_flags(ce, is_party="No")
-                ce.find("ISDEEMEDPOSITIVE").text = "Yes"
+                ce.find("ISDEEMEDPOSITIVE").text = counter_deemed
                 ET.SubElement(ce, "AMOUNT").text = f"{-cgst_amt:.2f}"
             if abs(sgst_amt) > 0:
                 se = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
                 ET.SubElement(se, "LEDGERNAME").text = "SGST"
                 self._add_common_ledger_flags(se, is_party="No")
-                se.find("ISDEEMEDPOSITIVE").text = "Yes"
+                se.find("ISDEEMEDPOSITIVE").text = counter_deemed
                 ET.SubElement(se, "AMOUNT").text = f"{-sgst_amt:.2f}"
         if abs(cess_amt) > 0:
             cs = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
             ET.SubElement(cs, "LEDGERNAME").text = "Cess"
             self._add_common_ledger_flags(cs, is_party="No")
-            cs.find("ISDEEMEDPOSITIVE").text = "Yes"
+            cs.find("ISDEEMEDPOSITIVE").text = counter_deemed
             ET.SubElement(cs, "AMOUNT").text = f"{-cess_amt:.2f}"
 
         if tds_ledger and abs(tds_amount) > 0:
             te = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
             ET.SubElement(te, "LEDGERNAME").text = tds_ledger
             self._add_common_ledger_flags(te, is_party="No")
-            te.find("ISDEEMEDPOSITIVE").text = "Yes"
+            te.find("ISDEEMEDPOSITIVE").text = counter_deemed
             ET.SubElement(te, "AMOUNT").text = f"{tds_amount:.2f}"
 
     def _build_journal_voucher_xml(self, parent, rec, purchase_ledger, narration, voucher_date):
@@ -3069,7 +3086,7 @@ class GSTR2BTallyApp(ctk.CTk):
         self.create_ledger_companies = []
         self.output_dir = ""
         self.current_mode = "gstr2b"
-        self.workflow_demo_url = "https://youtu.be/OEJ7H5bJNcM"  # Add YouTube demo link later.
+        self.workflow_demo_url = ""  # Add YouTube demo link later.
         self.tally_push_date_mode = ctk.StringVar(value="current")
         self.tally_push_custom_date_var = ctk.StringVar(value="")
         self.tally_push_date_checks = {

@@ -2431,3 +2431,23 @@
 [2026-04-27 18:24:15] main_import begin tab=🛒  Tally Entry uid=_suite_mod_0_tally_tool
 [2026-04-27 18:24:16] main_import success tab=🛒  Tally Entry class=TallySalesApp
 [2026-04-27 18:24:23] instantiate success tab=🛒  Tally Entry instance=TallySalesApp
+[2026-04-27 18:38:45] dependency warmup start
+[2026-04-27 18:38:46] warmup ok pandas
+[2026-04-27 18:38:46] warmup ok numpy
+[2026-04-27 18:38:47] warmup ok openpyxl
+[2026-04-27 18:38:47] warmup ok fitz
+[2026-04-27 18:38:48] warmup ok pdfplumber
+[2026-04-27 18:38:48] warmup ok pdfminer
+[2026-04-27 18:38:48] warmup ok selenium
+[2026-04-27 18:38:48] warmup ok webdriver_manager
+[2026-04-27 18:38:48] warmup ok requests
+[2026-04-27 18:38:48] warmup ok PIL
+[2026-04-27 18:38:48] dependency warmup done
+[2026-04-27 18:38:51] activate_tab start cat=tally tab=🛒  Tally Entry module=c:\Users\user\Desktop\rohit tool\gst-python-tool\tally tool\sale_purchase_entry.py exists=True tk=False
+[2026-04-27 18:38:52] main_import begin tab=🛒  Tally Entry uid=_suite_mod_0_tally_tool
+[2026-04-27 18:38:52] main_import success tab=🛒  Tally Entry class=TallySalesApp
+[2026-04-27 18:38:59] instantiate success tab=🛒  Tally Entry instance=TallySalesApp
+[2026-04-27 18:53:59] activate_tab start cat=gmail tab=📋  GST Return Request module=c:\Users\user\Desktop\rohit tool\gst-python-tool\Gmail-Tools\main.py exists=True tk=False
+[2026-04-27 18:53:59] main_import begin tab=📋  GST Return Request uid=_suite_mod_1_Gmail-Tools
+[2026-04-27 18:54:00] main_import success tab=📋  GST Return Request class=GSTReturnMailApp
+[2026-04-27 18:54:01] instantiate success tab=📋  GST Return Request instance=GSTReturnMailApp
