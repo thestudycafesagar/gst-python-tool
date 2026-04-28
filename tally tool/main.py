@@ -185,6 +185,38 @@ class B2BColumnMapper:
                         if field not in self.column_map:
                             self.column_map[field] = col_idx
                         break
+
+        # ─── B2BA amendment sheet: positionally assign original vs revised columns ───
+        # B2BA always has TWO "Invoice Number" columns: col[0]=Original, col[1]=Revised.
+        # Detection uses three independent signals (any one is sufficient):
+        #   1. "original invoice" in a combined header  (standard GSTR-2B merged header)
+        #   2. "revised invoice"  in a combined header  (alternate wording)
+        #   3. Two or more invoice-number columns exist (structural: B2B has exactly 1)
+        _all_inv_no_cols = sorted(
+            col for col, h in all_headers.items()
+            if "invoice number" in h or "note number" in h
+        )
+        is_b2ba = (
+            any("original invoice" in h or "revised invoice" in h for h in all_headers.values())
+            or len(_all_inv_no_cols) >= 2
+        )
+        if is_b2ba:
+            inv_no_cols   = _all_inv_no_cols
+            inv_date_cols = sorted(
+                col for col, h in all_headers.items()
+                if "invoice date" in h or "note date" in h
+            )
+            if len(inv_no_cols) >= 2:
+                self.column_map["orig_invoice_no"] = inv_no_cols[0]   # original (for matching)
+                self.column_map["invoice_no"]      = inv_no_cols[1]   # revised  (for Tally entry)
+            elif inv_no_cols:
+                self.column_map["orig_invoice_no"] = inv_no_cols[0]
+            if len(inv_date_cols) >= 2:
+                self.column_map["orig_invoice_date"] = inv_date_cols[0]
+                self.column_map["invoice_date"]      = inv_date_cols[1]  # revised date
+            elif inv_date_cols:
+                self.column_map["orig_invoice_date"] = inv_date_cols[0]
+
         gstin_col = self.column_map.get("gstin", 0)
         for row_idx in range(self.header_row_2 + 1, min(self.header_row_2 + 5, ws.max_row + 1)):
             val = ws.cell(row=row_idx, column=gstin_col + 1).value
@@ -435,52 +467,118 @@ class GSTR2BEngine:
             wb = openpyxl.load_workbook(filepath, data_only=True)
             if "Read me" in wb.sheetnames:
                 self._parse_readme(wb["Read me"])
-            
-            sheets_to_process = [s for s in wb.sheetnames if s.upper() in ("B2B", "B2B-CDNR")]
-            if not sheets_to_process:
-                self.errors.append("Neither B2B nor B2B-CDNR sheets found in the uploaded file!")
+
+            all_sheet_names_upper = {s.upper(): s for s in wb.sheetnames}
+            b2b_sheets   = [all_sheet_names_upper[k] for k in ("B2B",)      if k in all_sheet_names_upper]
+            cdnr_sheets  = [all_sheet_names_upper[k] for k in ("B2B-CDNR",) if k in all_sheet_names_upper]
+            b2ba_sheets  = [all_sheet_names_upper[k] for k in ("B2BA",)     if k in all_sheet_names_upper]
+
+            if not b2b_sheets and not cdnr_sheets and not b2ba_sheets:
+                self.errors.append("No B2B, B2B-CDNR, or B2BA sheets found in the uploaded file!")
                 return False
-            
+
             self.records = []
             self.errors = []
             self.warnings = []
-            
-            total_rows = sum(wb[s].max_row for s in sheets_to_process)
-            rows_processed = 0
-            
-            for sheet_name in sheets_to_process:
+
+            # ── Step 1: Parse B2BA amendments first ──────────────────────────────
+            # Collect the set of original invoice numbers that have been amended so
+            # that the corresponding B2B rows can be skipped later.
+            b2ba_records = []
+            b2ba_orig_nos = set()   # normalised original invoice numbers
+
+            for sheet_name in b2ba_sheets:
                 ws = wb[sheet_name]
-                sheet_mapper = B2BColumnMapper()
-                col_map = sheet_mapper.detect_columns(ws)
-                
-                if not sheet_mapper.has("gstin"):
-                    self.warnings.append(f"Could not detect 'GSTIN of supplier' column in {sheet_name} sheet!")
-                    rows_processed += ws.max_row
+                mapper = B2BColumnMapper()
+                mapper.detect_columns(ws)
+                if not mapper.has("gstin"):
+                    self.warnings.append(f"Could not detect columns in {sheet_name} sheet — skipped.")
                     continue
-                
-                missing_optional = [f for f in ["rate"] if f not in col_map]
-                if missing_optional:
-                    self.warnings.append(f"{sheet_name}: Optional columns not found: {', '.join(missing_optional)} — will auto-calculate")
-                
-                data_start = sheet_mapper.data_start_row
-                for row_idx in range(data_start, ws.max_row + 1):
+                for row_idx in range(mapper.data_start_row, ws.max_row + 1):
                     row = [cell.value for cell in ws[row_idx]]
-                    gstin_col = sheet_mapper.get("gstin", 0)
+                    gstin_col = mapper.get("gstin", 0)
                     if gstin_col >= len(row) or not row[gstin_col]:
-                        rows_processed += 1
                         continue
                     try:
-                        record = self._parse_b2b_row(row, row_idx, sheet_mapper)
+                        record = self._parse_b2b_row(row, row_idx, mapper)
                         if record:
-                            self.records.append(record)
+                            record["is_amendment"] = True
+                            b2ba_records.append(record)
+                            orig_no = record.get("orig_invoice_no", "").strip().upper()
+                            inv_no  = record.get("invoice_no",      "").strip().upper()
+                            # Primary: use the dedicated "original invoice" column when detected.
+                            # Fallback: use invoice_no for GSTR-2B formats that have no separate
+                            # original column (both B2BA and B2B then carry the same invoice number).
+                            if orig_no:
+                                b2ba_orig_nos.add(orig_no)
+                            elif inv_no:
+                                b2ba_orig_nos.add(inv_no)
                     except Exception as e:
                         self.errors.append(f"{sheet_name} Row {row_idx}: {str(e)}")
-                    
-                    rows_processed += 1
-                    if progress_callback and rows_processed % 20 == 0:
-                        pct = rows_processed / max(1, total_rows)
-                        progress_callback(min(pct, 1.0), f"Parsing {sheet_name} row {row_idx}/{ws.max_row}...")
-                        
+
+            if b2ba_sheets and not b2ba_records:
+                self.warnings.append("B2BA sheet found but no valid amendment records could be parsed.")
+            elif b2ba_records:
+                self.warnings.append(
+                    f"B2BA: {len(b2ba_records)} amendment record(s) found. "
+                    f"{len(b2ba_orig_nos)} original invoice(s) will be replaced."
+                )
+
+            # ── Step 2: Parse B2B / B2B-CDNR, skipping amended invoices ─────────
+            sheets_to_process = b2b_sheets + cdnr_sheets
+            if sheets_to_process:
+                total_rows = sum(wb[s].max_row for s in sheets_to_process)
+                rows_processed = 0
+
+                for sheet_name in sheets_to_process:
+                    ws = wb[sheet_name]
+                    sheet_mapper = B2BColumnMapper()
+                    col_map = sheet_mapper.detect_columns(ws)
+
+                    if not sheet_mapper.has("gstin"):
+                        self.warnings.append(f"Could not detect 'GSTIN of supplier' column in {sheet_name} sheet!")
+                        rows_processed += ws.max_row
+                        continue
+
+                    missing_optional = [f for f in ["rate"] if f not in col_map]
+                    if missing_optional:
+                        self.warnings.append(
+                            f"{sheet_name}: Optional columns not found: {', '.join(missing_optional)} — will auto-calculate"
+                        )
+
+                    skipped_amendments = 0
+                    data_start = sheet_mapper.data_start_row
+                    for row_idx in range(data_start, ws.max_row + 1):
+                        row = [cell.value for cell in ws[row_idx]]
+                        gstin_col = sheet_mapper.get("gstin", 0)
+                        if gstin_col >= len(row) or not row[gstin_col]:
+                            rows_processed += 1
+                            continue
+                        try:
+                            record = self._parse_b2b_row(row, row_idx, sheet_mapper)
+                            if record:
+                                inv_key = record.get("invoice_no", "").strip().upper()
+                                if inv_key in b2ba_orig_nos:
+                                    # Superseded by a B2BA amendment — skip
+                                    skipped_amendments += 1
+                                else:
+                                    self.records.append(record)
+                        except Exception as e:
+                            self.errors.append(f"{sheet_name} Row {row_idx}: {str(e)}")
+
+                        rows_processed += 1
+                        if progress_callback and rows_processed % 20 == 0:
+                            pct = rows_processed / max(1, total_rows)
+                            progress_callback(min(pct, 1.0), f"Parsing {sheet_name} row {row_idx}/{ws.max_row}...")
+
+                    if skipped_amendments > 0:
+                        self.warnings.append(
+                            f"{sheet_name}: {skipped_amendments} invoice(s) skipped — superseded by B2BA amendment(s)."
+                        )
+
+            # ── Step 3: Append B2BA amended records ──────────────────────────────
+            self.records.extend(b2ba_records)
+
             self._compute_stats()
             wb.close()
             return len(self.records) > 0
@@ -715,12 +813,13 @@ class GSTR2BEngine:
             "gstin": gstin,
             "trade_name": self._safe_str(row, "trade_name", mapper),
             "invoice_no": self._safe_str(row, "invoice_no", mapper),
+            "orig_invoice_no": self._safe_str(row, "orig_invoice_no", mapper) if mapper.has("orig_invoice_no") else "",
             "invoice_type": invoice_type,
             "invoice_date": inv_date,
             "invoice_value": invoice_value,
             "place_of_supply": self._safe_str(row, "place_of_supply", mapper),
             "reverse_charge": self._safe_str(row, "reverse_charge", mapper, "No"),
-            "rate": rate, 
+            "rate": rate,
             "taxable_value": taxable,
             "igst": igst, "cgst": cgst, "sgst": sgst, "cess": cess,
             "filing_period": self._safe_str(row, "filing_period", mapper),
@@ -877,6 +976,8 @@ class GSTR2BEngine:
                     igst_ledger = 0; igst_rate = 0
                 narration = narration_template.format(
                     party=rec["trade_name"], inv=rec["invoice_no"], date=rec["invoice_date"])
+                if rec.get("is_amendment") and rec.get("orig_invoice_no"):
+                    narration += f" [Amends {rec['orig_invoice_no']}]"
                 row_data = [voucher_date, rec.get("voucher_no", ""), rec["trade_name"],
                             rec.get("party_name", rec["trade_name"]), rec.get("gstin", ""),
                             rec.get("party_state", ""), rec.get("place_of_supply", ""),
@@ -933,6 +1034,8 @@ class GSTR2BEngine:
                 rec_ledger = rec.get("purchase_ledger") or self.get_purchase_ledger(rec["trade_name"], purchase_ledger)
                 rec_narration = rec.get("narration") or narration_template.format(
                     party=rec["trade_name"], inv=rec["invoice_no"], date=rec["invoice_date"])
+                if rec.get("is_amendment") and rec.get("orig_invoice_no"):
+                    rec_narration += f" [Amends {rec['orig_invoice_no']}]"
                 self._build_voucher_xml(req_data, rec, rec_ledger, rec_narration, voucher_date)
                 if progress_callback and idx % 20 == 0:
                     pct = idx / max(1, total_records)
@@ -963,7 +1066,15 @@ class GSTR2BEngine:
         voucher = ET.SubElement(tally_msg, "VOUCHER")
         voucher.set("REMOTEID", "")
         
-        vch_type = "Debit Note" if "credit note" in str(rec.get("invoice_type", "")).lower() else "Purchase"
+        _inv_type_lower = str(rec.get("invoice_type", "")).lower()
+        if "credit note" in _inv_type_lower:
+            vch_type = "Debit Note"
+        elif "debit note" in _inv_type_lower:
+            vch_type = "Credit Note"
+        else:
+            vch_type = "Purchase"
+        is_debit_note = vch_type == "Debit Note"
+        is_note = vch_type in ("Debit Note", "Credit Note")
         voucher.set("VCHTYPE", vch_type)
         voucher.set("ACTION", "Create")
         voucher.set("OBJVIEW", "Invoice Voucher View")
@@ -1034,6 +1145,9 @@ class GSTR2BEngine:
         ET.SubElement(voucher, "PERSISTEDVIEW").text = "Invoice Voucher View"
         ET.SubElement(voucher, "VCHENTRYMODE").text = "Accounting Invoice"
         ET.SubElement(voucher, "ISINVOICE").text = "Yes"
+        if is_note:
+            ET.SubElement(voucher, "ISGSTOVERRIDDEN").text = "No"
+            ET.SubElement(voucher, "GSTTRANSACTIONTYPE").text = "Tax Invoice" if party_gstin else "Unregistered"
         ET.SubElement(voucher, "EFFECTIVEDATE").text = tally_date
         ET.SubElement(voucher, "ISELIGIBLEFORITC").text = "Yes"
         ET.SubElement(voucher, "NARRATION").text = narration
@@ -1071,9 +1185,15 @@ class GSTR2BEngine:
             
         party_amount = total_amount - tds_amount
 
+        # For Debit Note: party is debited (Dr Supplier), purchase/tax are credited (Cr).
+        # For Purchase / Credit Note: party is credited (Cr Supplier), purchase/tax are debited (Dr).
+        party_deemed = "Yes" if is_debit_note else "No"
+        counter_deemed = "No" if is_debit_note else "Yes"
+
         pe = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
         ET.SubElement(pe, "LEDGERNAME").text = party_ledger
         self._add_common_ledger_flags(pe, is_party="Yes")
+        pe.find("ISDEEMEDPOSITIVE").text = party_deemed
         ET.SubElement(pe, "AMOUNT").text = f"{party_amount:.2f}"
         ba = ET.SubElement(pe, "BILLALLOCATIONS.LIST")
         ET.SubElement(ba, "NAME").text = supplier_invoice_no
@@ -1083,40 +1203,40 @@ class GSTR2BEngine:
         pu = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
         ET.SubElement(pu, "LEDGERNAME").text = purchase_ledger
         self._add_common_ledger_flags(pu, is_party="No")
-        pu.find("ISDEEMEDPOSITIVE").text = "Yes"
+        pu.find("ISDEEMEDPOSITIVE").text = counter_deemed
         ET.SubElement(pu, "AMOUNT").text = f"{-taxable:.2f}"
 
         if abs(igst_amt) > 0:
             ie = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
             ET.SubElement(ie, "LEDGERNAME").text = "IGST"
             self._add_common_ledger_flags(ie, is_party="No")
-            ie.find("ISDEEMEDPOSITIVE").text = "Yes"
+            ie.find("ISDEEMEDPOSITIVE").text = counter_deemed
             ET.SubElement(ie, "AMOUNT").text = f"{-igst_amt:.2f}"
         else:
             if abs(cgst_amt) > 0:
                 ce = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
                 ET.SubElement(ce, "LEDGERNAME").text = "CGST"
                 self._add_common_ledger_flags(ce, is_party="No")
-                ce.find("ISDEEMEDPOSITIVE").text = "Yes"
+                ce.find("ISDEEMEDPOSITIVE").text = counter_deemed
                 ET.SubElement(ce, "AMOUNT").text = f"{-cgst_amt:.2f}"
             if abs(sgst_amt) > 0:
                 se = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
                 ET.SubElement(se, "LEDGERNAME").text = "SGST"
                 self._add_common_ledger_flags(se, is_party="No")
-                se.find("ISDEEMEDPOSITIVE").text = "Yes"
+                se.find("ISDEEMEDPOSITIVE").text = counter_deemed
                 ET.SubElement(se, "AMOUNT").text = f"{-sgst_amt:.2f}"
         if abs(cess_amt) > 0:
             cs = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
             ET.SubElement(cs, "LEDGERNAME").text = "Cess"
             self._add_common_ledger_flags(cs, is_party="No")
-            cs.find("ISDEEMEDPOSITIVE").text = "Yes"
+            cs.find("ISDEEMEDPOSITIVE").text = counter_deemed
             ET.SubElement(cs, "AMOUNT").text = f"{-cess_amt:.2f}"
 
         if tds_ledger and abs(tds_amount) > 0:
             te = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
             ET.SubElement(te, "LEDGERNAME").text = tds_ledger
             self._add_common_ledger_flags(te, is_party="No")
-            te.find("ISDEEMEDPOSITIVE").text = "Yes"
+            te.find("ISDEEMEDPOSITIVE").text = counter_deemed
             ET.SubElement(te, "AMOUNT").text = f"{tds_amount:.2f}"
 
     def _build_journal_voucher_xml(self, parent, rec, purchase_ledger, narration, voucher_date):
@@ -3069,7 +3189,7 @@ class GSTR2BTallyApp(ctk.CTk):
         self.create_ledger_companies = []
         self.output_dir = ""
         self.current_mode = "gstr2b"
-        self.workflow_demo_url = "https://youtu.be/OEJ7H5bJNcM"  # Add YouTube demo link later.
+        self.workflow_demo_url = ""  # Add YouTube demo link later.
         self.tally_push_date_mode = ctk.StringVar(value="current")
         self.tally_push_custom_date_var = ctk.StringVar(value="")
         self.tally_push_date_checks = {
