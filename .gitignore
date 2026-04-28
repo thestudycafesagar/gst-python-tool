@@ -25,3 +25,6 @@ pip-wheel-metadata/
 .vscode/
 Thumbs.db
 .DS_Store
+
+# Logs
+*.log
