@@ -553,6 +553,11 @@ class DemandCheckerApp(ctk.CTk):
         btn_actions.pack(side="right")
         # Add ID first
         ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=self.add_id_password, width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
+        
+        # Bulk Options
+        ctk.CTkButton(btn_actions, text="📂 Browse Excel", command=self.browse_file_demand, width=130, fg_color="#2563EB", hover_color="#1D4ED8", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+        ctk.CTkButton(btn_actions, text="📥 Sample", command=self.download_sample, width=100, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+
         # View and Delete next
         self.btn_view_id = ctk.CTkButton(btn_actions, text="👁 View ID", command=self.view_saved_user, width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="left", padx=(5, 0))
@@ -602,9 +607,9 @@ class DemandCheckerApp(ctk.CTk):
         import shutil
         import os
         from tkinter import messagebox, filedialog
-        sample_path = os.path.join(os.path.dirname(__file__), "Income Tax Sample File.xlsx")
+        sample_path = os.path.join(os.path.dirname(__file__), "Demand_Checker_Sample_File.xlsx")
         
-        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="Income Tax Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="Demand_Checker_Sample_File.xlsx", filetypes=[("Excel", "*.xlsx")])
         if save_path:
             try:
                 shutil.copy2(sample_path, save_path)

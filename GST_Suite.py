@@ -206,7 +206,7 @@ import subprocess
 from datetime import datetime
 
 # ── Version & Update Manifest ─────────────────────────────────────────────────
-VERSION            = "1.0.11"
+VERSION            = "1.0.12"
 # !! REPLACE 'YOURNAME' and 'YOURREPO' with your actual GitHub username and
 #    the public releases repo you created (e.g. gst-suite-releases).
 UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/thestudycafesagar/gst-suite-releases/main/latest.json"
@@ -554,33 +554,33 @@ EMAIL_TOOLS = [
     {"key": "Email_GST_Request", "tab": "📋  GST Return Request", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Outlook. Auto-fills month, return type, deadlines and contact details."},
     {"key": "Email_Invoice",     "tab": "🧾  Invoice Sender",     "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Outlook. Supports per-row service, period, amount & PDF attachments."},
     {"key": "Email_Payment",     "tab": "💰  Payment Reminder",   "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Outlook. Includes interest clause, deadline and per-client amounts."},
-    {"key": "Email_Custom",      "tab": "✏  Custom Email",        "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Outlook. Define your own subject, body with {placeholders}, save multiple templates, and generate dynamic Excel recipient sheets."},
+    # {"key": "Email_Custom",      "tab": "✏  Custom Email",        "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Outlook. Define your own subject, body with {placeholders}, save multiple templates, and generate dynamic Excel recipient sheets."},
 ]
 
 GMAIL_TOOLS = [
     {"key": "Gmail_GST_Request", "tab": "📋  GST Return Request", "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Gmail. Auto-fills month, return type, deadlines and contact details."},
     {"key": "Gmail_Invoice",     "tab": "🧾  Invoice Sender",     "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Gmail. Supports per-row service, period, amount & PDF attachments."},
     {"key": "Gmail_Payment",     "tab": "💰  Payment Reminder",   "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Gmail. Includes interest clause, deadline and per-client amounts."},
-    {"key": "Gmail_Custom",      "tab": "✏  Custom Email",        "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Gmail. Define your own subject, body with {placeholders}, save multiple templates, and generate dynamic Excel recipient sheets."},
+    # {"key": "Gmail_Custom",      "tab": "✏  Custom Email",        "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Gmail. Define your own subject, body with {placeholders}, save multiple templates, and generate dynamic Excel recipient sheets."},
 ]
 
 COMBINED_EMAIL_TOOLS = [
     {"key": "Email_GST_Request", "tab": "📧  Outlook | GST Request",    "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Outlook. Auto-fills month, return type, deadlines and contact details."},
     {"key": "Email_Invoice",     "tab": "📧  Outlook | Invoice Sender",  "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Outlook. Supports per-row service, period, amount & PDF attachments."},
     {"key": "Email_Payment",     "tab": "📧  Outlook | Payment Reminder","module": os.path.join(_EMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Outlook. Includes interest clause, deadline and per-client amounts."},
-    {"key": "Email_Custom",      "tab": "📧  Outlook | Custom Email",    "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Outlook with {placeholder} templates and dynamic Excel sheets."},
+    # {"key": "Email_Custom",      "tab": "📧  Outlook | Custom Email",    "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Outlook with {placeholder} templates and dynamic Excel sheets."},
     {"key": "Gmail_GST_Request", "tab": "✉  Gmail | GST Request",       "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "GSTReturnMailApp",   "tk": False, "desc": "Send bulk GST return data request emails via Gmail. Auto-fills month, return type, deadlines and contact details."},
     {"key": "Gmail_Invoice",     "tab": "✉  Gmail | Invoice Sender",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "InvoiceSenderMailApp",   "tk": False, "desc": "Dispatch personalised invoices to clients in bulk via Gmail. Supports per-row service, period, amount & PDF attachments."},
     {"key": "Gmail_Payment",     "tab": "✉  Gmail | Payment Reminder",  "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "PaymentReminderMailApp", "tk": False, "desc": "Send outstanding payment reminder emails in bulk via Gmail. Includes interest clause, deadline and per-client amounts."},
-    {"key": "Gmail_Custom",      "tab": "✉  Gmail | Custom Email",      "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Gmail with {placeholder} templates and dynamic Excel sheets."},
+    # {"key": "Gmail_Custom",      "tab": "✉  Gmail | Custom Email",      "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "CustomMailApp",          "tk": False, "desc": "Build and send fully custom bulk emails via Gmail with {placeholder} templates and dynamic Excel sheets."},
 ]
 
 MAIL_GROUP_TOOLS = [
-    {"key": "Email_Suite", "tab": "📧  Outlook Email Tools", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Outlook suite with 3 built-in templates: GST Return Request, Invoice Sender, Payment Reminder + 1 Custom Template.", "is_card_only": True, "action_cat": "email"},
-    {"key": "Gmail_Suite", "tab": "✉  Gmail Email Tools",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Gmail suite with 3 built-in templates: GST Return Request, Invoice Sender, Payment Reminder + 1 Custom Template.", "is_card_only": True, "action_cat": "gmail"},
+    {"key": "Email_Suite", "tab": "📧  Outlook Email Tools", "module": os.path.join(_EMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Outlook suite with 3 built-in templates: GST Return Request, Invoice Sender, Payment Reminder.", "is_card_only": True, "action_cat": "email"},
+    {"key": "Gmail_Suite", "tab": "✉  Gmail Email Tools",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Gmail suite with 3 built-in templates: GST Return Request, Invoice Sender, Payment Reminder.", "is_card_only": True, "action_cat": "gmail"},
 ]
 
-TALLY_TOOLS = [
+TALLY_TOOLS = [ 
     {"key": "Tally_Automation", "tab": "🧾  GSTR-2B → Tally", "module": os.path.join(_TALLY_BASE, "main.py"), "class": "GSTR2BTallyApp", "desc": "Convert GSTR-2B and Tally sheets into Tally-ready outputs with XML generation, mapping and automation helpers."},
     {"key": "Tally_Bank", "tab": "🏦  Bank Statement → Tally", "module": os.path.join(_TALLY_BASE, "Bank_Statment_to_Tally.py"), "class": "TallyBankApp", "desc": "Convert bank statement Excel to Tally Payment/Receipt vouchers and push XML directly to Tally."},
     {"key": "Tally_Sales", "tab": "🛒  Tally Entry", "module": os.path.join(_TALLY_BASE, "sale_purchase_entry.py"), "class": "TallySalesApp", "desc": "Automate sales and purchase entries in Tally."},

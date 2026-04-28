@@ -23,12 +23,12 @@ ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
 YEAR_MODE_OPTIONS = [
-    "2027-2028",
-    "2026-2027",
-    "2025-2026",
-    "2024-2025",
-    "2023-2024",
     "2022-2023",
+    "2023-2024",
+    "2024-2025",
+    "2025-2026",
+    "2026-2027",
+    "2027-2028",
 ]
 
 def get_taxpayer_name(driver, fallback=""):
@@ -503,10 +503,19 @@ class App(ctk.CTk):
         self.file_actions_frame = ctk.CTkFrame(self.file_frame, fg_color="transparent")
         self.file_actions_frame.pack(side="right")
         # Add ID first
-        self.btn_sample = ctk.CTkButton(self.file_actions_frame, text="➕ Add ID Password", command=self.add_id_password,
+        self.btn_manual = ctk.CTkButton(self.file_actions_frame, text="➕ Add ID Password", command=self.add_id_password,
             fg_color="#059669", hover_color="#047857", width=150,
                 font=("Segoe UI", 12, "bold"))
-        self.btn_sample.pack(side="left")
+        self.btn_manual.pack(side="left")
+
+        # Bulk Options
+        ctk.CTkButton(self.file_actions_frame, text="📂 Browse Excel", command=self.browse_file,
+            fg_color="#2563EB", hover_color="#1D4ED8", width=130,
+            font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+        
+        ctk.CTkButton(self.file_actions_frame, text="📥 Sample", command=self.download_sample,
+            fg_color="#7C3AED", hover_color="#6D28D9", width=100,
+            font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
 
         # View and Delete next
         self.btn_view_id = ctk.CTkButton(self.file_actions_frame, text="👁 View ID", command=self.view_saved_user,
@@ -591,11 +600,11 @@ class App(ctk.CTk):
     def download_sample(self):
         import shutil
         from tkinter import messagebox
-        sample_path = os.path.join(os.path.dirname(__file__), "Income Tax Sample File.xlsx")
+        sample_path = os.path.join(os.path.dirname(__file__), "ITR_Bot_Sample_File.xlsx")
         if not os.path.exists(sample_path):
             messagebox.showerror("Not Found", f"Sample file not found:\n{sample_path}")
             return
-        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="Income Tax Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="ITR_Bot_Sample_File.xlsx", filetypes=[("Excel", "*.xlsx")])
         if save_path:
             try:
                 shutil.copy2(sample_path, save_path)

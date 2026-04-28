@@ -264,12 +264,10 @@ FILL_AI_MATCH = PatternFill(start_color="D8B4FE", end_color="D8B4FE", fill_type=
 
 STATUS_FILL = {
     "Matched":                 FILL_MATCH,
-    "Nominal Difference":      FILL_NOMINAL,
     "Difference":              FILL_DIFF,
     "Not in Our Data":         FILL_NO_OUR,
     "Not in GSTR2B":           FILL_NO_GSTR,
     "Matched with AI":         FILL_AI_MATCH,
-    "Nominal Difference (AI)": FILL_NOMINAL,
     "Difference (AI)":         FILL_DIFF,
 }
 
@@ -277,7 +275,7 @@ STATUS_FILL = {
 #  MAIN RECONCILIATION
 # ─────────────────────────────────────────────
 def reconcile_and_write(gstr2b_file: str, tally_file: str, output_file: str, progress_cb=None,
-                        matched_threshold: float = 2.0, nominal_threshold: float = 20.0):
+                        matched_threshold: float = 2.0):
     def log(msg):
         if progress_cb: progress_cb(msg)
         else: print(msg)
@@ -316,7 +314,6 @@ def reconcile_and_write(gstr2b_file: str, tally_file: str, output_file: str, pro
             g, o = d["GSTR2B"], d["OUR DATA"]
             max_diff = max(abs(g[f] - o[f]) for f in FIELDS)
             if max_diff <= matched_threshold:   return "Matched"
-            elif max_diff <= nominal_threshold: return "Nominal Difference"
             else:                               return "Difference"
         elif has_g:             return "Not in Our Data"
         elif has_o:             return "Not in GSTR2B"
@@ -463,7 +460,6 @@ def reconcile_and_write(gstr2b_file: str, tally_file: str, output_file: str, pro
                 g_amt, o_amt = d["GSTR2B"], d["OUR DATA"]
                 max_diff = max(abs(g_amt[f] - o_amt[f]) for f in FIELDS)
                 if max_diff <= matched_threshold:   status = "Matched with AI"
-                elif max_diff <= nominal_threshold: status = "Nominal Difference (AI)"
                 else:                               status = "Difference (AI)"
             else:
                 status = "Matched with AI"
@@ -532,7 +528,7 @@ def reconcile_and_write(gstr2b_file: str, tally_file: str, output_file: str, pro
         if rk not in seen:
             seen[rk] = get_status(rk)
 
-    statuses = ["Matched", "Nominal Difference", "Difference", "Not in Our Data", "Not in GSTR2B"]
+    statuses = ["Matched", "Difference", "Not in Our Data", "Not in GSTR2B"]
     counts = {s: sum(1 for v in seen.values() if v == s) for s in statuses}
     ai_count = len(ai_matched_keys)
 
@@ -925,13 +921,6 @@ def launch_gui(embedded=False):
                  font=("Arial", 12),
                  ).grid(row=2, column=1, sticky="w", padx=(0, 30), pady=(4, 14))
 
-    ctk.CTkLabel(thresh_card, text="Nominal Difference up to (₹):", font=("Arial", 12),
-                 ).grid(row=2, column=2, sticky="w", padx=(0, 8), pady=(4, 14))
-    nominal_var = tk.StringVar(value="20")
-    ctk.CTkEntry(thresh_card, textvariable=nominal_var, width=110, height=34,
-                 font=("Arial", 12),
-                 ).grid(row=2, column=3, sticky="w", padx=(0, 16), pady=(4, 14))
-
     run_btn = ctk.CTkButton(
         thresh_card,
         text="▶   Run Reconciliation",
@@ -970,7 +959,6 @@ def launch_gui(embedded=False):
     # ═══════════════════════════════════════════════════
     _TILE_COLORS = {
         "Matched":            "#C6EFCE",
-        "Nominal Difference": "#FFEB9C",
         "Difference":         "#FFC0CB",
         "Not in Our Data":    "#ADD8E6",
         "Not in GSTR2B":      "#FFFF99",
@@ -1032,13 +1020,8 @@ def launch_gui(embedded=False):
         o = os.path.join(base_dir, name_only + "_reco_report" + (ext if ext else ".xlsx"))
         try:
             matched_thr = float(matched_var.get())
-            nominal_thr = float(nominal_var.get())
         except ValueError:
             messagebox.showerror("Error", "Threshold values must be valid numbers.")
-            return
-        if matched_thr >= nominal_thr:
-            messagebox.showerror("Error",
-                                 "'Matched' threshold must be less than 'Nominal Difference' threshold.")
             return
 
         for _lbl in sum_labels.values():
@@ -1050,8 +1033,7 @@ def launch_gui(embedded=False):
             progress_bar.start()
             try:
                 reconcile_and_write(g, t, o, progress_cb=append_log,
-                                    matched_threshold=matched_thr,
-                                    nominal_threshold=nominal_thr)
+                                    matched_threshold=matched_thr)
                 try:
                     wb_out = openpyxl.load_workbook(o, data_only=True)
                     if "Summary" in wb_out.sheetnames:

@@ -74,7 +74,7 @@ TEMPLATE_GST = Template(
     },
     build_subject=_gst_subject,
     build_body=_gst_body,
-    demo_link="https://youtu.be/rrIxoYrnal4"
+    demo_link="https://youtu.be/bebD8igJPME"
 )
 
 
@@ -123,7 +123,7 @@ TEMPLATE_INVOICE = Template(
     build_subject=_inv_subject,
     build_body=_inv_body,
     has_attachment=True,
-    demo_link="https://youtu.be/D71OhM83LBU"
+    demo_link="https://youtu.be/bb8vTGcboj0"
 )
 
 
@@ -184,7 +184,7 @@ TEMPLATE_PAYMENT = Template(
     },
     build_subject=_pay_subject,
     build_body=_pay_body,
-    demo_link="https://youtu.be/AEqQM8oww1I"
+    demo_link="https://youtu.be/jddyf-KZhlM"
 )
 
 ALL_TEMPLATES = [TEMPLATE_GST, TEMPLATE_INVOICE, TEMPLATE_PAYMENT]
@@ -742,10 +742,6 @@ class BulkMailApp(ctk.CTk):
 
         settings_btn = ctk.CTkButton(cb_frame, text="⚙ Email Settings", command=self._open_email_settings)
         settings_btn.pack(side="right", padx=(0, 0) if self._hide_switcher else (14, 0))
-        
-        link = ctk.CTkLabel(cb_frame, text="How to setup email 🔗", font=("Segoe UI", 10, "underline"), cursor="hand2", text_color="#4da8da")
-        link.pack(side="right", padx=(14, 14))
-        link.bind("<Button-1>", lambda e: self.open_demo_link())
 
 
         self._row_i += 1

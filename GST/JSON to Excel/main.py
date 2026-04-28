@@ -365,6 +365,9 @@ class App(ctk.CTk):
         self.btn_add = ctk.CTkButton(self.top_bar, text="+ Add JSON Files", command=self.add_files, 
                                      font=ctk.CTkFont(size=14, weight="bold"), height=40, width=150)
         self.btn_add.pack(side="right")
+        self.btn_demo = ctk.CTkButton(self.top_bar, text="▶ View Demo", command=self.open_demo_link, 
+                                     font=ctk.CTkFont(size=14, weight="bold"), height=40, width=120, fg_color="#DC2626", hover_color="#B91C1C")
+        self.btn_demo.pack(side="right", padx=(0, 10))
 
         # File List Area
         self.file_list_frame = ctk.CTkScrollableFrame(self.main_frame, label_text="Queue")
@@ -403,6 +406,10 @@ class App(ctk.CTk):
 
     def change_appearance_mode_event(self, new_appearance_mode: str):
         pass  # Theme controlled by GST_Suite.py
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://youtu.be/1BZ_o3nnNf0")
 
     def add_files(self):
         files = filedialog.askopenfilenames(filetypes=[("JSON Files", "*.json")])

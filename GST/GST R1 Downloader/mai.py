@@ -615,8 +615,8 @@ class App(ctk.CTk):
         btn_row.pack(fill="x", padx=15, pady=(5, 15))
         self.btn_download = ctk.CTkButton(btn_row, text="➕ Add ID Password", command=self.add_id_password, fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"))
         self.btn_download.pack(side="left", expand=True, fill="x", padx=(0, 5))
-        # self.btn_demo = ctk.CTkButton(btn_row, text="▶ View Demo", command=self.open_demo_link, fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"))
-        # self.btn_demo.pack(side="left", expand=True, fill="x", padx=(5, 0))
+        self.btn_demo = ctk.CTkButton(btn_row, text="▶ View Demo", command=self.open_demo_link, fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"))
+        self.btn_demo.pack(side="left", expand=True, fill="x", padx=(5, 0))
         manage_row = ctk.CTkFrame(self.card_cred, fg_color="transparent")
         manage_row.pack(fill="x", padx=15, pady=(0, 10))
         self.btn_view_id = ctk.CTkButton(manage_row, text="👁 View ID", command=self.view_saved_user,
@@ -1030,6 +1030,10 @@ class App(ctk.CTk):
         if hasattr(self, 'cap_stop_btn'):
             self.cap_stop_btn.configure(state="disabled", text="STOPPED")
         self.update_log_safe("🛑 Process stopped by user.")
+
+    def open_demo_link(self):
+        import webbrowser
+        webbrowser.open_new_tab("https://youtu.be/PE1P7NdsUOg")
 
 if __name__ == "__main__":
     app = App()

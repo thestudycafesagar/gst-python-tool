@@ -9,12 +9,12 @@ from tkinter import filedialog, messagebox
 from functools import wraps
 
 YEAR_LIST = [
-    "2027-2028",
-    "2026-2027",
-    "2025-2026",
-    "2024-2025",
-    "2023-2024",
     "2022-2023",
+    "2023-2024",
+    "2024-2025",
+    "2025-2026",
+    "2026-2027",
+    "2027-2028",
 ]
 
 # Selenium Imports
@@ -610,6 +610,11 @@ class RefundCheckerApp(ctk.CTk):
         btn_actions.pack(side="right")
         # Add ID first
         ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=self.add_id_password, width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
+        
+        # Bulk Options
+        ctk.CTkButton(btn_actions, text="📂 Browse Excel", command=self.browse_file, width=130, fg_color="#2563EB", hover_color="#1D4ED8", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+        ctk.CTkButton(btn_actions, text="📥 Sample", command=self.download_sample, width=100, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+
         # View and Delete next
         self.btn_view_id = ctk.CTkButton(btn_actions, text="👁 View ID", command=self.view_saved_user, width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="left", padx=(5, 0))
@@ -667,14 +672,14 @@ class RefundCheckerApp(ctk.CTk):
 
     # --- GUI Handlers ---
     def download_sample(self):
-        sample_path = os.path.join(os.path.dirname(__file__), "Income Tax Sample File.xlsx")
+        sample_path = os.path.join(os.path.dirname(__file__), "Refund_Checker_Sample_File.xlsx")
         if not os.path.exists(sample_path):
             messagebox.showerror("Error", f"Sample file not found:\n{sample_path}")
             return
-
+        
         save_path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
-            initialfile="Income Tax Sample File.xlsx",
+            initialfile="Refund_Checker_Sample_File.xlsx",
             filetypes=[("Excel", "*.xlsx"), ("All Files", "*.*")],
         )
         if not save_path:

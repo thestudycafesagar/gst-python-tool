@@ -36,12 +36,12 @@ ctk.set_default_color_theme("blue")
 
 # Assessment Year options (update as needed)
 ASSESSMENT_YEAR_OPTIONS = [
-    "2027-2028",
-    "2026-2027",
-    "2025-2026",
-    "2024-2025",
-    "2023-2024",
     "2022-2023",
+    "2023-2024",
+    "2024-2025",
+    "2025-2026",
+    "2026-2027",
+    "2027-2028",
     "Manual Selection (Popup)",
 ]
 
@@ -1851,6 +1851,11 @@ class App(ctk.CTk):
         btn_actions.pack(side="right")
         # Add ID first
         ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("26as"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
+        
+        # Bulk Options
+        ctk.CTkButton(btn_actions, text="📂 Browse Excel", command=lambda: self.browse_file("26as"), width=130, fg_color="#2563EB", hover_color="#1D4ED8", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+        ctk.CTkButton(btn_actions, text="📥 Sample", command=lambda: self.download_sample("26as"), width=100, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+
         # View and Delete next
         self.btn_view_26as = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("26as"), width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
         self.btn_view_26as.pack(side="left", padx=(5, 0))
@@ -1914,6 +1919,11 @@ class App(ctk.CTk):
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
         ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("aistis"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
+        
+        # Bulk Options
+        ctk.CTkButton(btn_actions, text="📂 Browse Excel", command=lambda: self.browse_file("aistis"), width=130, fg_color="#2563EB", hover_color="#1D4ED8", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+        ctk.CTkButton(btn_actions, text="📥 Sample", command=lambda: self.download_sample("aistis"), width=100, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+
         self.btn_view_aistis = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("aistis"), width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
         self.btn_view_aistis.pack(side="left", padx=(5, 0))
         self.btn_delete_aistis = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("aistis"), width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
@@ -1959,16 +1969,22 @@ class App(ctk.CTk):
 
     def _show_popup(self, years_list, user_id, callback):
         YearSelectionPopup(self, years_list, user_id, callback)
-    def download_sample(self):
+    def download_sample(self, mode="26as"):
         import shutil
         import os
         from tkinter import messagebox
-        sample_path = os.path.join(os.path.dirname(__file__), "Income Tax Sample File.xlsx")
+        
+        if mode == "aistis":
+            fname = "AIS_TIS_Sample_File.xlsx"
+        else:
+            fname = "26AS_Sample_File.xlsx"
+            
+        sample_path = os.path.join(os.path.dirname(__file__), fname)
         if not os.path.exists(sample_path):
             messagebox.showerror("Download Error", f"Sample file not found: {sample_path}")
             return
         
-        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="Income Tax Sample File.xlsx", filetypes=[("Excel", "*.xlsx")])
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=fname, filetypes=[("Excel", "*.xlsx")])
         if save_path:
             try:
                 shutil.copy2(sample_path, save_path)
@@ -1990,6 +2006,11 @@ class App(ctk.CTk):
                 self.entry_file_26as.delete(0, "end")
                 self.entry_file_26as.insert(0, filename)
                 self.log_to_gui_26as(f"File Loaded: {os.path.basename(filename)}")
+            elif mode == "aistis":
+                self.excel_file_path_aistis = filename
+                self.entry_file_aistis.delete(0, "end")
+                self.entry_file_aistis.insert(0, filename)
+                self.log_to_gui_aistis(f"File Loaded: {os.path.basename(filename)}")
 
     def _get_saved_user_id(self):
         if not self.manual_credentials:
