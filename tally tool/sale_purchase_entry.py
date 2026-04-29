@@ -796,6 +796,72 @@ def _post_tally_xml(tally_url: str, xml_payload: str, timeout: float = 15.0) -> 
         return response.read().decode("utf-8", errors="replace")
 
 
+def _fetch_voucher_types_from_tally(
+    tally_url: str,
+    company: str = "",
+    prefix: str = "",
+    timeout: float = 10.0,
+) -> list:
+    """
+    Fetch all voucher type names from Tally for the given company.
+    If prefix is provided (e.g. "Sales" or "Purchase"), only matching names are returned.
+    Returns a list of voucher type name strings, or empty list on failure.
+    """
+    static = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
+    if company:
+        static += f"<SVCURRENTCOMPANY>{xml_escape(company)}</SVCURRENTCOMPANY>"
+    static += "</STATICVARIABLES>"
+
+    payload = (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+        "<TYPE>Collection</TYPE><ID>AllVoucherTypes</ID></HEADER>"
+        "<BODY><DESC>"
+        f"{static}"
+        "<TDL><TDLMESSAGE>"
+        "<COLLECTION NAME='AllVoucherTypes'>"
+        "<TYPE>VoucherType</TYPE>"
+        "<FETCH>Name</FETCH>"
+        "</COLLECTION>"
+        "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+    )
+
+    names = []
+    try:
+        resp = _post_tally_xml(tally_url, payload, timeout=timeout)
+        try:
+            root = ET.fromstring(resp)
+            for node in root.iter():
+                tag = str(node.tag or "")
+                if "}" in tag:
+                    tag = tag.split("}", 1)[1]
+                tag = tag.upper()
+                if tag == "VOUCHERTYPE":
+                    name = (node.attrib.get("NAME") or "").strip()
+                    if not name:
+                        for child in node:
+                            ctag = str(child.tag or "")
+                            if "}" in ctag:
+                                ctag = ctag.split("}", 1)[1]
+                            if ctag.upper() == "NAME" and child.text:
+                                name = child.text.strip()
+                                break
+                    if name and name not in names:
+                        names.append(name)
+        except ET.ParseError:
+            for m in re.findall(r'<VOUCHERTYPE[^>]+NAME="([^"]*)"', resp, re.IGNORECASE):
+                n = m.strip()
+                if n and n not in names:
+                    names.append(n)
+    except Exception:
+        pass
+
+    if prefix:
+        prefix_lower = prefix.strip().lower()
+        names = [n for n in names if n.lower().startswith(prefix_lower)]
+
+    return names
+
+
 def _check_tally_connection(tally_url: str, timeout: float = 5.0) -> dict:
     probe_xml = (
         "<ENVELOPE><HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>"
@@ -1894,6 +1960,7 @@ def generate_accounting_xml(
     custom_tally_date: str = "",
     start_voucher_number=None,
     company_gst_registrations: list = None,
+    voucher_type: str = "Sales",
 ) -> str:
     """rows = list of dicts with keys matching Excel columns."""
     lines = []
@@ -1928,7 +1995,7 @@ def generate_accounting_xml(
             source_date = _row_get(r, "Date", "")
         dt       = tally_date(source_date)
         if start_voucher_number is not None:
-            vno_raw = str(int(start_voucher_number) + idx)
+            vno_raw = _voucher_number_with_offset(start_voucher_number, idx) or str(start_voucher_number)
         else:
             vno_raw = _row_voucher_number(r)
         vno      = xml_escape(vno_raw)
@@ -1968,10 +2035,11 @@ def generate_accounting_xml(
         igst_amt = round(taxable * igst_r / 100, 2) if igst_r > 0 else 0
         total    = taxable + cgst_amt + sgst_amt + igst_amt
 
+        _vch_type_esc = xml_escape(str(voucher_type or "Sales").strip() or "Sales")
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
-        a('    <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">')
+        a(f'    <VOUCHER VCHTYPE="{_vch_type_esc}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
         a(f'     <DATE>{dt}</DATE>')
-        a('     <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>')
+        a(f'     <VOUCHERTYPENAME>{_vch_type_esc}</VOUCHERTYPENAME>')
         a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
         a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
         _append_invoice_party_context_xml(a, party_context, include_basic_buyer=True)
@@ -2059,6 +2127,7 @@ def generate_item_xml(
     fallback_sales_ledger: str = SUSPENSE_LEDGER,
     company_gst_registrations: list = None,
     legacy_invoice_context: bool = False,
+    voucher_type: str = "Sales",
 ) -> str:
     """
     Item-mode sales voucher. Each row needs additional columns:
@@ -2096,7 +2165,7 @@ def generate_item_xml(
             source_date = _row_get(r, "Date", "")
         dt       = tally_date(source_date)
         if start_voucher_number is not None:
-            vno_raw = str(int(start_voucher_number) + idx)
+            vno_raw = _voucher_number_with_offset(start_voucher_number, idx) or str(start_voucher_number)
         else:
             vno_raw = _row_voucher_number(r)
         vno      = xml_escape(vno_raw)
@@ -2194,10 +2263,11 @@ def generate_item_xml(
         igst_amt = round(taxable * igst_r / 100, 2) if igst_r > 0 else 0
         total    = taxable + cgst_amt + sgst_amt + igst_amt
 
+        _vch_type_esc = xml_escape(str(voucher_type or "Sales").strip() or "Sales")
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
-        a('    <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">')
+        a(f'    <VOUCHER VCHTYPE="{_vch_type_esc}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
         a(f'     <DATE>{dt}</DATE>')
-        a('     <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>')
+        a(f'     <VOUCHERTYPENAME>{_vch_type_esc}</VOUCHERTYPENAME>')
         a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
         a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
         if legacy_invoice_context:
@@ -2297,6 +2367,7 @@ def generate_purchase_accounting_xml(
     custom_tally_date: str = "",
     start_voucher_number=None,
     company_gst_registrations: list = None,
+    voucher_type: str = "Purchase",
 ) -> str:
     """Purchase accounting invoice XML (mirror of sales with debit/credit reversed)."""
     lines = []
@@ -2327,7 +2398,7 @@ def generate_purchase_accounting_xml(
             source_date = _row_get(r, "Date", "")
         dt = tally_date(source_date)
         if start_voucher_number is not None:
-            vno_raw = str(int(start_voucher_number) + idx)
+            vno_raw = _voucher_number_with_offset(start_voucher_number, idx) or str(start_voucher_number)
         else:
             vno_raw = _row_voucher_number(r)
         vno = xml_escape(vno_raw)
@@ -2394,11 +2465,12 @@ def generate_purchase_accounting_xml(
         igst_amt = round(taxable * igst_r / 100, 2) if igst_r > 0 else 0
         total = taxable + cgst_amt + sgst_amt + igst_amt
         party_total = total + tds_amount if (tds_led and tds_amount > 0) else total
+        _vch_type_esc = xml_escape(str(voucher_type or "Purchase").strip() or "Purchase")
 
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
-        a('    <VOUCHER VCHTYPE="Purchase" ACTION="Create" OBJVIEW="Invoice Voucher View">')
+        a(f'    <VOUCHER VCHTYPE="{_vch_type_esc}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
         a(f'     <DATE>{dt}</DATE>')
-        a('     <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>')
+        a(f'     <VOUCHERTYPENAME>{_vch_type_esc}</VOUCHERTYPENAME>')
         a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
         a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
         _append_invoice_party_context_xml(
@@ -2497,6 +2569,7 @@ def generate_purchase_item_xml(
     start_voucher_number=None,
     fallback_purchase_ledger: str = SUSPENSE_LEDGER,
     company_gst_registrations: list = None,
+    voucher_type: str = "Purchase",
 ) -> str:
     """Purchase item invoice XML (inventory + accounting allocations)."""
     lines = []
@@ -2530,7 +2603,7 @@ def generate_purchase_item_xml(
             source_date = _row_get(r, "Date", "")
         dt = tally_date(source_date)
         if start_voucher_number is not None:
-            vno_raw = str(int(start_voucher_number) + idx)
+            vno_raw = _voucher_number_with_offset(start_voucher_number, idx) or str(start_voucher_number)
         else:
             vno_raw = _row_voucher_number(r)
         vno = xml_escape(vno_raw)
@@ -2635,11 +2708,12 @@ def generate_purchase_item_xml(
         sgst_amt = round(taxable * sgst_r / 100, 2) if sgst_r > 0 else 0
         igst_amt = round(taxable * igst_r / 100, 2) if igst_r > 0 else 0
         total = taxable + cgst_amt + sgst_amt + igst_amt
+        _vch_type_esc = xml_escape(str(voucher_type or "Purchase").strip() or "Purchase")
 
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
-        a('    <VOUCHER VCHTYPE="Purchase" ACTION="Create" OBJVIEW="Invoice Voucher View">')
+        a(f'    <VOUCHER VCHTYPE="{_vch_type_esc}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
         a(f'     <DATE>{dt}</DATE>')
-        a('     <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>')
+        a(f'     <VOUCHERTYPENAME>{_vch_type_esc}</VOUCHERTYPENAME>')
         a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
         a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
         _append_invoice_party_context_xml(
@@ -3878,6 +3952,9 @@ class TallySalesApp(ctk.CTk):
         self._voucher_xml_browse_buttons = {}
         self._voucher_import_buttons = {}  # kept for compat, not used in UI
         self._active_preview_mode = {}     # tracks "excel" or "xml" per mode
+        self._voucher_type_vars = {}        # StringVar per mode for selected voucher type
+        self._voucher_type_cbs = {}         # CTkComboBox per mode
+        self._voucher_type_fetch_buttons = {}  # Fetch button per mode
         self._note_type_var = ctk.StringVar(value="Credit Note")
         self.company_gst_registrations = []
         self._note_loaded_rows = []
@@ -4299,34 +4376,16 @@ class TallySalesApp(ctk.CTk):
         return mode, custom_tally_date
 
     def _view_workflow_demo(self):
-        # 1. Map current panel selection to specific YouTube links
-        current_selection = self._panel_var.get()
-        current_key = self._panel_option_to_key.get(current_selection, "")
-
-        demo_map = {
-            "accounting": "https://youtu.be/SlVhqglVSzU",           # Sales Accounting Invoice
-            "purchase_accounting": "https://youtu.be/9FSOjQoHmk8",  # Purchase Accounting Invoice
-            "purchase_item": "https://youtu.be/DbXzZsqb9q8",        # Purchase Item Invoice
-            "item": "https://youtu.be/bERcC0uTVws",
-            "credit_note":"https://youtu.be/8zgUBTDyCzY",
-            "debit_note":"https://youtu.be/g1VX4NCLJHg",
-            "journal":"https://youtu.be/jgt5eQiBjZM",
-        }
-
-        # 2. Determine the URL (Specific -> Instance Var -> Global Default)
-        demo_url = demo_map.get(current_key)
-        if not demo_url:
-            demo_url = (self.workflow_demo_url or "https://www.youtube.com/watch?v=OEJ7H5bJNcM").strip()
-
-        # 3. Open the browser
+        demo_url = (self.workflow_demo_url or "").strip()
         if demo_url:
             try:
-                # Using open_new_tab for consistent behavior
-                webbrowser.open_new_tab(demo_url)
-                return
-            except Exception as exc:
+                opened = webbrowser.open(demo_url)
+            except webbrowser.Error as exc:
                 messagebox.showwarning("View Demo", f"Could not open demo link.\n\n{exc}")
                 return
+            if not opened:
+                messagebox.showwarning("View Demo", "Could not open demo link in your default browser.")
+            return
 
         messagebox.showinfo(
             "View Demo",
@@ -4475,7 +4534,7 @@ class TallySalesApp(ctk.CTk):
 
     def _build_voucher_tab(self, parent, mode="accounting"):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(4, weight=1)  # row 4 = preview container
+        parent.grid_rowconfigure(5, weight=1)  # row 5 = preview container
 
         # Row 0: Template download
         template_row = ctk.CTkFrame(parent, fg_color="transparent")
@@ -4547,9 +4606,57 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkLabel(xml_row, text="Browse an existing XML to preview & push it directly to Tally",
                      font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left")
 
-        # Row 3: Preview toggle + info label
+        # Row 3: Voucher Type selector
+        vtype_row = ctk.CTkFrame(parent, fg_color="transparent")
+        vtype_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(6, 0))
+        ctk.CTkLabel(vtype_row, text="Voucher Type:", font=("Segoe UI", 12)).pack(side="left", padx=(0, 8))
+        _default_vtype = "Sales" if mode in {"accounting", "item"} else "Purchase"
+        vtype_var = ctk.StringVar(value=_default_vtype)
+        self._voucher_type_vars[mode] = vtype_var
+        vtype_cb = ctk.CTkComboBox(vtype_row, variable=vtype_var, values=[_default_vtype],
+                                    width=230, state="readonly")
+        vtype_cb.pack(side="left", padx=(0, 8))
+        self._voucher_type_cbs[mode] = vtype_cb
+        _vtype_prefix = "Sales" if mode in {"accounting", "item"} else "Purchase"
+
+        def _do_fetch_vtypes(_m=mode, _cb=vtype_cb, _var=vtype_var, _pfx=_vtype_prefix):
+            _btn = self._voucher_type_fetch_buttons.get(_m)
+            if _btn:
+                _btn.configure(state="disabled", text="Fetching...")
+            _url = self._get_tally_url()
+            _co = self._get_selected_company()
+
+            def _worker():
+                types = _fetch_voucher_types_from_tally(_url, company=_co, prefix=_pfx)
+
+                def _update():
+                    if types:
+                        _cb.configure(values=types)
+                        if _var.get() not in types:
+                            _var.set(types[0])
+                    else:
+                        self.status_var.set("No voucher types found — is Tally running?")
+                    if _btn:
+                        _btn.configure(state="normal", text="Fetch")
+
+                self.after(0, _update)
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        fetch_vtype_btn = ctk.CTkButton(
+            vtype_row, text="Fetch", width=70,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"],
+            command=_do_fetch_vtypes,
+        )
+        fetch_vtype_btn.pack(side="left")
+        self._voucher_type_fetch_buttons[mode] = fetch_vtype_btn
+        ctk.CTkLabel(vtype_row, text="Fetch voucher types from Tally",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=8)
+
+        # Row 4: Preview toggle + info label
         toggle_row = ctk.CTkFrame(parent, fg_color="transparent")
-        toggle_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(8, 0))
+        toggle_row.grid(row=4, column=0, sticky="ew", padx=10, pady=(8, 0))
 
         excel_toggle_btn = ctk.CTkButton(
             toggle_row, text="📊 Excel Data", width=160, height=30,
@@ -4568,9 +4675,9 @@ class TallySalesApp(ctk.CTk):
         info_lbl.pack(side="left", padx=4)
         self._voucher_info_labels[mode] = info_lbl
 
-        # Row 4: Preview container — Excel treeview + XML text widget stacked
+        # Row 5: Preview container — Excel treeview + XML text widget stacked
         preview_container = ctk.CTkFrame(parent, fg_color="transparent")
-        preview_container.grid(row=4, column=0, sticky="nsew", padx=10, pady=(4, 4))
+        preview_container.grid(row=5, column=0, sticky="nsew", padx=10, pady=(4, 4))
         preview_container.grid_rowconfigure(0, weight=1)
         preview_container.grid_columnconfigure(0, weight=1)
 
@@ -4625,9 +4732,9 @@ class TallySalesApp(ctk.CTk):
         # Show Excel frame by default
         excel_tree_frame.tkraise()
 
-        # Row 5: Action buttons (smart Push: uses active preview mode)
+        # Row 6: Action buttons (smart Push: uses active preview mode)
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_frame.grid(row=5, column=0, sticky="ew", padx=10, pady=(4, 10))
+        btn_frame.grid(row=6, column=0, sticky="ew", padx=10, pady=(4, 10))
 
         save_btn = ctk.CTkButton(
             btn_frame, text="💾  Save XML File",
@@ -4685,6 +4792,8 @@ class TallySalesApp(ctk.CTk):
         for btn in self._voucher_push_buttons.values():
             btn.configure(state=state)
         for btn in self._voucher_xml_browse_buttons.values():
+            btn.configure(state=state)
+        for btn in self._voucher_type_fetch_buttons.values():
             btn.configure(state=state)
         if self.demo_btn is not None:
             self.demo_btn.configure(state=state)
@@ -5007,12 +5116,8 @@ class TallySalesApp(ctk.CTk):
             )
             return
 
-        mode_to_voucher_type = {
-            "accounting": "Sales",
-            "item": "Sales",
-            "purchase_accounting": "Purchase",
-            "purchase_item": "Purchase",
-        }
+        _default_vtype = "Sales" if mode in {"accounting", "item"} else "Purchase"
+        voucher_type = (self._voucher_type_vars.get(mode) or ctk.StringVar(value=_default_vtype)).get() or _default_vtype
         mode_to_file_name = {
             "accounting": "Tally_Sales_Accounting.xml",
             "item": "Tally_Sales_Item.xml",
@@ -5037,6 +5142,7 @@ class TallySalesApp(ctk.CTk):
                     custom_tally_date=selected_custom_date,
                     start_voucher_number=voucher_start,
                     company_gst_registrations=company_gst_registrations,
+                    voucher_type=voucher_type,
                 )
             if selected_mode == "item":
                 return generate_item_xml(
@@ -5047,6 +5153,7 @@ class TallySalesApp(ctk.CTk):
                     start_voucher_number=voucher_start,
                     company_gst_registrations=company_gst_registrations,
                     legacy_invoice_context=legacy_item_invoice_context,
+                    voucher_type=voucher_type,
                 )
             if selected_mode == "purchase_accounting":
                 return generate_purchase_accounting_xml(
@@ -5056,6 +5163,7 @@ class TallySalesApp(ctk.CTk):
                     custom_tally_date=selected_custom_date,
                     start_voucher_number=voucher_start,
                     company_gst_registrations=company_gst_registrations,
+                    voucher_type=voucher_type,
                 )
             if selected_mode == "purchase_item":
                 return generate_purchase_item_xml(
@@ -5065,6 +5173,7 @@ class TallySalesApp(ctk.CTk):
                     custom_tally_date=selected_custom_date,
                     start_voucher_number=voucher_start,
                     company_gst_registrations=company_gst_registrations,
+                    voucher_type=voucher_type,
                 )
             raise ValueError(f"Unsupported mode: {selected_mode}")
 
@@ -5090,7 +5199,6 @@ class TallySalesApp(ctk.CTk):
                     "excel": "excel date",
                     "custom": "custom date",
                 }.get(date_mode, "excel date")
-                voucher_type = mode_to_voucher_type.get(mode, "Sales")
                 rows_snapshot = list(rows_to_use)
 
                 self._set_push_loading_state(True, f"Preparing vouchers for {target_company}...")
