@@ -19,6 +19,36 @@ import threading
 import re
 import html
 import webbrowser
+import io
+import base64
+import time
+from urllib.parse import unquote
+
+try:
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    _REQUESTS_AVAILABLE = True
+except ImportError:
+    _REQUESTS_AVAILABLE = False
+
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.common.exceptions import TimeoutException, WebDriverException
+    from webdriver_manager.chrome import ChromeDriverManager
+    _SELENIUM_AVAILABLE = True
+except ImportError:
+    _SELENIUM_AVAILABLE = False
+
+try:
+    from PIL import Image, ImageTk
+    _PIL_AVAILABLE = True
+except ImportError:
+    _PIL_AVAILABLE = False
 
 # ─── Theme ──────────────────────────────────────────────────────────────────
 ctk.set_appearance_mode("System")
@@ -119,6 +149,32 @@ def xml_escape(s: str) -> str:
 
 def fmt_amt(num: float) -> str:
     return f"{num:.2f}"
+
+
+def _append_round_off_entry(a, round_off_ledger: str, round_off: float, is_purchase_mode: bool):
+    """Append a round-off ledger entry to the XML.
+
+    round_off = rounded_total - actual_total  (signed, e.g. +0.40 or -0.60).
+    Sales:    positive round_off → extra collected  → credit (income).
+    Purchase: positive round_off → extra paid       → debit  (expense).
+    """
+    if not round_off_ledger or abs(round_off) < 0.005:
+        return
+    esc = xml_escape(round_off_ledger)
+    # XOR: sales+positive → credit; purchase+positive → debit
+    is_credit = (round_off > 0) != is_purchase_mode
+    if is_credit:
+        a('     <LEDGERENTRIES.LIST>')
+        a(f'      <LEDGERNAME>{esc}</LEDGERNAME>')
+        a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
+        a(f'      <AMOUNT>{fmt_amt(abs(round_off))}</AMOUNT>')
+        a('     </LEDGERENTRIES.LIST>')
+    else:
+        a('     <LEDGERENTRIES.LIST>')
+        a(f'      <LEDGERNAME>{esc}</LEDGERNAME>')
+        a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
+        a(f'      <AMOUNT>-{fmt_amt(abs(round_off))}</AMOUNT>')
+        a('     </LEDGERENTRIES.LIST>')
 
 def tally_date(dt) -> str:
     today = datetime.today().strftime("%Y%m%d")
@@ -237,6 +293,37 @@ def _row_text_any(row: dict, keys: list, default: str = "") -> str:
     return default
 
 
+def _resolve_party_ledger(row: dict, is_purchase_mode: bool = False) -> str:
+    party_ledger = _row_text(row, "PartyLedger")
+    if party_ledger:
+        return party_ledger
+
+    if is_purchase_mode:
+        fallback_keys = [
+            "PartyName",
+            "Party Name",
+            "SupplierName",
+            "Supplier",
+            "VendorName",
+            "Vendor",
+            "BillToName",
+            "Bill To Name",
+            "Party",
+        ]
+    else:
+        fallback_keys = [
+            "PartyName",
+            "Party Name",
+            "BuyerName",
+            "CustomerName",
+            "Customer",
+            "BillToName",
+            "Bill To Name",
+            "Party",
+        ]
+    return _row_text_any(row, fallback_keys, "")
+
+
 def _row_float(row: dict, key: str, default: float = 0.0) -> float:
     value = _row_get(row, key, default)
     if value in (None, ""):
@@ -249,8 +336,8 @@ def _row_float(row: dict, key: str, default: float = 0.0) -> float:
 
 def _row_voucher_number(row: dict, default: str = "") -> str:
     return (
-        _row_text(row, "VoucherNo")
-        or _row_text(row, "InvoiceNo")
+        _row_text(row, "InvoiceNo")
+        or _row_text(row, "VoucherNo")
         or _row_text(row, "BillNo")
         or default
     )
@@ -258,10 +345,10 @@ def _row_voucher_number(row: dict, default: str = "") -> str:
 
 def _row_invoice_reference(row: dict, default: str = "") -> str:
     return (
-        _row_text(row, "InvoiceNo")
+        _row_text(row, "ReferenceNo")
+        or _row_text(row, "VoucherNo")
         or _row_text(row, "SupplierInvoiceNo")
         or _row_text(row, "BillNo")
-        or _row_text(row, "VoucherNo")
         or default
     )
 
@@ -460,6 +547,12 @@ def _collect_party_context(
     if not place_raw and gstin_raw:
         place_raw = _state_name_from_gstin(gstin_raw)
 
+    # For unregistered/no-GSTIN parties: if State is absent but PlaceOfSupply is
+    # provided, use PlaceOfSupply as State too. Tally needs STATENAME in the voucher
+    # party block to avoid "Uncertain" in GSTR-1 when the ledger master has no state.
+    if not state_raw and place_raw and not gstin_raw:
+        state_raw = place_raw
+
     country_raw = _row_text_any(
         row,
         [
@@ -581,7 +674,11 @@ def _append_invoice_party_context_xml(
         elif country_raw and country_raw.casefold() not in {"india"}:
             reg_type_raw = "Overseas"
         else:
-            reg_type_raw = "Unregistered"
+            reg_type_raw = "Unregistered/Consumer"
+    # Tally requires "Unregistered/Consumer" (not just "Unregistered") for the
+    # GSTREGISTRATIONTYPE field — using the short form leaves entries in "Uncertain".
+    if reg_type_raw.casefold() == "unregistered":
+        reg_type_raw = "Unregistered/Consumer"
 
     reg_type = xml_escape(reg_type_raw)
 
@@ -595,8 +692,9 @@ def _append_invoice_party_context_xml(
 
     if reg_type:
         add_line(f'     <GSTREGISTRATIONTYPE>{reg_type}</GSTREGISTRATIONTYPE>')
-        if reg_type.casefold() == "regular":
-            add_line('     <VATDEALERTYPE>Regular</VATDEALERTYPE>')
+    # VATDEALERTYPE=Regular is required for all parties (including unregistered)
+    # to prevent Tally from marking the entry as uncertain in GSTR-1.
+    add_line('     <VATDEALERTYPE>Regular</VATDEALERTYPE>')
 
     if party_state:
         add_line(f'     <STATENAME>{party_state}</STATENAME>')
@@ -618,6 +716,15 @@ def _append_invoice_party_context_xml(
 
     if mailing_name:
         add_line(f'     <PARTYMAILINGNAME>{mailing_name}</PARTYMAILINGNAME>')
+    # Consignee fields — Tally reads CONSIGNEESTATENAME for GSTR-1 state resolution
+    # on unregistered party sales. Without it the entry stays "Uncertain".
+    consignee_name = mailing_name or party_name
+    if consignee_name:
+        add_line(f'     <CONSIGNEEMAILINGNAME>{consignee_name}</CONSIGNEEMAILINGNAME>')
+    consignee_state = party_state or place_of_supply
+    if consignee_state:
+        add_line(f'     <CONSIGNEESTATENAME>{consignee_state}</CONSIGNEESTATENAME>')
+    add_line(f'     <CONSIGNEECOUNTRYNAME>{country}</CONSIGNEECOUNTRYNAME>')
 
     if pincode:
         add_line(f'     <PARTYPINCODE>{pincode}</PARTYPINCODE>')
@@ -744,11 +851,11 @@ def _gst_transaction_type(reg_type: str, gstin: str = "") -> str:
     return "Unregistered"
 
 
-def _pick_tax_ledger_name(row: dict, ledger_keys: list, rate_value: float, default_name: str) -> str:
+def _pick_tax_ledger_name(row: dict, ledger_keys: list, rate_value: float, default_name: str, amount_value: float = 0.0) -> str:
     tax_ledger_raw = _row_text_any(row, ledger_keys, "")
     if _is_effectively_blank_ledger(tax_ledger_raw):
         tax_ledger_raw = ""
-    if rate_value > 0 and not tax_ledger_raw:
+    if (rate_value > 0 or amount_value > 0) and not tax_ledger_raw:
         tax_ledger_raw = default_name
     return _ledger_or_suspense(tax_ledger_raw)
 
@@ -1360,7 +1467,7 @@ def _is_protected_gst_tax_ledger(ledger_name: str, parent_name: str, tax_type: s
 
 
 def _collect_party_ledger_definition(row: dict, is_purchase_mode: bool) -> dict:
-    party_ledger_raw = _row_text(row, "PartyLedger")
+    party_ledger_raw = _resolve_party_ledger(row, is_purchase_mode)
     if not party_ledger_raw:
         return {}
 
@@ -1422,6 +1529,7 @@ def _collect_party_ledger_definition(row: dict, is_purchase_mode: bool) -> dict:
         "Parent": "Sundry Creditors" if is_purchase_mode else "Sundry Debtors",
         "GSTApplicable": gst_applicable,
         "GSTIN": gstin_raw,
+        "PAN": _pan_from_gstin(gstin_raw),
         "StateOfSupply": state_raw,
         "Address1": str(party_context.get("address1", "") or "").strip(),
         "Address2": str(party_context.get("address2", "") or "").strip(),
@@ -1961,6 +2069,7 @@ def generate_accounting_xml(
     start_voucher_number=None,
     company_gst_registrations: list = None,
     voucher_type: str = "Sales",
+    round_off_ledger: str = "",
 ) -> str:
     """rows = list of dicts with keys matching Excel columns."""
     lines = []
@@ -1981,10 +2090,7 @@ def generate_accounting_xml(
         resolved_mode = "current" if use_today_date else "excel"
     resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
 
-    resolved_mode = str(date_mode or ("current" if use_today_date else "excel")).strip().lower()
-    if resolved_mode not in {"current", "excel", "custom"}:
-        resolved_mode = "current" if use_today_date else "excel"
-    resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
+    rows = _consolidate_accounting_rows(rows, resolved_mode, resolved_custom_date)
 
     for idx, r in enumerate(rows):
         if resolved_mode == "current":
@@ -1994,62 +2100,89 @@ def generate_accounting_xml(
         else:
             source_date = _row_get(r, "Date", "")
         dt       = tally_date(source_date)
-        if start_voucher_number is not None:
+        excel_vno = _row_voucher_number(r, "")
+        if excel_vno:
+            vno_raw = excel_vno
+        elif start_voucher_number is not None:
             vno_raw = _voucher_number_with_offset(start_voucher_number, idx) or str(start_voucher_number)
         else:
-            vno_raw = _row_voucher_number(r)
+            vno_raw = ""
         vno      = xml_escape(vno_raw)
         invoice_ref_raw = _row_invoice_reference(r, vno_raw)
         invoice_ref = xml_escape(invoice_ref_raw)
-        party_raw = _ledger_or_suspense(_row_text(r, "PartyLedger"))
+        party_raw = _ledger_or_suspense(_resolve_party_ledger(r, is_purchase_mode=True))
         party_context = _collect_party_context(r, party_raw)
-        sales_raw = _ledger_or_suspense(_row_text(r, "SalesLedger"))
         party = xml_escape(party_raw)
-        sales = xml_escape(sales_raw)
-        taxable  = _row_float(r, "TaxableValue", 0.0)
-        cgst_r   = _row_float(r, "CGSTRate", 0.0)
-        cgst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax"],
-            cgst_r,
-            "CGST",
-        ))
-        sgst_r   = _row_float(r, "SGSTRate", 0.0)
-        sgst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax", "UTGSTLedger", "UTGST Ledger"],
-            sgst_r,
-            "SGST",
-        ))
-        igst_r   = _row_float(r, "IGSTRate", 0.0)
-        igst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax"],
-            igst_r,
-            "IGST",
-        ))
         narr     = xml_escape(_row_text(r, "Narration"))
 
-        cgst_amt = round(taxable * cgst_r / 100, 2) if cgst_r > 0 else 0
-        sgst_amt = round(taxable * sgst_r / 100, 2) if sgst_r > 0 else 0
-        igst_amt = round(taxable * igst_r / 100, 2) if igst_r > 0 else 0
-        total    = taxable + cgst_amt + sgst_amt + igst_amt
+        # Build one leg per row (first row + any consolidated duplicates).
+        # Each leg contributes its own sales ledger entry; GST is merged by ledger name.
+        extra_legs = r.get("acct_legs") or []
+        all_legs = [r] + extra_legs
 
-        _vch_type_esc = xml_escape(str(voucher_type or "Sales").strip() or "Sales")
+        sales_legs = []   # list of {sales_raw, taxable}
+        gst_cgst   = {}   # {led_name: total_amount}
+        gst_sgst   = {}
+        gst_igst   = {}
+
+        for leg_r in all_legs:
+            leg_taxable        = _row_float(leg_r, "TaxableValue", 0.0)
+            leg_cgst_r         = _row_float(leg_r, "CGSTRate", 0.0)
+            leg_cgst_explicit  = _row_float(leg_r, "CGST Amount", 0.0)
+            leg_sgst_r         = _row_float(leg_r, "SGSTRate", 0.0)
+            leg_sgst_explicit  = _row_float(leg_r, "SGST Amount", 0.0)
+            leg_igst_r         = _row_float(leg_r, "IGSTRate", 0.0)
+            leg_igst_explicit  = _row_float(leg_r, "IGST Amount", 0.0)
+
+            leg_cgst = round(leg_taxable * leg_cgst_r / 100, 2) if leg_cgst_r > 0 else leg_cgst_explicit
+            leg_sgst = round(leg_taxable * leg_sgst_r / 100, 2) if leg_sgst_r > 0 else leg_sgst_explicit
+            leg_igst = round(leg_taxable * leg_igst_r / 100, 2) if leg_igst_r > 0 else leg_igst_explicit
+
+            leg_sales_raw = _ledger_or_suspense(_row_text(leg_r, "SalesLedger"))
+            leg_cgst_name = _pick_tax_ledger_name(leg_r, ["CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax"], leg_cgst_r, "CGST", leg_cgst_explicit)
+            leg_sgst_name = _pick_tax_ledger_name(leg_r, ["SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax", "UTGSTLedger", "UTGST Ledger"], leg_sgst_r, "SGST", leg_sgst_explicit)
+            leg_igst_name = _pick_tax_ledger_name(leg_r, ["IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax"], leg_igst_r, "IGST", leg_igst_explicit)
+
+            sales_legs.append({"sales_raw": leg_sales_raw, "taxable": leg_taxable})
+            if leg_cgst:
+                gst_cgst[leg_cgst_name] = gst_cgst.get(leg_cgst_name, 0.0) + leg_cgst
+            if leg_sgst:
+                gst_sgst[leg_sgst_name] = gst_sgst.get(leg_sgst_name, 0.0) + leg_sgst
+            if leg_igst:
+                gst_igst[leg_igst_name] = gst_igst.get(leg_igst_name, 0.0) + leg_igst
+
+        total_taxable = sum(l["taxable"] for l in sales_legs)
+        total_gst     = sum(gst_cgst.values()) + sum(gst_sgst.values()) + sum(gst_igst.values())
+        grand_total   = total_taxable + total_gst
+        _ro_amt   = round(round(grand_total, 0) - grand_total, 2) if round_off_ledger else 0.0
+        _ro_total = round(grand_total + _ro_amt, 2)
+
+        effective_vch_type = str(voucher_type or "Sales").strip() or "Sales"
+        _vch_type_esc = xml_escape(effective_vch_type)
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
         a(f'    <VOUCHER VCHTYPE="{_vch_type_esc}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
         a(f'     <DATE>{dt}</DATE>')
         a(f'     <VOUCHERTYPENAME>{_vch_type_esc}</VOUCHERTYPENAME>')
         a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
         a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
-        _append_invoice_party_context_xml(a, party_context, include_basic_buyer=True)
+        _append_invoice_party_context_xml(
+            a, party_context, include_basic_buyer=True,
+        )
         _append_company_gst_context_xml(a, party_context, company_gst_registrations)
         a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
+        a('     <NUMBERINGSTYLE>Manual</NUMBERINGSTYLE>')
         a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>')
+        # ISGSTOVERRIDDEN=No lets Tally derive transaction type from GSTREGISTRATIONTYPE;
+        # setting Yes was causing the "Accept?" prompt in GSTR-1 uncertain screen.
         a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
-        # GSTTRANSACTIONTYPE is required to avoid 'Uncertain' in GSTR-1
+        # VCHSTATUSISREACCEPHSNSIXONEDONE=Yes is the acceptance flag Tally sets internally
+        # when a user "accepts" party details — without it entries stay in Uncertain.
+        a('     <VCHSTATUSISREACCEPHSNSIXONEDONE>Yes</VCHSTATUSISREACCEPHSNSIXONEDONE>')
+        a('     <VCHGSTSTATUSISUNCERTAIN>No</VCHGSTSTATUSISUNCERTAIN>')
+        a('     <VCHGSTSTATUSISINCLUDED>Yes</VCHGSTSTATUSISINCLUDED>')
+        a('     <VCHGSTSTATUSISAPPLICABLE>Yes</VCHGSTSTATUSISAPPLICABLE>')
         _gst_txn_type = _gst_transaction_type(
             party_context.get("registration_type", ""),
             party_context.get("gstin", ""),
@@ -2060,50 +2193,54 @@ def generate_accounting_xml(
         if narr:
             a(f'     <NARRATION>{narr}</NARRATION>')
 
-        # Party – Debit (with bill allocation so Tally links to GSTR-1)
+        _party_amt = f"-{fmt_amt(_ro_total)}"
+
+        # Party – Debit
         a('     <LEDGERENTRIES.LIST>')
         a(f'      <LEDGERNAME>{party}</LEDGERNAME>')
         a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
-        a(f'      <AMOUNT>-{fmt_amt(total)}</AMOUNT>')
+        a(f'      <AMOUNT>{_party_amt}</AMOUNT>')
         a('      <BILLALLOCATIONS.LIST>')
         a(f'       <NAME>{invoice_ref or vno}</NAME>')
         a('       <BILLTYPE>New Ref</BILLTYPE>')
-        a(f'       <AMOUNT>-{fmt_amt(total)}</AMOUNT>')
+        a(f'       <AMOUNT>{_party_amt}</AMOUNT>')
         a('      </BILLALLOCATIONS.LIST>')
         a('     </LEDGERENTRIES.LIST>')
 
-        # Sales – Credit
-        a('     <LEDGERENTRIES.LIST>')
-        a(f'      <LEDGERNAME>{sales}</LEDGERNAME>')
-        a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
-        a(f'      <AMOUNT>{fmt_amt(taxable)}</AMOUNT>')
-        a('     </LEDGERENTRIES.LIST>')
-
-        # CGST
-        if cgst_amt:
+        # Sales – one Credit entry per leg (supports multiple income ledgers per invoice)
+        for leg in sales_legs:
             a('     <LEDGERENTRIES.LIST>')
-            a(f'      <LEDGERNAME>{cgst_led}</LEDGERNAME>')
+            a(f'      <LEDGERNAME>{xml_escape(leg["sales_raw"])}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
-            a(f'      <AMOUNT>{fmt_amt(cgst_amt)}</AMOUNT>')
+            a(f'      <AMOUNT>{fmt_amt(leg["taxable"])}</AMOUNT>')
+            a('     </LEDGERENTRIES.LIST>')
+
+        # CGST – aggregated by ledger name
+        for led_name, amt in gst_cgst.items():
+            a('     <LEDGERENTRIES.LIST>')
+            a(f'      <LEDGERNAME>{xml_escape(led_name)}</LEDGERNAME>')
+            a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
+            a(f'      <AMOUNT>{fmt_amt(amt)}</AMOUNT>')
             _append_tax_object_allocation_xml(a, "CGST")
             a('     </LEDGERENTRIES.LIST>')
         # SGST
-        if sgst_amt:
+        for led_name, amt in gst_sgst.items():
             a('     <LEDGERENTRIES.LIST>')
-            a(f'      <LEDGERNAME>{sgst_led}</LEDGERNAME>')
+            a(f'      <LEDGERNAME>{xml_escape(led_name)}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
-            a(f'      <AMOUNT>{fmt_amt(sgst_amt)}</AMOUNT>')
+            a(f'      <AMOUNT>{fmt_amt(amt)}</AMOUNT>')
             _append_tax_object_allocation_xml(a, "SGST")
             a('     </LEDGERENTRIES.LIST>')
         # IGST
-        if igst_amt:
+        for led_name, amt in gst_igst.items():
             a('     <LEDGERENTRIES.LIST>')
-            a(f'      <LEDGERNAME>{igst_led}</LEDGERNAME>')
+            a(f'      <LEDGERNAME>{xml_escape(led_name)}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
-            a(f'      <AMOUNT>{fmt_amt(igst_amt)}</AMOUNT>')
+            a(f'      <AMOUNT>{fmt_amt(amt)}</AMOUNT>')
             _append_tax_object_allocation_xml(a, "IGST")
             a('     </LEDGERENTRIES.LIST>')
 
+        _append_round_off_entry(a, round_off_ledger, _ro_amt, is_purchase_mode=False)
         a('    </VOUCHER>')
         a('   </TALLYMESSAGE>')
 
@@ -2128,6 +2265,7 @@ def generate_item_xml(
     company_gst_registrations: list = None,
     legacy_invoice_context: bool = False,
     voucher_type: str = "Sales",
+    round_off_ledger: str = "",
 ) -> str:
     """
     Item-mode sales voucher. Each row needs additional columns:
@@ -2156,6 +2294,8 @@ def generate_item_xml(
     def _name_key(value: str) -> str:
         return re.sub(r"\s+", " ", str(value or "")).strip().lower()
 
+    rows = _consolidate_item_rows(rows, resolved_mode, resolved_custom_date)
+
     for idx, r in enumerate(rows):
         if resolved_mode == "current":
             source_date = datetime.today()
@@ -2164,10 +2304,13 @@ def generate_item_xml(
         else:
             source_date = _row_get(r, "Date", "")
         dt       = tally_date(source_date)
-        if start_voucher_number is not None:
+        excel_vno = _row_voucher_number(r, "")
+        if excel_vno:
+            vno_raw = excel_vno
+        elif start_voucher_number is not None:
             vno_raw = _voucher_number_with_offset(start_voucher_number, idx) or str(start_voucher_number)
         else:
-            vno_raw = _row_voucher_number(r)
+            vno_raw = ""
         vno      = xml_escape(vno_raw)
         invoice_ref_raw = _row_invoice_reference(r, vno_raw)
         invoice_ref = xml_escape(invoice_ref_raw)
@@ -2176,92 +2319,140 @@ def generate_item_xml(
         party = xml_escape(party_raw)
         taxable  = _row_float(r, "TaxableValue", 0.0)
 
-        # Support common source variants while preserving current UI/flow.
-        item_name_raw = (
-            _row_text(r, "ItemName")
-            or _row_text(r, "Item")
-            or _row_text(r, "StockItem")
-            or _row_text(r, "ProductName")
-            or _row_text(r, "SalesLedger")
-        )
-        if not item_name_raw:
-            raise ValueError(f"Item row {idx + 1}: item name is missing (ItemName/Item/SalesLedger).")
-        item_name = xml_escape(item_name_raw)
-        item_name_key = _name_key(item_name_raw)
-
-        qty = _row_float(r, "Quantity", 0.0)
-        if qty <= 0:
-            qty = _row_float(r, "Qty", 0.0)
-        if qty <= 0:
-            qty = _row_float(r, "Unit", 0.0)
-        if qty <= 0:
-            raise ValueError(f"Item row {idx + 1}: quantity is missing/zero (Quantity/Qty/Unit).")
-
-        rate = _row_float(r, "Rate", 0.0)
-        if rate <= 0 and taxable > 0 and qty > 0:
-            rate = taxable / qty
-        per_unit_raw = (
-            _row_text(r, "Per", "")
-            or _row_text(r, "UOM", "")
-            or _row_text(r, "Unit", "")
-            or "Nos"
-        )
-        per_unit = xml_escape(_normalize_stock_unit_name(per_unit_raw) or "Nos")
-        godown   = xml_escape(_row_text(r, "GodownName", "Main Location") or "Main Location")
-
-        explicit_sales_ledger = (
-            _row_text(r, "SalesAccount")
-            or _row_text(r, "Sales Ledger")
-            or _row_text(r, "IncomeLedger")
-        )
-        default_sales_ledger = _ledger_or_suspense(fallback_sales_ledger)
-        if _name_key(default_sales_ledger) == item_name_key:
-            for candidate in ("Sales Account", "Sales", "Sales A/c", "Sales Ledger"):
-                if _name_key(candidate) != item_name_key:
-                    default_sales_ledger = candidate
-                    break
-
-        sales_ledger_raw = explicit_sales_ledger or _row_text(r, "SalesLedger") or default_sales_ledger
-        # If source ledger equals stock item name, switch to fallback sales ledger.
-        if _name_key(sales_ledger_raw) == item_name_key:
-            sales_ledger_raw = default_sales_ledger
-        sales_ledger_raw = _ledger_or_suspense(sales_ledger_raw, default_sales_ledger)
-        if _name_key(sales_ledger_raw) == item_name_key:
-            raise ValueError(
-                f"Item row {idx + 1}: sales ledger cannot be same as item '{item_name_raw}'. "
-                "Provide SalesAccount/IncomeLedger in Excel or use a valid fallback sales ledger."
+        # ── Items: multi-item list (from popup/consolidation) or single-item from row fields ──
+        _raw_items = r.get("items") or []
+        if _raw_items:
+            inv_items = []
+            for _it in _raw_items:
+                _it_name_raw = str(_it.get("ItemName") or "")
+                if not _it_name_raw:
+                    raise ValueError(f"Sales item row {idx + 1}: item name missing in items list.")
+                _it_qty = float(_it.get("Quantity") or 0)
+                if _it_qty <= 0:
+                    raise ValueError(f"Sales item row {idx + 1}: quantity must be > 0.")
+                _it_rate = float(_it.get("Rate") or 0)
+                _it_per  = xml_escape(_normalize_stock_unit_name(str(_it.get("Per") or "Nos")) or "Nos")
+                _it_godown = xml_escape(str(_it.get("GodownName") or "Main Location"))
+                
+                _s_led_raw = str(_it.get("SalesLedger") or fallback_sales_ledger)
+                _s_led_raw = _ledger_or_suspense(_s_led_raw, fallback_sales_ledger)
+                _it_sled = xml_escape(_s_led_raw)
+                
+                _it_amt  = round(_it_qty * _it_rate, 2) if _it_rate > 0 else 0.0
+                inv_items.append({
+                    "item_name": xml_escape(_it_name_raw),
+                    "qty":       _it_qty,
+                    "rate":      _it_rate if _it_rate > 0 else (_it_amt / _it_qty if _it_qty > 0 else 0.0),
+                    "per_unit":  _it_per,
+                    "godown":    _it_godown,
+                    "sled":      _it_sled,
+                    "amt":       _it_amt,
+                })
+            item_total = sum(it["amt"] for it in inv_items)
+        else:
+            item_name_raw = (
+                _row_text(r, "ItemName")
+                or _row_text(r, "Item")
+                or _row_text(r, "StockItem")
+                or _row_text(r, "ProductName")
+                or _row_text(r, "SalesLedger")
             )
-        sales = xml_escape(sales_ledger_raw)
+            if not item_name_raw:
+                raise ValueError(f"Item row {idx + 1}: item name is missing (ItemName/Item/SalesLedger).")
+            item_name = xml_escape(item_name_raw)
+            item_name_key = _name_key(item_name_raw)
+
+            qty = _row_float(r, "Quantity", 0.0)
+            if qty <= 0:
+                qty = _row_float(r, "Qty", 0.0)
+            if qty <= 0:
+                qty = _row_float(r, "Unit", 0.0)
+            if qty <= 0:
+                raise ValueError(f"Item row {idx + 1}: quantity is missing/zero (Quantity/Qty/Unit).")
+
+            rate = _row_float(r, "Rate", 0.0)
+            if rate <= 0 and taxable > 0 and qty > 0:
+                rate = taxable / qty
+            per_unit_raw = (
+                _row_text(r, "Per", "")
+                or _row_text(r, "UOM", "")
+                or _row_text(r, "Unit", "")
+                or "Nos"
+            )
+            per_unit = xml_escape(_normalize_stock_unit_name(per_unit_raw) or "Nos")
+            godown   = xml_escape(_row_text(r, "GodownName", "Main Location") or "Main Location")
+
+            explicit_sales_ledger = (
+                _row_text(r, "SalesAccount")
+                or _row_text(r, "Sales Ledger")
+                or _row_text(r, "IncomeLedger")
+            )
+            default_sales_ledger = _ledger_or_suspense(fallback_sales_ledger)
+            if _name_key(default_sales_ledger) == item_name_key:
+                for candidate in ("Sales Account", "Sales", "Sales A/c", "Sales Ledger"):
+                    if _name_key(candidate) != item_name_key:
+                        default_sales_ledger = candidate
+                        break
+
+            sales_ledger_raw = explicit_sales_ledger or _row_text(r, "SalesLedger") or default_sales_ledger
+            if _name_key(sales_ledger_raw) == item_name_key:
+                sales_ledger_raw = default_sales_ledger
+            sales_ledger_raw = _ledger_or_suspense(sales_ledger_raw, default_sales_ledger)
+            if _name_key(sales_ledger_raw) == item_name_key:
+                raise ValueError(
+                    f"Item row {idx + 1}: sales ledger cannot be same as item '{item_name_raw}'. "
+                    "Provide SalesAccount/IncomeLedger in Excel or use a valid fallback sales ledger."
+                )
+            sales = xml_escape(sales_ledger_raw)
+            item_amt  = round(qty * rate, 2) if qty and rate else taxable
+            inv_items = [{
+                "item_name": item_name,
+                "qty":       qty,
+                "rate":      rate,
+                "per_unit":  per_unit,
+                "godown":    godown,
+                "sled":      sales,
+                "amt":       item_amt,
+            }]
+            item_total = item_amt
 
         cgst_r   = _row_float(r, "CGSTRate", 0.0)
+        cgst_amt_explicit = _row_float(r, "CGST Amount", 0.0)
         cgst_led = xml_escape(_pick_tax_ledger_name(
             r,
             ["CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax"],
             cgst_r,
             "CGST",
+            cgst_amt_explicit,
         ))
         sgst_r   = _row_float(r, "SGSTRate", 0.0)
+        sgst_amt_explicit = _row_float(r, "SGST Amount", 0.0)
         sgst_led = xml_escape(_pick_tax_ledger_name(
             r,
             ["SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax", "UTGSTLedger", "UTGST Ledger"],
             sgst_r,
             "SGST",
+            sgst_amt_explicit,
         ))
         igst_r   = _row_float(r, "IGSTRate", 0.0)
+        igst_amt_explicit = _row_float(r, "IGST Amount", 0.0)
         igst_led = xml_escape(_pick_tax_ledger_name(
             r,
             ["IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax"],
             igst_r,
             "IGST",
+            igst_amt_explicit,
         ))
         narr     = xml_escape(_row_text(r, "Narration"))
         hsn_code = xml_escape(_row_text(r, "HSNCode"))
 
-        item_amt  = round(qty * rate, 2) if qty and rate else taxable
-        cgst_amt = round(taxable * cgst_r / 100, 2) if cgst_r > 0 else 0
-        sgst_amt = round(taxable * sgst_r / 100, 2) if sgst_r > 0 else 0
-        igst_amt = round(taxable * igst_r / 100, 2) if igst_r > 0 else 0
-        total    = taxable + cgst_amt + sgst_amt + igst_amt
+        taxable_for_tax = taxable if taxable > 0 else item_total
+        cgst_amt = round(taxable_for_tax * cgst_r / 100, 2) if cgst_r > 0 else cgst_amt_explicit
+        sgst_amt = round(taxable_for_tax * sgst_r / 100, 2) if sgst_r > 0 else sgst_amt_explicit
+        igst_amt = round(taxable_for_tax * igst_r / 100, 2) if igst_r > 0 else igst_amt_explicit
+        total    = item_total + cgst_amt + sgst_amt + igst_amt
+        _ro_amt_i   = round(round(total, 0) - total, 2) if round_off_ledger else 0.0
+        _ro_total_i = round(total + _ro_amt_i, 2)
 
         _vch_type_esc = xml_escape(str(voucher_type or "Sales").strip() or "Sales")
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
@@ -2281,12 +2472,16 @@ def generate_item_xml(
             _append_invoice_party_context_xml(a, party_context, include_basic_buyer=True)
             _append_company_gst_context_xml(a, party_context, company_gst_registrations)
         a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
+        a('     <NUMBERINGSTYLE>Manual</NUMBERINGSTYLE>')
         a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>')
         if not legacy_invoice_context:
             a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
-            # GSTTRANSACTIONTYPE is required to avoid 'Uncertain' in GSTR-1
+            a('     <VCHSTATUSISREACCEPHSNSIXONEDONE>Yes</VCHSTATUSISREACCEPHSNSIXONEDONE>')
+            a('     <VCHGSTSTATUSISUNCERTAIN>No</VCHGSTSTATUSISUNCERTAIN>')
+            a('     <VCHGSTSTATUSISINCLUDED>Yes</VCHGSTSTATUSISINCLUDED>')
+            a('     <VCHGSTSTATUSISAPPLICABLE>Yes</VCHGSTSTATUSISAPPLICABLE>')
             _gst_txn_type = _gst_transaction_type(
                 party_context.get("registration_type", ""),
                 party_context.get("gstin", ""),
@@ -2298,35 +2493,36 @@ def generate_item_xml(
             a(f'     <NARRATION>{narr}</NARRATION>')
 
         # ── Inventory entry ──
-        a('     <ALLINVENTORYENTRIES.LIST>')
-        a(f'      <STOCKITEMNAME>{item_name}</STOCKITEMNAME>')
-        a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
-        a(f'      <RATE>{fmt_amt(rate)}/{per_unit}</RATE>')
-        a(f'      <AMOUNT>{fmt_amt(item_amt)}</AMOUNT>')
-        a(f'      <ACTUALQTY>{fmt_amt(qty)} {per_unit}</ACTUALQTY>')
-        a(f'      <BILLEDQTY>{fmt_amt(qty)} {per_unit}</BILLEDQTY>')
-        a('      <BATCHALLOCATIONS.LIST>')
-        a(f'       <GODOWNNAME>{godown}</GODOWNNAME>')
-        a(f'       <AMOUNT>{fmt_amt(item_amt)}</AMOUNT>')
-        a(f'       <ACTUALQTY>{fmt_amt(qty)} {per_unit}</ACTUALQTY>')
-        a(f'       <BILLEDQTY>{fmt_amt(qty)} {per_unit}</BILLEDQTY>')
-        a('      </BATCHALLOCATIONS.LIST>')
-        a('      <ACCOUNTINGALLOCATIONS.LIST>')
-        a(f'       <LEDGERNAME>{sales}</LEDGERNAME>')
-        a('       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
-        a(f'       <AMOUNT>{fmt_amt(item_amt)}</AMOUNT>')
-        a('      </ACCOUNTINGALLOCATIONS.LIST>')
-        a('     </ALLINVENTORYENTRIES.LIST>')
+        for _it in inv_items:
+            a('     <ALLINVENTORYENTRIES.LIST>')
+            a(f'      <STOCKITEMNAME>{_it["item_name"]}</STOCKITEMNAME>')
+            a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
+            a(f'      <RATE>{fmt_amt(_it["rate"])}/{_it["per_unit"]}</RATE>')
+            a(f'      <AMOUNT>{fmt_amt(_it["amt"])}</AMOUNT>')
+            a(f'      <ACTUALQTY>{fmt_amt(_it["qty"])} {_it["per_unit"]}</ACTUALQTY>')
+            a(f'      <BILLEDQTY>{fmt_amt(_it["qty"])} {_it["per_unit"]}</BILLEDQTY>')
+            a('      <BATCHALLOCATIONS.LIST>')
+            a(f'       <GODOWNNAME>{_it["godown"]}</GODOWNNAME>')
+            a(f'       <AMOUNT>{fmt_amt(_it["amt"])}</AMOUNT>')
+            a(f'       <ACTUALQTY>{fmt_amt(_it["qty"])} {_it["per_unit"]}</ACTUALQTY>')
+            a(f'       <BILLEDQTY>{fmt_amt(_it["qty"])} {_it["per_unit"]}</BILLEDQTY>')
+            a('      </BATCHALLOCATIONS.LIST>')
+            a('      <ACCOUNTINGALLOCATIONS.LIST>')
+            a(f'       <LEDGERNAME>{_it["sled"]}</LEDGERNAME>')
+            a('       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
+            a(f'       <AMOUNT>{fmt_amt(_it["amt"])}</AMOUNT>')
+            a('      </ACCOUNTINGALLOCATIONS.LIST>')
+            a('     </ALLINVENTORYENTRIES.LIST>')
 
         # ── Ledger entries (Party DR) with bill allocation ──
         a('     <LEDGERENTRIES.LIST>')
         a(f'      <LEDGERNAME>{party}</LEDGERNAME>')
         a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
-        a(f'      <AMOUNT>-{fmt_amt(total)}</AMOUNT>')
+        a(f'      <AMOUNT>-{fmt_amt(_ro_total_i)}</AMOUNT>')
         a('      <BILLALLOCATIONS.LIST>')
         a(f'       <NAME>{invoice_ref or vno}</NAME>')
         a('       <BILLTYPE>New Ref</BILLTYPE>')
-        a(f'       <AMOUNT>-{fmt_amt(total)}</AMOUNT>')
+        a(f'       <AMOUNT>-{fmt_amt(_ro_total_i)}</AMOUNT>')
         a('      </BILLALLOCATIONS.LIST>')
         a('     </LEDGERENTRIES.LIST>')
 
@@ -2350,6 +2546,7 @@ def generate_item_xml(
             a(f'      <AMOUNT>{fmt_amt(igst_amt)}</AMOUNT>')
             a('     </LEDGERENTRIES.LIST>')
 
+        _append_round_off_entry(a, round_off_ledger, _ro_amt_i, is_purchase_mode=False)
         a('    </VOUCHER>')
         a('   </TALLYMESSAGE>')
 
@@ -2368,6 +2565,7 @@ def generate_purchase_accounting_xml(
     start_voucher_number=None,
     company_gst_registrations: list = None,
     voucher_type: str = "Purchase",
+    round_off_ledger: str = "",
 ) -> str:
     """Purchase accounting invoice XML (mirror of sales with debit/credit reversed)."""
     lines = []
@@ -2389,6 +2587,8 @@ def generate_purchase_accounting_xml(
     resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
     purchase_company_state = _resolve_company_gst_state(company_gst_registrations or [], preferred_state="")
 
+    rows = _consolidate_accounting_rows(rows, resolved_mode, resolved_custom_date)
+
     for idx, r in enumerate(rows):
         if resolved_mode == "current":
             source_date = datetime.today()
@@ -2397,10 +2597,13 @@ def generate_purchase_accounting_xml(
         else:
             source_date = _row_get(r, "Date", "")
         dt = tally_date(source_date)
-        if start_voucher_number is not None:
+        excel_vno = _row_voucher_number(r, "")
+        if excel_vno:
+            vno_raw = excel_vno
+        elif start_voucher_number is not None:
             vno_raw = _voucher_number_with_offset(start_voucher_number, idx) or str(start_voucher_number)
         else:
-            vno_raw = _row_voucher_number(r)
+            vno_raw = ""
         vno = xml_escape(vno_raw)
         supplier_invoice_raw = _row_invoice_reference(r, vno_raw)
         supplier_invoice = xml_escape(supplier_invoice_raw)
@@ -2412,59 +2615,75 @@ def generate_purchase_accounting_xml(
             allow_place_of_supply_column=False,
         )
         party = xml_escape(party_raw)
-        purchase_raw = (
-            _row_text(r, "PurchaseLedger")
-            or _row_text(r, "PurchaseAccount")
-            or _row_text(r, "Purchase Ledger")
-            or _row_text(r, "ExpenseLedger")
-            or _row_text(r, "SalesLedger")
-        )
-        purchase_raw = _ledger_or_suspense(purchase_raw)
-        purchase = xml_escape(purchase_raw)
-
-        taxable = _row_float(r, "TaxableValue", 0.0)
-        cgst_r = _row_float(r, "CGSTRate", 0.0)
-        cgst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax"],
-            cgst_r,
-            "CGST",
-        ))
-        sgst_r = _row_float(r, "SGSTRate", 0.0)
-        sgst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax", "UTGSTLedger", "UTGST Ledger"],
-            sgst_r,
-            "SGST",
-        ))
-        igst_r = _row_float(r, "IGSTRate", 0.0)
-        igst_led = xml_escape(_pick_tax_ledger_name(
-            r,
-            ["IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax"],
-            igst_r,
-            "IGST",
-        ))
         narr = xml_escape(_row_text(r, "Narration"))
 
-        # TDS fields
-        tds_ledger_raw = (
-            _row_text(r, "TDSLedger")
-            or _row_text(r, "TDS Ledger")
-            or _row_text(r, "Tds Ledger")
-        )
-        tds_rate = _row_float(r, "TDSRate", 0.0) or _row_float(r, "TDS Rate", 0.0)
-        tds_amount_raw = _row_float(r, "TDSAmount", 0.0) or _row_float(r, "TDS Amount", 0.0)
-        if tds_ledger_raw and tds_amount_raw <= 0 and tds_rate > 0:
-            tds_amount = round(taxable * tds_rate / 100, 2)
-        else:
-            tds_amount = abs(tds_amount_raw)
-        tds_led = xml_escape(tds_ledger_raw)
+        # Build one leg per row (first row + any consolidated duplicates).
+        # Each leg contributes its own purchase ledger entry; GST/TDS merged by ledger name.
+        extra_legs = r.get("acct_legs") or []
+        all_legs = [r] + extra_legs
 
-        cgst_amt = round(taxable * cgst_r / 100, 2) if cgst_r > 0 else 0
-        sgst_amt = round(taxable * sgst_r / 100, 2) if sgst_r > 0 else 0
-        igst_amt = round(taxable * igst_r / 100, 2) if igst_r > 0 else 0
-        total = taxable + cgst_amt + sgst_amt + igst_amt
-        party_total = total + tds_amount if (tds_led and tds_amount > 0) else total
+        purchase_legs = []   # list of {purchase_raw, taxable}
+        gst_cgst      = {}   # {led_name: total_amount}
+        gst_sgst      = {}
+        gst_igst      = {}
+        tds_by_led    = {}   # {led_name: total_amount}
+
+        for leg_r in all_legs:
+            leg_taxable       = _row_float(leg_r, "TaxableValue", 0.0)
+            leg_cgst_r        = _row_float(leg_r, "CGSTRate", 0.0)
+            leg_cgst_explicit = _row_float(leg_r, "CGST Amount", 0.0)
+            leg_sgst_r        = _row_float(leg_r, "SGSTRate", 0.0)
+            leg_sgst_explicit = _row_float(leg_r, "SGST Amount", 0.0)
+            leg_igst_r        = _row_float(leg_r, "IGSTRate", 0.0)
+            leg_igst_explicit = _row_float(leg_r, "IGST Amount", 0.0)
+
+            leg_cgst = round(leg_taxable * leg_cgst_r / 100, 2) if leg_cgst_r > 0 else leg_cgst_explicit
+            leg_sgst = round(leg_taxable * leg_sgst_r / 100, 2) if leg_sgst_r > 0 else leg_sgst_explicit
+            leg_igst = round(leg_taxable * leg_igst_r / 100, 2) if leg_igst_r > 0 else leg_igst_explicit
+
+            leg_purchase_raw = (
+                _row_text(leg_r, "PurchaseLedger")
+                or _row_text(leg_r, "PurchaseAccount")
+                or _row_text(leg_r, "Purchase Ledger")
+                or _row_text(leg_r, "ExpenseLedger")
+                or _row_text(leg_r, "SalesLedger")
+            )
+            leg_purchase_raw = _ledger_or_suspense(leg_purchase_raw)
+
+            leg_cgst_name = _pick_tax_ledger_name(leg_r, ["CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax"], leg_cgst_r, "CGST", leg_cgst_explicit)
+            leg_sgst_name = _pick_tax_ledger_name(leg_r, ["SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax", "UTGSTLedger", "UTGST Ledger"], leg_sgst_r, "SGST", leg_sgst_explicit)
+            leg_igst_name = _pick_tax_ledger_name(leg_r, ["IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax"], leg_igst_r, "IGST", leg_igst_explicit)
+
+            # TDS per leg
+            leg_tds_ledger_raw = _row_text(leg_r, "TDSLedger") or _row_text(leg_r, "TDS Ledger") or _row_text(leg_r, "Tds Ledger")
+            leg_tds_rate       = _row_float(leg_r, "TDSRate", 0.0) or _row_float(leg_r, "TDS Rate", 0.0)
+            leg_tds_raw        = _row_float(leg_r, "TDSAmount", 0.0) or _row_float(leg_r, "TDS Amount", 0.0)
+            if leg_tds_ledger_raw and leg_tds_raw <= 0 and leg_tds_rate > 0:
+                leg_tds = round(leg_taxable * leg_tds_rate / 100, 2)
+            else:
+                leg_tds = abs(leg_tds_raw)
+
+            purchase_legs.append({"purchase_raw": leg_purchase_raw, "taxable": leg_taxable})
+            if leg_cgst:
+                gst_cgst[leg_cgst_name] = gst_cgst.get(leg_cgst_name, 0.0) + leg_cgst
+            if leg_sgst:
+                gst_sgst[leg_sgst_name] = gst_sgst.get(leg_sgst_name, 0.0) + leg_sgst
+            if leg_igst:
+                gst_igst[leg_igst_name] = gst_igst.get(leg_igst_name, 0.0) + leg_igst
+            if leg_tds_ledger_raw and leg_tds > 0:
+                tds_by_led[leg_tds_ledger_raw] = tds_by_led.get(leg_tds_ledger_raw, 0.0) + leg_tds
+
+        total_taxable = sum(l["taxable"] for l in purchase_legs)
+        total_gst     = sum(gst_cgst.values()) + sum(gst_sgst.values()) + sum(gst_igst.values())
+        total_tds     = sum(tds_by_led.values())
+        grand_total   = total_taxable + total_gst
+        _ro_amt_pa    = round(round(grand_total, 0) - grand_total, 2) if round_off_ledger else 0.0
+        _ro_grand_pa  = round(grand_total + _ro_amt_pa, 2)
+        # Vendor is credited the NET amount (invoice total minus TDS deducted at source).
+        # TDS Payable is a separate Credit entry.  Using the net party amount ensures
+        # Tally's Invoice Voucher View does not back-compute GST from an inflated figure.
+        party_total   = _ro_grand_pa - total_tds if total_tds > 0 else _ro_grand_pa
+
         _vch_type_esc = xml_escape(str(voucher_type or "Purchase").strip() or "Purchase")
 
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
@@ -2490,7 +2709,7 @@ def generate_purchase_accounting_xml(
         a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>')
-        a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
+        a('     <ISGSTOVERRIDDEN>Yes</ISGSTOVERRIDDEN>')
         # GSTTRANSACTIONTYPE required to avoid 'Uncertain' in GSTR-3B
         _gst_txn_type = _gst_transaction_type(
             party_context.get("registration_type", ""),
@@ -2502,7 +2721,7 @@ def generate_purchase_accounting_xml(
         if narr:
             a(f'     <NARRATION>{narr}</NARRATION>')
 
-        # Party - Credit (net of TDS)
+        # Party - Credit (net of TDS if any)
         a('     <LEDGERENTRIES.LIST>')
         a(f'      <LEDGERNAME>{party}</LEDGERNAME>')
         a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
@@ -2514,43 +2733,52 @@ def generate_purchase_accounting_xml(
         a('      </BILLALLOCATIONS.LIST>')
         a('     </LEDGERENTRIES.LIST>')
 
-        # Purchase - Debit
-        a('     <LEDGERENTRIES.LIST>')
-        a(f'      <LEDGERNAME>{purchase}</LEDGERNAME>')
-        a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
-        a(f'      <AMOUNT>-{fmt_amt(taxable)}</AMOUNT>')
-        a('     </LEDGERENTRIES.LIST>')
-
-        if cgst_amt:
+        # Purchase – one Debit entry per leg (supports multiple expense ledgers per invoice)
+        for leg in purchase_legs:
             a('     <LEDGERENTRIES.LIST>')
-            a(f'      <LEDGERNAME>{cgst_led}</LEDGERNAME>')
+            a(f'      <LEDGERNAME>{xml_escape(leg["purchase_raw"])}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
-            a(f'      <AMOUNT>-{fmt_amt(cgst_amt)}</AMOUNT>')
+            a(f'      <AMOUNT>-{fmt_amt(leg["taxable"])}</AMOUNT>')
+            a('     </LEDGERENTRIES.LIST>')
+
+        # CGST – aggregated by ledger name
+        for led_name, amt in gst_cgst.items():
+            a('     <LEDGERENTRIES.LIST>')
+            a(f'      <LEDGERNAME>{xml_escape(led_name)}</LEDGERNAME>')
+            a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
+            a(f'      <AMOUNT>-{fmt_amt(amt)}</AMOUNT>')
             _append_tax_object_allocation_xml(a, "CGST")
             a('     </LEDGERENTRIES.LIST>')
-        if sgst_amt:
+        # SGST
+        for led_name, amt in gst_sgst.items():
             a('     <LEDGERENTRIES.LIST>')
-            a(f'      <LEDGERNAME>{sgst_led}</LEDGERNAME>')
+            a(f'      <LEDGERNAME>{xml_escape(led_name)}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
-            a(f'      <AMOUNT>-{fmt_amt(sgst_amt)}</AMOUNT>')
+            a(f'      <AMOUNT>-{fmt_amt(amt)}</AMOUNT>')
             _append_tax_object_allocation_xml(a, "SGST")
             a('     </LEDGERENTRIES.LIST>')
-        if igst_amt:
+        # IGST
+        for led_name, amt in gst_igst.items():
             a('     <LEDGERENTRIES.LIST>')
-            a(f'      <LEDGERNAME>{igst_led}</LEDGERNAME>')
+            a(f'      <LEDGERNAME>{xml_escape(led_name)}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
-            a(f'      <AMOUNT>-{fmt_amt(igst_amt)}</AMOUNT>')
+            a(f'      <AMOUNT>-{fmt_amt(amt)}</AMOUNT>')
             _append_tax_object_allocation_xml(a, "IGST")
             a('     </LEDGERENTRIES.LIST>')
 
-        # TDS Payable - shown as negative deduction in Invoice Amount column
-        if tds_led and tds_amount > 0:
+        # TDS Payable – ISDEEMEDPOSITIVE=Yes with a POSITIVE amount.
+        # Tally's purchase voucher convention: TDS is "deemed positive" (placed in the
+        # debit bucket) but the AMOUNT is positive so the ledger receives a credit
+        # (liability increases).  Party is credited the net (grand_total − TDS) so the
+        # voucher balances: debit_bucket = -(taxable+GST) + TDS, credit = +(grand_total-TDS).
+        for led_name, amt in tds_by_led.items():
             a('     <LEDGERENTRIES.LIST>')
-            a(f'      <LEDGERNAME>{tds_led}</LEDGERNAME>')
-            a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
-            a(f'      <AMOUNT>-{fmt_amt(tds_amount)}</AMOUNT>')
+            a(f'      <LEDGERNAME>{xml_escape(led_name)}</LEDGERNAME>')
+            a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
+            a(f'      <AMOUNT>{fmt_amt(amt)}</AMOUNT>')
             a('     </LEDGERENTRIES.LIST>')
 
+        _append_round_off_entry(a, round_off_ledger, _ro_amt_pa, is_purchase_mode=True)
         a('    </VOUCHER>')
         a('   </TALLYMESSAGE>')
 
@@ -2558,6 +2786,127 @@ def generate_purchase_accounting_xml(
     a(' </IMPORTDATA></BODY>')
     a('</ENVELOPE>')
     return "\n".join(lines)
+
+
+def _consolidate_accounting_rows(rows: list, resolved_mode: str, resolved_custom_date: str) -> list:
+    """
+    Group accounting-mode rows with the same (date, invoice/ref number, GSTIN)
+    into a single voucher.  Each duplicate row is appended to 'acct_legs' on the
+    first row so that the XML emitter can produce multiple sales/purchase ledger
+    entries within one voucher.
+    """
+    consolidated_rows = []
+    group_map = {}
+    for r in rows:
+        if resolved_mode == "current":
+            source_date = datetime.today()
+        elif resolved_mode == "custom":
+            source_date = resolved_custom_date
+        else:
+            source_date = _row_get(r, "Date", "")
+        dt = tally_date(source_date)
+
+        vno_raw = _row_voucher_number(r)
+        ref_raw = _row_invoice_reference(r, vno_raw)
+        inv_key = str(ref_raw or vno_raw).strip().lower()
+
+        gstin_raw = _row_text(r, "PartyGSTIN") or _row_text(r, "GSTIN")
+        gstin_key = str(gstin_raw).strip().lower()
+
+        party_raw = _ledger_or_suspense(_row_text(r, "PartyLedger"))
+        key = (dt, inv_key, gstin_key)
+
+        if key in group_map:
+            existing_r = group_map[key]
+            existing_party = _ledger_or_suspense(_resolve_party_ledger(existing_r, is_purchase_mode=True))
+            if party_raw.strip().lower() != existing_party.strip().lower():
+                raise ValueError(
+                    f"Conflicting Party Ledgers for Invoice '{ref_raw or vno_raw}': "
+                    f"'{existing_party}' vs '{party_raw}'"
+                )
+            if "acct_legs" not in existing_r:
+                existing_r["acct_legs"] = []
+            existing_r["acct_legs"].append(dict(r))
+        else:
+            new_r = dict(r)
+            group_map[key] = new_r
+            consolidated_rows.append(new_r)
+    return consolidated_rows
+
+
+def _consolidate_item_rows(rows: list, resolved_mode: str, resolved_custom_date: str) -> list:
+    consolidated_rows = []
+    group_map = {}
+    for r in rows:
+        if resolved_mode == "current":
+            source_date = datetime.today()
+        elif resolved_mode == "custom":
+            source_date = resolved_custom_date
+        else:
+            source_date = _row_get(r, "Date", "")
+        dt = tally_date(source_date)
+        
+        vno_raw = _row_voucher_number(r)
+        supplier_invoice_raw = _row_invoice_reference(r, vno_raw)
+        inv_key = str(supplier_invoice_raw or vno_raw).strip().lower()
+        
+        gstin_raw = _row_text(r, "PartyGSTIN") or _row_text(r, "GSTIN")
+        gstin_key = str(gstin_raw).strip().lower()
+        
+        party_raw = _ledger_or_suspense(_resolve_party_ledger(r, is_purchase_mode=True))
+        
+        key = (dt, inv_key, gstin_key)
+        
+        if key in group_map:
+            existing_r = group_map[key]
+            existing_party = _ledger_or_suspense(_resolve_party_ledger(existing_r, is_purchase_mode=True))
+            if party_raw.strip().lower() != existing_party.strip().lower():
+                raise ValueError(f"Conflicting Party Ledgers for Invoice '{supplier_invoice_raw or vno_raw}': '{existing_party}' vs '{party_raw}'")
+            
+            # Merge amounts
+            existing_r["TaxableValue"] = _row_float(existing_r, "TaxableValue", 0.0) + _row_float(r, "TaxableValue", 0.0)
+            existing_r["IGST Amount"] = _row_float(existing_r, "IGST Amount", 0.0) + _row_float(r, "IGST Amount", 0.0)
+            existing_r["CGST Amount"] = _row_float(existing_r, "CGST Amount", 0.0) + _row_float(r, "CGST Amount", 0.0)
+            existing_r["SGST Amount"] = _row_float(existing_r, "SGST Amount", 0.0) + _row_float(r, "SGST Amount", 0.0)
+            existing_r["Cess Amount"] = _row_float(existing_r, "Cess Amount", 0.0) + _row_float(r, "Cess Amount", 0.0)
+            existing_r["Invoice Value"] = _row_float(existing_r, "Invoice Value", 0.0) + _row_float(r, "Invoice Value", 0.0)
+            
+            if "items" not in existing_r:
+                existing_r["items"] = []
+                _orig_it = {
+                    "ItemName": _row_text(existing_r, "ItemName") or _row_text(existing_r, "Item") or _row_text(existing_r, "StockItem") or _row_text(existing_r, "ProductName"),
+                    "Quantity": _row_float(existing_r, "Quantity", 0.0) or _row_float(existing_r, "Qty", 0.0) or _row_float(existing_r, "Unit", 0.0),
+                    "Rate": _row_float(existing_r, "Rate", 0.0),
+                    "Per": _row_text(existing_r, "Per") or _row_text(existing_r, "UOM") or _row_text(existing_r, "Unit"),
+                    "GodownName": _row_text(existing_r, "GodownName"),
+                    "PurchaseLedger": _row_text(existing_r, "PurchaseLedger"),
+                    "SalesLedger": _row_text_any(existing_r, ["SalesAccount", "Sales Ledger", "IncomeLedger", "SalesLedger"]),
+                }
+                if _orig_it["ItemName"]:
+                    existing_r["items"].append(_orig_it)
+            
+            _new_raw_items = r.get("items") or []
+            if _new_raw_items:
+                existing_r["items"].extend(_new_raw_items)
+            else:
+                _new_it = {
+                    "ItemName": _row_text(r, "ItemName") or _row_text(r, "Item") or _row_text(r, "StockItem") or _row_text(r, "ProductName"),
+                    "Quantity": _row_float(r, "Quantity", 0.0) or _row_float(r, "Qty", 0.0) or _row_float(r, "Unit", 0.0),
+                    "Rate": _row_float(r, "Rate", 0.0),
+                    "Per": _row_text(r, "Per") or _row_text(r, "UOM") or _row_text(r, "Unit"),
+                    "GodownName": _row_text(r, "GodownName"),
+                    "PurchaseLedger": _row_text(r, "PurchaseLedger"),
+                    "SalesLedger": _row_text_any(r, ["SalesAccount", "Sales Ledger", "IncomeLedger", "SalesLedger"]),
+                }
+                if _new_it["ItemName"]:
+                    existing_r["items"].append(_new_it)
+                    
+        else:
+            new_r = dict(r)
+            group_map[key] = new_r
+            consolidated_rows.append(new_r)
+            
+    return consolidated_rows
 
 
 def generate_purchase_item_xml(
@@ -2569,7 +2918,9 @@ def generate_purchase_item_xml(
     start_voucher_number=None,
     fallback_purchase_ledger: str = SUSPENSE_LEDGER,
     company_gst_registrations: list = None,
+    company_gstin: str = "",
     voucher_type: str = "Purchase",
+    round_off_ledger: str = "",
 ) -> str:
     """Purchase item invoice XML (inventory + accounting allocations)."""
     lines = []
@@ -2594,6 +2945,8 @@ def generate_purchase_item_xml(
     def _name_key(value: str) -> str:
         return re.sub(r"\s+", " ", str(value or "")).strip().lower()
 
+    rows = _consolidate_item_rows(rows, resolved_mode, resolved_custom_date)
+
     for idx, r in enumerate(rows):
         if resolved_mode == "current":
             source_date = datetime.today()
@@ -2602,15 +2955,18 @@ def generate_purchase_item_xml(
         else:
             source_date = _row_get(r, "Date", "")
         dt = tally_date(source_date)
-        if start_voucher_number is not None:
+        excel_vno = _row_voucher_number(r, "")
+        if excel_vno:
+            vno_raw = excel_vno
+        elif start_voucher_number is not None:
             vno_raw = _voucher_number_with_offset(start_voucher_number, idx) or str(start_voucher_number)
         else:
-            vno_raw = _row_voucher_number(r)
+            vno_raw = ""
         vno = xml_escape(vno_raw)
         supplier_invoice_raw = _row_invoice_reference(r, vno_raw)
         supplier_invoice = xml_escape(supplier_invoice_raw)
 
-        party_raw = _ledger_or_suspense(_row_text(r, "PartyLedger"))
+        party_raw = _ledger_or_suspense(_resolve_party_ledger(r, is_purchase_mode=True))
         party_context = _collect_party_context(
             r,
             party_raw,
@@ -2619,95 +2975,154 @@ def generate_purchase_item_xml(
         party = xml_escape(party_raw)
         taxable = _row_float(r, "TaxableValue", 0.0)
 
-        item_name_raw = (
-            _row_text(r, "ItemName")
-            or _row_text(r, "Item")
-            or _row_text(r, "StockItem")
-            or _row_text(r, "ProductName")
-            or _row_text(r, "PurchaseLedger")
-            or _row_text(r, "SalesLedger")
-        )
-        if not item_name_raw:
-            raise ValueError(f"Purchase item row {idx + 1}: item name is missing.")
-        item_name = xml_escape(item_name_raw)
-        item_name_key = _name_key(item_name_raw)
-
-        qty = _row_float(r, "Quantity", 0.0)
-        if qty <= 0:
-            qty = _row_float(r, "Qty", 0.0)
-        if qty <= 0:
-            qty = _row_float(r, "Unit", 0.0)
-        if qty <= 0:
-            raise ValueError(f"Purchase item row {idx + 1}: quantity is missing/zero.")
-
-        rate = _row_float(r, "Rate", 0.0)
-        if rate <= 0 and taxable > 0 and qty > 0:
-            rate = taxable / qty
-        per_unit_raw = (
-            _row_text(r, "Per", "")
-            or _row_text(r, "UOM", "")
-            or _row_text(r, "Unit", "")
-            or "Nos"
-        )
-        per_unit = xml_escape(_normalize_stock_unit_name(per_unit_raw) or "Nos")
-        godown = xml_escape(_row_text(r, "GodownName", "Main Location") or "Main Location")
-
-        explicit_purchase_ledger = (
-            _row_text(r, "PurchaseAccount")
-            or _row_text(r, "Purchase Ledger")
-            or _row_text(r, "ExpenseLedger")
-            or _row_text(r, "PurchaseLedger")
-        )
-        default_purchase_ledger = _ledger_or_suspense(fallback_purchase_ledger)
-        if _name_key(default_purchase_ledger) == item_name_key:
-            for candidate in ("Purchase Account", "Purchase", "Purchase A/c", "Purchase Ledger"):
-                if _name_key(candidate) != item_name_key:
-                    default_purchase_ledger = candidate
-                    break
-
-        purchase_ledger_raw = (
-            explicit_purchase_ledger
-            or _row_text(r, "PurchaseLedger")
-            or _row_text(r, "SalesLedger")
-            or default_purchase_ledger
-        )
-        if _name_key(purchase_ledger_raw) == item_name_key:
-            purchase_ledger_raw = default_purchase_ledger
-        purchase_ledger_raw = _ledger_or_suspense(purchase_ledger_raw, default_purchase_ledger)
-        if _name_key(purchase_ledger_raw) == item_name_key:
-            raise ValueError(
-                f"Purchase item row {idx + 1}: purchase ledger cannot match item '{item_name_raw}'."
+        # ── Items: multi-item list (from popup) or single-item from row fields ──
+        _raw_items = r.get("items") or []
+        if _raw_items:
+            inv_items = []
+            for _it in _raw_items:
+                _it_name_raw = str(_it.get("ItemName") or "")
+                if not _it_name_raw:
+                    raise ValueError(f"Purchase item row {idx + 1}: item name missing in items list.")
+                _it_qty = float(_it.get("Quantity") or 0)
+                if _it_qty <= 0:
+                    raise ValueError(f"Purchase item row {idx + 1}: quantity must be > 0.")
+                _it_rate = float(_it.get("Rate") or 0)
+                _it_per  = xml_escape(_normalize_stock_unit_name(str(_it.get("Per") or "Nos")) or "Nos")
+                _it_godown = xml_escape(str(_it.get("GodownName") or "Main Location"))
+                _it_pled = xml_escape(_ledger_or_suspense(str(_it.get("PurchaseLedger") or fallback_purchase_ledger)))
+                _it_amt  = round(_it_qty * _it_rate, 2) if _it_rate > 0 else 0.0
+                inv_items.append({
+                    "item_name": xml_escape(_it_name_raw),
+                    "qty":       _it_qty,
+                    "rate":      _it_rate if _it_rate > 0 else (_it_amt / _it_qty if _it_qty > 0 else 0.0),
+                    "per_unit":  _it_per,
+                    "godown":    _it_godown,
+                    "pled":      _it_pled,
+                    "amt":       _it_amt,
+                })
+            item_total = sum(it["amt"] for it in inv_items)
+        else:
+            # Single-item: extract from row fields (original behavior)
+            item_name_raw = (
+                _row_text(r, "ItemName")
+                or _row_text(r, "Item")
+                or _row_text(r, "StockItem")
+                or _row_text(r, "ProductName")
+                or _row_text(r, "PurchaseLedger")
+                or _row_text(r, "SalesLedger")
             )
-        purchase_ledger = xml_escape(purchase_ledger_raw)
+            if not item_name_raw:
+                raise ValueError(f"Purchase item row {idx + 1}: item name is missing.")
+            item_name_key = _name_key(item_name_raw)
+
+            qty = _row_float(r, "Quantity", 0.0)
+            if qty <= 0:
+                qty = _row_float(r, "Qty", 0.0)
+            if qty <= 0:
+                qty = _row_float(r, "Unit", 0.0)
+            if qty <= 0:
+                raise ValueError(f"Purchase item row {idx + 1}: quantity is missing/zero.")
+
+            rate = _row_float(r, "Rate", 0.0)
+            if rate <= 0 and taxable > 0 and qty > 0:
+                rate = taxable / qty
+            per_unit_raw = (
+                _row_text(r, "Per", "")
+                or _row_text(r, "UOM", "")
+                or _row_text(r, "Unit", "")
+                or "Nos"
+            )
+            per_unit = xml_escape(_normalize_stock_unit_name(per_unit_raw) or "Nos")
+            godown = xml_escape(_row_text(r, "GodownName", "Main Location") or "Main Location")
+
+            explicit_purchase_ledger = (
+                _row_text(r, "PurchaseAccount")
+                or _row_text(r, "Purchase Ledger")
+                or _row_text(r, "ExpenseLedger")
+                or _row_text(r, "PurchaseLedger")
+            )
+            default_purchase_ledger = _ledger_or_suspense(fallback_purchase_ledger)
+            if _name_key(default_purchase_ledger) == item_name_key:
+                for candidate in ("Purchase Account", "Purchase", "Purchase A/c", "Purchase Ledger"):
+                    if _name_key(candidate) != item_name_key:
+                        default_purchase_ledger = candidate
+                        break
+
+            purchase_ledger_raw = (
+                explicit_purchase_ledger
+                or _row_text(r, "PurchaseLedger")
+                or _row_text(r, "SalesLedger")
+                or default_purchase_ledger
+            )
+            if _name_key(purchase_ledger_raw) == item_name_key:
+                purchase_ledger_raw = default_purchase_ledger
+            purchase_ledger_raw = _ledger_or_suspense(purchase_ledger_raw, default_purchase_ledger)
+            if _name_key(purchase_ledger_raw) == item_name_key:
+                raise ValueError(
+                    f"Purchase item row {idx + 1}: purchase ledger cannot match item '{item_name_raw}'."
+                )
+            _s_amt = round(qty * rate, 2) if qty and rate else taxable
+            inv_items = [{
+                "item_name": xml_escape(item_name_raw),
+                "qty":       qty,
+                "rate":      rate,
+                "per_unit":  per_unit,
+                "godown":    godown,
+                "pled":      xml_escape(purchase_ledger_raw),
+                "amt":       _s_amt,
+            }]
+            item_total = _s_amt
 
         cgst_r = _row_float(r, "CGSTRate", 0.0)
+        cgst_amt_explicit = _row_float(r, "CGST Amount", 0.0)
         cgst_led = xml_escape(_pick_tax_ledger_name(
             r,
             ["CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax"],
             cgst_r,
             "CGST",
+            cgst_amt_explicit,
         ))
         sgst_r = _row_float(r, "SGSTRate", 0.0)
+        sgst_amt_explicit = _row_float(r, "SGST Amount", 0.0)
         sgst_led = xml_escape(_pick_tax_ledger_name(
             r,
             ["SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax", "UTGSTLedger", "UTGST Ledger"],
             sgst_r,
             "SGST",
+            sgst_amt_explicit,
         ))
         igst_r = _row_float(r, "IGSTRate", 0.0)
+        igst_amt_explicit = _row_float(r, "IGST Amount", 0.0)
         igst_led = xml_escape(_pick_tax_ledger_name(
             r,
             ["IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax"],
             igst_r,
             "IGST",
+            igst_amt_explicit,
         ))
         narr = xml_escape(_row_text(r, "Narration"))
 
-        item_amt = round(qty * rate, 2) if qty and rate else taxable
-        cgst_amt = round(taxable * cgst_r / 100, 2) if cgst_r > 0 else 0
-        sgst_amt = round(taxable * sgst_r / 100, 2) if sgst_r > 0 else 0
-        igst_amt = round(taxable * igst_r / 100, 2) if igst_r > 0 else 0
-        total = taxable + cgst_amt + sgst_amt + igst_amt
+        # Taxes use GSTR-2B taxable (authoritative); item_total balances debit/credit
+        taxable_for_tax = taxable if taxable > 0 else item_total
+        cgst_amt = round(taxable_for_tax * cgst_r / 100, 2) if cgst_r > 0 else cgst_amt_explicit
+        sgst_amt = round(taxable_for_tax * sgst_r / 100, 2) if sgst_r > 0 else sgst_amt_explicit
+        igst_amt = round(taxable_for_tax * igst_r / 100, 2) if igst_r > 0 else igst_amt_explicit
+        total = item_total + cgst_amt + sgst_amt + igst_amt
+        _ro_amt_pi   = round(round(total, 0) - total, 2) if round_off_ledger else 0.0
+        _ro_total_pi = round(total + _ro_amt_pi, 2)
+
+        # TDS fields
+        tds_ledger_raw = _row_text(r, "TDSLedger") or _row_text(r, "TDS Ledger") or _row_text(r, "Tds Ledger")
+        tds_rate       = _row_float(r, "TDSRate", 0.0) or _row_float(r, "TDS Rate", 0.0)
+        tds_amount_raw = _row_float(r, "TDSAmount", 0.0) or _row_float(r, "TDS Amount", 0.0)
+        if tds_ledger_raw and tds_amount_raw <= 0 and tds_rate > 0:
+            tds_amount = round(taxable_for_tax * tds_rate / 100, 2)
+        else:
+            tds_amount = abs(tds_amount_raw)
+        tds_led = xml_escape(tds_ledger_raw)
+        # Vendor is credited the net (invoice total minus TDS deducted at source).
+        party_total = _ro_total_pi - tds_amount if (tds_led and tds_amount > 0) else _ro_total_pi
+
         _vch_type_esc = xml_escape(str(voucher_type or "Purchase").strip() or "Purchase")
 
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
@@ -2729,11 +3144,25 @@ def generate_purchase_item_xml(
             company_gst_registrations,
             prefer_party_state=False,
         )
+        # Fallback: when Tally returned no Tax Units, emit CMPGSTIN directly from
+        # company_gstin so the voucher is never left without a registration block
+        # (missing block causes "Uncertain" in GSTR-3B and requires Enter twice).
+        if not (company_gst_registrations or []) and company_gstin:
+            _co_gstin = xml_escape(company_gstin.strip().upper())
+            _co_state_name = _state_name_from_gstin(company_gstin)
+            _co_reg_name = xml_escape(
+                f"{_co_state_name} Registration" if _co_state_name else company_gstin.strip().upper()
+            )
+            a(f'     <GSTREGISTRATION TAXTYPE="GST" TAXREGISTRATION="{_co_gstin}">{_co_reg_name}</GSTREGISTRATION>')
+            a(f'     <CMPGSTIN>{_co_gstin}</CMPGSTIN>')
+            a('     <CMPGSTREGISTRATIONTYPE>Regular</CMPGSTREGISTRATIONTYPE>')
+            if _co_state_name:
+                a(f'     <CMPGSTSTATE>{xml_escape(_co_state_name)}</CMPGSTSTATE>')
         a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
         a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>')
-        a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
+        a('     <ISGSTOVERRIDDEN>Yes</ISGSTOVERRIDDEN>')
         # GSTTRANSACTIONTYPE required to avoid 'Uncertain' in GSTR-3B
         _gst_txn_type = _gst_transaction_type(
             party_context.get("registration_type", ""),
@@ -2745,35 +3174,36 @@ def generate_purchase_item_xml(
         if narr:
             a(f'     <NARRATION>{narr}</NARRATION>')
 
-        a('     <ALLINVENTORYENTRIES.LIST>')
-        a(f'      <STOCKITEMNAME>{item_name}</STOCKITEMNAME>')
-        a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
-        a(f'      <RATE>{fmt_amt(rate)}/{per_unit}</RATE>')
-        a(f'      <AMOUNT>-{fmt_amt(item_amt)}</AMOUNT>')
-        a(f'      <ACTUALQTY>{fmt_amt(qty)} {per_unit}</ACTUALQTY>')
-        a(f'      <BILLEDQTY>{fmt_amt(qty)} {per_unit}</BILLEDQTY>')
-        a('      <BATCHALLOCATIONS.LIST>')
-        a(f'       <GODOWNNAME>{godown}</GODOWNNAME>')
-        a(f'       <AMOUNT>-{fmt_amt(item_amt)}</AMOUNT>')
-        a(f'       <ACTUALQTY>{fmt_amt(qty)} {per_unit}</ACTUALQTY>')
-        a(f'       <BILLEDQTY>{fmt_amt(qty)} {per_unit}</BILLEDQTY>')
-        a('      </BATCHALLOCATIONS.LIST>')
-        a('      <ACCOUNTINGALLOCATIONS.LIST>')
-        a(f'       <LEDGERNAME>{purchase_ledger}</LEDGERNAME>')
-        a('       <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
-        a(f'       <AMOUNT>-{fmt_amt(item_amt)}</AMOUNT>')
-        a('      </ACCOUNTINGALLOCATIONS.LIST>')
-        a('     </ALLINVENTORYENTRIES.LIST>')
+        for _it in inv_items:
+            a('     <ALLINVENTORYENTRIES.LIST>')
+            a(f'      <STOCKITEMNAME>{_it["item_name"]}</STOCKITEMNAME>')
+            a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
+            a(f'      <RATE>{fmt_amt(_it["rate"])}/{_it["per_unit"]}</RATE>')
+            a(f'      <AMOUNT>-{fmt_amt(_it["amt"])}</AMOUNT>')
+            a(f'      <ACTUALQTY>{fmt_amt(_it["qty"])} {_it["per_unit"]}</ACTUALQTY>')
+            a(f'      <BILLEDQTY>{fmt_amt(_it["qty"])} {_it["per_unit"]}</BILLEDQTY>')
+            a('      <BATCHALLOCATIONS.LIST>')
+            a(f'       <GODOWNNAME>{_it["godown"]}</GODOWNNAME>')
+            a(f'       <AMOUNT>-{fmt_amt(_it["amt"])}</AMOUNT>')
+            a(f'       <ACTUALQTY>{fmt_amt(_it["qty"])} {_it["per_unit"]}</ACTUALQTY>')
+            a(f'       <BILLEDQTY>{fmt_amt(_it["qty"])} {_it["per_unit"]}</BILLEDQTY>')
+            a('      </BATCHALLOCATIONS.LIST>')
+            a('      <ACCOUNTINGALLOCATIONS.LIST>')
+            a(f'       <LEDGERNAME>{_it["pled"]}</LEDGERNAME>')
+            a('       <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
+            a(f'       <AMOUNT>-{fmt_amt(_it["amt"])}</AMOUNT>')
+            a('      </ACCOUNTINGALLOCATIONS.LIST>')
+            a('     </ALLINVENTORYENTRIES.LIST>')
 
-        # Party - Credit (supplier owes us goods; positive amount = credit in Tally)
+        # Party - Credit (net of TDS so vendor balance shows actual payable)
         a('     <LEDGERENTRIES.LIST>')
         a(f'      <LEDGERNAME>{party}</LEDGERNAME>')
         a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
-        a(f'      <AMOUNT>{fmt_amt(total)}</AMOUNT>')
+        a(f'      <AMOUNT>{fmt_amt(party_total)}</AMOUNT>')
         a('      <BILLALLOCATIONS.LIST>')
         a(f'       <NAME>{supplier_invoice or vno}</NAME>')
         a('       <BILLTYPE>New Ref</BILLTYPE>')
-        a(f'       <AMOUNT>{fmt_amt(total)}</AMOUNT>')
+        a(f'       <AMOUNT>{fmt_amt(party_total)}</AMOUNT>')
         a('      </BILLALLOCATIONS.LIST>')
         a('     </LEDGERENTRIES.LIST>')
 
@@ -2800,6 +3230,15 @@ def generate_purchase_item_xml(
             _append_tax_object_allocation_xml(a, "IGST")
             a('     </LEDGERENTRIES.LIST>')
 
+        # TDS Payable – ISDEEMEDPOSITIVE=Yes, AMOUNT positive (Tally purchase convention).
+        if tds_led and tds_amount > 0:
+            a('     <LEDGERENTRIES.LIST>')
+            a(f'      <LEDGERNAME>{tds_led}</LEDGERNAME>')
+            a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
+            a(f'      <AMOUNT>{fmt_amt(tds_amount)}</AMOUNT>')
+            a('     </LEDGERENTRIES.LIST>')
+
+        _append_round_off_entry(a, round_off_ledger, _ro_amt_pi, is_purchase_mode=True)
         a('    </VOUCHER>')
         a('   </TALLYMESSAGE>')
 
@@ -2853,6 +3292,10 @@ def generate_ledger_xml(ledgers: list, company: str, alter_existing: bool = Fals
             or str(led.get("PinCode", "") or "").strip()
             or str(led.get("PIN", "") or "").strip()
             or str(led.get("PostalCode", "") or "").strip()
+        )
+        pan_raw = (
+            str(led.get("PAN", "") or "").strip().upper()
+            or _pan_from_gstin(gstin_raw)
         )
         country_raw = (
             str(led.get("Country", "") or "").strip()
@@ -2960,7 +3403,8 @@ def generate_ledger_xml(ledgers: list, company: str, alter_existing: bool = Fals
             a('      <ISCOMMONPARTY>No</ISCOMMONPARTY>')
             a('     </LEDGSTREGDETAILS.LIST>')
 
-        if is_party and (state or gstin or address1 or address2 or country or pincode):
+        pan = xml_escape(pan_raw)
+        if is_party and (state or gstin or address1 or address2 or country or pincode or pan):
             a('     <LEDMAILINGDETAILS.LIST>')
             if address1 or address2:
                 a('      <ADDRESS.LIST TYPE="String">')
@@ -2973,6 +3417,8 @@ def generate_ledger_xml(ledgers: list, company: str, alter_existing: bool = Fals
             if pincode:
                 a(f'      <PINCODE>{pincode}</PINCODE>')
             a(f'      <MAILINGNAME>{mailing_name}</MAILINGNAME>')
+            if pan:
+                a(f'      <INCOMETAXNUMBER>{pan}</INCOMETAXNUMBER>')
             if state:
                 a(f'      <STATE>{state}</STATE>')
             a(f'      <COUNTRY>{country}</COUNTRY>')
@@ -3266,6 +3712,17 @@ def _state_from_gstin(g):
     return M.get(str(g or '')[:2], '')
 
 
+def _normalize_ledger_name(value) -> str:
+    text = html.unescape(str(value or ""))
+    text = text.replace("\x00", "")
+    text = re.sub(r"[\x01-\x1F\x7F]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _ledger_key(value) -> str:
+    return _normalize_ledger_name(value).upper()
+
+
 def _fetch_tally_ledgers(tally_url: str, timeout: float = 15.0, company_name: str = "") -> dict:
     selected_company = _normalize_company_name(company_name)
     static_vars = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
@@ -3362,6 +3819,98 @@ def _fetch_tally_ledgers(tally_url: str, timeout: float = 15.0, company_name: st
     }
 
 
+def _inject_party_states_from_tally(rows: list, state_map: dict) -> list:
+    """Return a copy of rows with State/PlaceOfSupply filled from Tally ledger master
+    for any row where GSTIN is absent and State/PlaceOfSupply is also absent.
+    Uses _row_text_any for case-insensitive column lookup matching _collect_party_context."""
+    if not state_map:
+        return rows
+    result = []
+    for r in rows:
+        # Use _row_text_any (case-insensitive) to match exactly what _collect_party_context reads
+        gstin = _row_text_any(r, [
+            "PartyGSTIN", "GSTIN", "GSTIN/UIN", "GSTIN UIN",
+            "Party GSTIN", "SupplierGSTIN", "Supplier GSTIN",
+            "GST No", "GST Number",
+        ]).upper()
+        state_in_row = _normalize_state_for_ledger(_row_text_any(r, [
+            "PartyState", "State", "StateName", "State Name",
+        ]))
+        pos_in_row = _normalize_state_for_ledger(_row_text_any(r, [
+            "PlaceOfSupply", "Place Of Supply", "Place of Supply",
+            "POS", "StateOfSupply",
+        ]))
+        if gstin or (state_in_row and pos_in_row):
+            # Already has GSTIN (state derived from it) or both state and POS — leave as-is
+            result.append(r)
+            continue
+        # Use same key priority as _resolve_party_ledger (sales mode)
+        party_raw = _row_text_any(r, [
+            "PartyLedger", "PartyName", "Party Name",
+            "BuyerName", "CustomerName", "Customer",
+            "BillToName", "Bill To Name", "Party",
+        ])
+        fetched_state = state_map.get(party_raw.upper(), "") if party_raw else ""
+        if not fetched_state:
+            result.append(r)
+            continue
+        new_r = dict(r)
+        if not state_in_row:
+            new_r["State"] = fetched_state
+        if not pos_in_row:
+            new_r["PlaceOfSupply"] = fetched_state
+        result.append(new_r)
+    return result
+
+
+def _fetch_party_ledger_states(tally_url: str, company_name: str = "", timeout: float = 15.0) -> dict:
+    """Fetch StateName for every ledger in Tally.
+    Returns {ledger_name_upper: state_name} for all ledgers that have a StateName set.
+    Used to fill in PlaceOfSupply for unregistered parties that have no GSTIN/State in the Excel.
+    """
+    selected_company = _normalize_company_name(company_name)
+    sc = (f"<SVCURRENTCOMPANY>{xml_escape(selected_company)}</SVCURRENTCOMPANY>"
+          if selected_company else "")
+    rq = (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+        "<TYPE>Collection</TYPE><ID>SPELedStateCol</ID></HEADER>"
+        "<BODY><DESC>"
+        f"<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>{sc}</STATICVARIABLES>"
+        "<TDL><TDLMESSAGE>"
+        "<COLLECTION NAME='SPELedStateCol'><TYPE>Ledger</TYPE>"
+        "<FETCH>Name,StateName,GSTRegistrationType</FETCH></COLLECTION>"
+        "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+    )
+    try:
+        resp = _post_tally_xml(tally_url, rq, timeout=timeout)
+    except Exception:
+        return {}
+
+    state_map = {}
+    try:
+        root = ET.fromstring(resp)
+        for led in root.findall(".//LEDGER"):
+            name = (led.attrib.get("NAME") or led.findtext("NAME") or "").strip()
+            state = (led.findtext("STATENAME") or "").strip()
+            if name and state:
+                state_map[name.upper()] = _normalize_state_for_ledger(state)
+    except ET.ParseError:
+        pass
+
+    # Fallback: regex parse for NAME/STATENAME pairs
+    if not state_map:
+        for blk in re.findall(r'<LEDGER\b[^>]*>(.*?)</LEDGER>', resp, re.DOTALL | re.IGNORECASE):
+            def _tag(t, b=blk):
+                m = re.search(fr'<{t}[^>]*>(.*?)</{t}>', b, re.DOTALL | re.IGNORECASE)
+                return m.group(1).strip() if m else ""
+            name = _tag("NAME")
+            state = _tag("STATENAME")
+            if name and state:
+                state_map[name.upper()] = _normalize_state_for_ledger(state)
+
+    return state_map
+
+
 def _fetch_cmp_gst_regs_for_journal(url, company='', timeout=15):
     sc = f'<SVCURRENTCOMPANY>{xml_escape(company)}</SVCURRENTCOMPANY>' if company else ''
     col = ("<COLLECTION NAME='TUL'><TYPE>TaxUnit</TYPE>"
@@ -3440,6 +3989,7 @@ def generate_journal_xml(
     include_bill_allocations: bool = True,
     journal_type: str = "purchase",
     company_gst_registrations: list = None,
+    round_off_ledger: str = "",
 ) -> tuple:
     """
     Purchase: Expense Dr / Tax Dr / Party Cr
@@ -3488,12 +4038,20 @@ def generate_journal_xml(
         else:
             source_date = _row_get(r, "Date", "")
         dt = tally_date(source_date)
-        vno_raw = _row_voucher_number(r, "")
+        excel_vno = _row_voucher_number(r, "")
+        if excel_vno:
+            vno_raw = excel_vno
+        else:
+            vno_raw = str(idx + 1)
+            
+        invoice_ref_raw = _row_invoice_reference(r, vno_raw) # Reference No
 
         party_raw = _ledger_or_default(_row_text(r, "PartyLedger"))
         particular_raw = (
             _row_text(r, "Particular")
             or _row_text(r, "Particulars")
+            or _row_text(r, "SalesLedger")
+            or _row_text(r, "Sales Ledger")
             or _row_text(r, "ExpenseLedger")
             or _row_text(r, "PurchaseLedger")
             or "Journal Adjustment"
@@ -3508,11 +4066,29 @@ def generate_journal_xml(
         sgst_rate = _row_float(r, "SGSTRate", 0.0)
         igst_rate = _row_float(r, "IGSTRate", 0.0)
 
-        cgst_amt = round(taxable * cgst_rate / 100, 2) if cgst_rate > 0 and cgst_ledger_raw else 0.0
-        sgst_amt = round(taxable * sgst_rate / 100, 2) if sgst_rate > 0 and sgst_ledger_raw else 0.0
-        igst_amt = round(taxable * igst_rate / 100, 2) if igst_rate > 0 and igst_ledger_raw else 0.0
+        cgst_amt_explicit = _row_float(r, "CGST Amount", 0.0)
+        sgst_amt_explicit = _row_float(r, "SGST Amount", 0.0)
+        igst_amt_explicit = _row_float(r, "IGST Amount", 0.0)
+
+        cgst_amt = round(taxable * cgst_rate / 100, 2) if cgst_rate > 0 else cgst_amt_explicit
+        sgst_amt = round(taxable * sgst_rate / 100, 2) if sgst_rate > 0 else sgst_amt_explicit
+        igst_amt = round(taxable * igst_rate / 100, 2) if igst_rate > 0 else igst_amt_explicit
+
+        if not cgst_ledger_raw and cgst_amt > 0:
+              cgst_ledger_raw = "CGST"
+        if not sgst_ledger_raw and sgst_amt > 0:
+              sgst_ledger_raw = "SGST"
+        if not igst_ledger_raw and igst_amt > 0:
+              igst_ledger_raw = "IGST"
+
+        cgst_amt = cgst_amt if cgst_ledger_raw else 0.0
+        sgst_amt = sgst_amt if sgst_ledger_raw else 0.0
+        igst_amt = igst_amt if igst_ledger_raw else 0.0
+
         total = taxable + cgst_amt + sgst_amt + igst_amt
         has_gst = (cgst_amt + sgst_amt + igst_amt) > 0
+        _ro_amt_jnl  = round(round(total, 0) - total, 2) if round_off_ledger else 0.0
+        _ro_total_jnl = round(total + _ro_amt_jnl, 2)
 
         # TDS fields (only applied for Purchase journal)
         jnl_tds_ledger_raw = (
@@ -3527,7 +4103,7 @@ def generate_journal_xml(
         else:
             jnl_tds_amount = abs(jnl_tds_amount_raw)
         jnl_tds_led = xml_escape(jnl_tds_ledger_raw)
-        jnl_party_total = total - jnl_tds_amount if (jnl_tds_led and jnl_tds_amount > 0) else total
+        jnl_party_total = _ro_total_jnl - jnl_tds_amount if (jnl_tds_led and jnl_tds_amount > 0) else _ro_total_jnl
 
         bill_reference_raw = _row_reference_number(r, "")
         voucher_reference_raw = bill_reference_raw or (vno_raw if include_voucher_number else "")
@@ -3538,7 +4114,7 @@ def generate_journal_xml(
         particular = xml_escape(particular_raw)
         narration = xml_escape(_row_text(r, "Narration"))
 
-        party_gstin_raw = str(_row_text(r, "PartyGSTIN") or _row_text(r, "GSTIN") or "").strip().upper()
+        party_gstin_raw = str(_row_text(r, "GSTIN/UIN") or _row_text(r, "PartyGSTIN") or _row_text(r, "GSTIN") or "").strip().upper()
         pos_raw = str(_row_text(r, "PlaceOfSupply") or "").strip()
         party_state_raw = pos_raw or (_state_from_gstin(party_gstin_raw) if party_gstin_raw else "")
         place_of_supply = xml_escape(party_state_raw if is_sale else (pos_raw or _cmp_state))
@@ -3589,12 +4165,12 @@ def generate_journal_xml(
                 if party_state:
                     a(f"      <STATENAME>{party_state}</STATENAME>")
                 a("      <COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>")
-            a(f"      <AMOUNT>-{fmt_amt(total)}</AMOUNT>")
+            a(f"      <AMOUNT>-{fmt_amt(_ro_total_jnl)}</AMOUNT>")
             if include_bill_allocations and bill_reference:
                 a("      <BILLALLOCATIONS.LIST>")
                 a(f"       <NAME>{bill_reference}</NAME>")
                 a("       <BILLTYPE>New Ref</BILLTYPE>")
-                a(f"       <AMOUNT>-{fmt_amt(total)}</AMOUNT>")
+                a(f"       <AMOUNT>-{fmt_amt(_ro_total_jnl)}</AMOUNT>")
                 a("      </BILLALLOCATIONS.LIST>")
             a("     </LEDGERENTRIES.LIST>")
 
@@ -3611,6 +4187,8 @@ def generate_journal_xml(
                     _append_common_ledger_flags(a, is_party=False, is_debit=False)
                     a(f"      <AMOUNT>{fmt_amt(_la)}</AMOUNT>")
                     a("     </LEDGERENTRIES.LIST>")
+
+            _append_round_off_entry(a, round_off_ledger, _ro_amt_jnl, is_purchase_mode=False)
 
         else:
             # ---- Purchase Journal: Expense Dr / Input Tax Dr / Party Cr ----
@@ -3641,13 +4219,15 @@ def generate_journal_xml(
                 a(f"      <AMOUNT>-{fmt_amt(igst_amt)}</AMOUNT>")
                 a("     </LEDGERENTRIES.LIST>")
 
-            # TDS Payable - Credit (positive amount = Credit in Journal Accounting Voucher View)
+            # TDS Payable - Credit
             if jnl_tds_led and jnl_tds_amount > 0:
                 a("     <LEDGERENTRIES.LIST>")
                 a(f"      <LEDGERNAME>{jnl_tds_led}</LEDGERNAME>")
                 _append_common_ledger_flags(a, is_party=False, is_debit=False)
                 a(f"      <AMOUNT>{fmt_amt(jnl_tds_amount)}</AMOUNT>")
                 a("     </LEDGERENTRIES.LIST>")
+
+            _append_round_off_entry(a, round_off_ledger, _ro_amt_jnl, is_purchase_mode=True)
 
             a("     <LEDGERENTRIES.LIST>")
             a(f"      <LEDGERNAME>{party}</LEDGERNAME>")
@@ -3682,7 +4262,7 @@ def generate_journal_xml(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _normalize_note_type(value: str) -> str:
-    text = str(value or "").strip().casefold()
+    text = re.sub(r"\([^)]*\)", "", str(value or "")).strip().casefold()
     if text in {"debit note", "debit", "debitnote"}:
         return "Debit Note"
     return "Credit Note"
@@ -3697,6 +4277,193 @@ def _clean_note_tax_ledger(value: str) -> str:
     return text
 
 
+def _collect_auto_note_ledgers(rows: list, is_debit_note: bool = False) -> list:
+    """Collect ledger defs from Credit/Debit Note rows for pre-creation."""
+    entries = {}
+
+    def _add(name, parent, tax_type="", gst_rate="", extra=None):
+        ledger_name = str(name or "").strip()
+        if _is_effectively_blank_ledger(ledger_name):
+            return
+        key = _ledger_name_key(ledger_name)
+        if not key:
+            return
+        candidate = {
+            "Name": ledger_name,
+            "Parent": parent,
+            "GSTApplicable": "",
+            "GSTIN": "",
+            "StateOfSupply": "",
+            "TypeOfTaxation": tax_type or "",
+            "GSTRate": str(gst_rate).strip() if gst_rate not in (None, "") else "",
+        }
+        if extra:
+            for f, v in extra.items():
+                if f in {"Name", "Parent"} or v in (None, ""):
+                    continue
+                candidate[f] = v
+        existing = entries.get(key)
+        if existing is None:
+            entries[key] = candidate
+        else:
+            _merge_ledger_definitions(existing, candidate)
+
+    for r in rows or []:
+        party_name = str(
+            _row_text(r, "PartyLedger") or _row_text(r, "Party Ledger") or ""
+        ).strip()
+        gstin_raw = str(
+            _row_text(r, "GSTIN/UIN") or _row_text(r, "GSTIN") or _row_text(r, "PartyGSTIN") or ""
+        ).strip().upper()
+
+        if party_name and not _is_effectively_blank_ledger(party_name):
+            party_parent = "Sundry Creditors" if is_debit_note else "Sundry Debtors"
+            party_def = {
+                "Name": party_name,
+                "Parent": party_parent,
+                "GSTIN": gstin_raw,
+                "PAN": _pan_from_gstin(gstin_raw),
+                "GSTApplicable": "Applicable" if gstin_raw else "Not Applicable",
+                "GSTRegistrationType": "Regular" if gstin_raw else "Unregistered/Consumer",
+                "StateOfSupply": _state_name_from_gstin(gstin_raw) if gstin_raw else "",
+                "MailingName": party_name,
+                "Country": "India",
+                "Billwise": "Yes",
+                "Pincode": "",
+                "Address1": "",
+                "Address2": "",
+                "TypeOfTaxation": "",
+                "GSTRate": "",
+            }
+            _add(party_name, party_parent, extra=party_def)
+
+        particular = (
+            _row_text(r, "Particular") or _row_text(r, "Particulars")
+            or _row_text(r, "SalesLedger") or _row_text(r, "Sales Ledger")
+            or _row_text(r, "Purchase Ledger") or _row_text(r, "PurchaseLedger")
+        )
+        if particular and not _is_effectively_blank_ledger(particular):
+            _add(particular, "Purchase Accounts" if is_debit_note else "Sales Accounts")
+
+        cgst_l = _clean_note_tax_ledger(_row_text(r, "CGSTLedger"))
+        sgst_l = _clean_note_tax_ledger(_row_text(r, "SGSTLedger"))
+        igst_l = _clean_note_tax_ledger(_row_text(r, "IGSTLedger"))
+        cgst_r = _row_float(r, "CGSTRate", 0.0)
+        sgst_r = _row_float(r, "SGSTRate", 0.0)
+        igst_r = _row_float(r, "IGSTRate", 0.0)
+        if not cgst_l and cgst_r > 0:
+            cgst_l = "CGST"
+        if not sgst_l and sgst_r > 0:
+            sgst_l = "SGST"
+        if not igst_l and igst_r > 0:
+            igst_l = "IGST"
+        _add(cgst_l, "Duties & Taxes", "Central Tax", _row_text(r, "CGSTRate"))
+        _add(sgst_l, "Duties & Taxes", "State Tax", _row_text(r, "SGSTRate"))
+        _add(igst_l, "Duties & Taxes", "Integrated Tax", _row_text(r, "IGSTRate"))
+
+    return list(entries.values())
+
+
+def _consolidate_note_rows(rows: list, resolved_mode: str, resolved_custom_date: str) -> list:
+    """
+    Merge Credit/Debit Note rows with same (Date, GSTIN, VoucherNo, PartyLedger)
+    into one voucher entry. Accumulated tax amounts stored as _note_*_amt.
+    Items list stored for item-mode multi-line vouchers.
+    """
+    consolidated = []
+    group_map = {}
+
+    for r in rows:
+        taxable = _row_float(r, "TaxableValue", 0.0)
+        if taxable <= 0:
+            continue
+
+        if resolved_mode == "current":
+            source_date = datetime.today()
+        elif resolved_mode == "custom":
+            source_date = resolved_custom_date
+        else:
+            source_date = _row_get(r, "Date", "")
+        dt = tally_date(source_date)
+
+        vno_raw = _row_voucher_number(r, "")
+        gstin_raw = (
+            _row_text(r, "GSTIN/UIN") or _row_text(r, "GSTIN") or _row_text(r, "PartyGSTIN") or ""
+        ).upper().strip()
+        party_raw = str(_row_text(r, "PartyLedger") or _row_text(r, "Party Ledger") or "").strip().lower()
+
+        key = (dt, gstin_raw.lower(), str(vno_raw).strip().lower(), party_raw)
+
+        cgst_rate = _row_float(r, "CGSTRate", 0.0)
+        sgst_rate = _row_float(r, "SGSTRate", 0.0)
+        igst_rate = _row_float(r, "IGSTRate", 0.0)
+        cgst_x = _row_float(r, "CGST Amount", 0.0)
+        sgst_x = _row_float(r, "SGST Amount", 0.0)
+        igst_x = _row_float(r, "IGST Amount", 0.0)
+        row_cgst = round(taxable * cgst_rate / 100, 2) if cgst_rate > 0 else cgst_x
+        row_sgst = round(taxable * sgst_rate / 100, 2) if sgst_rate > 0 else sgst_x
+        row_igst = round(taxable * igst_rate / 100, 2) if igst_rate > 0 else igst_x
+
+        item_name = _row_text_any(r, ["Item Name", "ItemName", "Item", "StockItem", "ProductName"], "")
+        particular = _row_text(r, "Particular") or _row_text(r, "Particulars") or ""
+
+        if key in group_map:
+            base = group_map[key]
+            base["TaxableValue"] = _row_float(base, "TaxableValue", 0.0) + taxable
+            base["_note_cgst_amt"] = base.get("_note_cgst_amt", 0.0) + row_cgst
+            base["_note_sgst_amt"] = base.get("_note_sgst_amt", 0.0) + row_sgst
+            base["_note_igst_amt"] = base.get("_note_igst_amt", 0.0) + row_igst
+            # Zero out per-row rates so generate uses accumulated amounts
+            base["CGSTRate"] = 0
+            base["SGSTRate"] = 0
+            base["IGSTRate"] = 0
+
+            # Initialise items list on first merge
+            if "items" not in base:
+                base["items"] = []
+                orig_tv = base.get("_note_first_taxable", taxable)
+                orig_item = {
+                    "ItemName": _row_text_any(base, ["Item Name","ItemName","Item","StockItem","ProductName"], ""),
+                    "Quantity": _row_float(base, "Quantity", 0.0) or _row_float(base, "Qty", 0.0) or 1.0,
+                    "Rate": _row_float(base, "Rate", 0.0),
+                    "Per": _row_text_any(base, ["Unit","UOM","Per"], "") or "Nos",
+                    "GodownName": _row_text(base, "GodownName") or "Main Location",
+                    "Particular": _row_text(base, "Particular") or _row_text(base, "Particulars") or "",
+                    "TaxableValue": orig_tv,
+                }
+                if orig_item["ItemName"]:
+                    base["items"].append(orig_item)
+                # Accounting entries for accounting mode
+                base["accounting_entries"] = [{
+                    "Particular": orig_item["Particular"],
+                    "TaxableValue": orig_tv,
+                }]
+
+            new_item = {
+                "ItemName": item_name,
+                "Quantity": _row_float(r, "Quantity", 0.0) or _row_float(r, "Qty", 0.0) or 1.0,
+                "Rate": _row_float(r, "Rate", 0.0),
+                "Per": _row_text_any(r, ["Unit","UOM","Per"], "") or "Nos",
+                "GodownName": _row_text(r, "GodownName") or "Main Location",
+                "Particular": particular,
+                "TaxableValue": taxable,
+            }
+            if item_name:
+                base["items"].append(new_item)
+            if "accounting_entries" in base:
+                base["accounting_entries"].append({"Particular": particular, "TaxableValue": taxable})
+        else:
+            new_r = dict(r)
+            new_r["_note_first_taxable"] = taxable
+            new_r["_note_cgst_amt"] = row_cgst
+            new_r["_note_sgst_amt"] = row_sgst
+            new_r["_note_igst_amt"] = row_igst
+            group_map[key] = new_r
+            consolidated.append(new_r)
+
+    return consolidated
+
+
 def generate_note_xml(
     rows: list,
     company: str,
@@ -3705,15 +4472,21 @@ def generate_note_xml(
     custom_tally_date: str = "",
     voucher_type: str = "Credit Note",
     company_gst_registrations: list = None,
+    entry_mode: str = "accounting",
+    round_off_ledger: str = "",
 ) -> tuple:
     """
-    Credit/Debit Note accounting:
+    Credit/Debit Note accounting or item:
     - Credit Note: party credited (ISDEEMEDPOSITIVE=No), particular/tax debited (Yes)
     - Debit Note:  party debited  (ISDEEMEDPOSITIVE=Yes), particular/tax credited (No)
     """
     normalized_type = _normalize_note_type(voucher_type)
     is_debit_note = (normalized_type == "Debit Note")
     default_particular_ledger = f"{normalized_type} Account"
+    resolved_entry_mode = str(entry_mode or "accounting").strip().lower()
+    if resolved_entry_mode not in {"accounting", "item"}:
+        resolved_entry_mode = "accounting"
+    is_item_mode = (resolved_entry_mode == "item")
 
     lines_out = []
     a = lines_out.append
@@ -3734,6 +4507,9 @@ def generate_note_xml(
     if resolved_mode not in {"current", "excel", "custom"}:
         resolved_mode = "current" if use_today_date else "excel"
     resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
+
+    # Merge rows with same Date+GSTIN+VoucherNo+PartyLedger into one voucher
+    rows = _consolidate_note_rows(rows, resolved_mode, resolved_custom_date)
 
     for idx, r in enumerate(rows):
         taxable = _row_float(r, "TaxableValue", 0.0)
@@ -3766,24 +4542,67 @@ def generate_note_xml(
         sgst_rate = _row_float(r, "SGSTRate", 0.0)
         igst_rate = _row_float(r, "IGSTRate", 0.0)
 
-        cgst_amt = round(taxable * cgst_rate / 100, 2) if cgst_rate > 0 else 0.0
-        sgst_amt = round(taxable * sgst_rate / 100, 2) if sgst_rate > 0 else 0.0
-        igst_amt = round(taxable * igst_rate / 100, 2) if igst_rate > 0 else 0.0
+        # Use pre-accumulated amounts from consolidation when available
+        if "_note_cgst_amt" in r:
+            cgst_amt = r["_note_cgst_amt"]
+            sgst_amt = r["_note_sgst_amt"]
+            igst_amt = r["_note_igst_amt"]
+        else:
+            cgst_amt_explicit = _row_float(r, "CGST Amount", 0.0)
+            sgst_amt_explicit = _row_float(r, "SGST Amount", 0.0)
+            igst_amt_explicit = _row_float(r, "IGST Amount", 0.0)
+            cgst_amt = round(taxable * cgst_rate / 100, 2) if cgst_rate > 0 else cgst_amt_explicit
+            sgst_amt = round(taxable * sgst_rate / 100, 2) if sgst_rate > 0 else sgst_amt_explicit
+            igst_amt = round(taxable * igst_rate / 100, 2) if igst_rate > 0 else igst_amt_explicit
+
+        if not cgst_ledger_raw and cgst_amt > 0:
+            cgst_ledger_raw = "CGST"
+        if not sgst_ledger_raw and sgst_amt > 0:
+            sgst_ledger_raw = "SGST"
+        if not igst_ledger_raw and igst_amt > 0:
+            igst_ledger_raw = "IGST"
+             
+        cgst_amt = cgst_amt if cgst_ledger_raw else 0.0
+        sgst_amt = sgst_amt if sgst_ledger_raw else 0.0
+        igst_amt = igst_amt if igst_ledger_raw else 0.0
+        
         total = taxable + cgst_amt + sgst_amt + igst_amt
+        _ro_amt_n  = round(round(total, 0) - total, 2) if round_off_ledger else 0.0
+        _ro_total_n = round(total + _ro_amt_n, 2)
 
         vno = xml_escape(vno_raw)
         party = xml_escape(party_raw)
         particular = xml_escape(particular_raw)
         narration = xml_escape(_row_text(r, "Narration"))
-        gstin_raw = _row_text(r, "GSTIN") or _row_text(r, "PartyGSTIN")
+        gstin_raw = (_row_text(r, "GSTIN/UIN") or _row_text(r, "GSTIN") or _row_text(r, "PartyGSTIN")).upper()
         gstin = xml_escape(gstin_raw)
 
-        state_name_raw = _state_name_from_gstin(gstin_raw)
-        state_xml = xml_escape(state_name_raw)
+        if is_item_mode:
+            item_name_raw = _row_text_any(
+                r,
+                ["Item Name", "ItemName", "Item", "StockItem", "ProductName"],
+                "",
+            )
+            if not item_name_raw:
+                raise ValueError(f"{normalized_type} row {idx + 1}: item name is missing.")
+            qty = _row_float(r, "Quantity", 0.0) or _row_float(r, "Qty", 0.0) or _row_float(r, "Unit", 0.0)
+            if qty <= 0:
+                qty = 1.0
+            rate = _row_float(r, "Rate", 0.0)
+            if rate <= 0 and taxable > 0 and qty > 0:
+                rate = taxable / qty
+            per_unit_raw = _row_text_any(r, ["Unit", "UOM", "Per"], "") or "Nos"
+            per_unit = xml_escape(_normalize_stock_unit_name(per_unit_raw) or "Nos")
+            godown = xml_escape(_row_text(r, "GodownName", "Main Location") or "Main Location")
+            item_name = xml_escape(item_name_raw)
+            item_amt = round(qty * rate, 2) if qty and rate else taxable
+
+        place_raw = _row_text(r, "PlaceOfSupply") or _row_text(r, "Place Of Supply") or _state_name_from_gstin(gstin_raw)
+        state_xml = xml_escape(place_raw)
 
         # Sign convention
         party_is_deemed_positive = "Yes" if is_debit_note else "No"
-        party_amount = -total if is_debit_note else total
+        party_amount = -_ro_total_n if is_debit_note else _ro_total_n
         counter_is_deemed_positive = "No" if is_debit_note else "Yes"
         taxable_amount = taxable if is_debit_note else -taxable
         cgst_amount = cgst_amt if is_debit_note else -cgst_amt
@@ -3831,9 +4650,14 @@ def generate_note_xml(
         a(f"     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>")
         a("     <ISINVOICE>Yes</ISINVOICE>")
         a("     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>")
-        a("     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>")
+        a(f"     <VCHENTRYMODE>{'Item Invoice' if is_item_mode else 'Accounting Invoice'}</VCHENTRYMODE>")
+        a("     <NUMBERINGSTYLE>Manual</NUMBERINGSTYLE>")
+        a("     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>")
+        a("     <VCHSTATUSISREACCEPHSNSIXONEDONE>Yes</VCHSTATUSISREACCEPHSNSIXONEDONE>")
+        a("     <VCHGSTSTATUSISUNCERTAIN>No</VCHGSTSTATUSISUNCERTAIN>")
+        a("     <VCHGSTSTATUSISINCLUDED>Yes</VCHGSTSTATUSISINCLUDED>")
+        a("     <VCHGSTSTATUSISAPPLICABLE>Yes</VCHGSTSTATUSISAPPLICABLE>")
         if is_debit_note:
-            a("     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>")
             _dn_gst_txn = "Tax Invoice" if gstin_raw else "Unregistered"
             a(f"     <GSTTRANSACTIONTYPE>{_dn_gst_txn}</GSTTRANSACTIONTYPE>")
         if gstin:
@@ -3848,12 +4672,83 @@ def generate_note_xml(
         a(f"      <AMOUNT>{fmt_amt(party_amount)}</AMOUNT>")
         a("     </LEDGERENTRIES.LIST>")
 
-        # Particular / income ledger
-        a("     <LEDGERENTRIES.LIST>")
-        a(f"      <LEDGERNAME>{particular}</LEDGERNAME>")
-        a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
-        a(f"      <AMOUNT>{fmt_amt(taxable_amount)}</AMOUNT>")
-        a("     </LEDGERENTRIES.LIST>")
+        if is_item_mode:
+            inv_is_deemed = counter_is_deemed_positive
+            merged_items = r.get("items")
+            if merged_items:
+                # Multi-item consolidated voucher
+                for it in merged_items:
+                    it_name = xml_escape(str(it.get("ItemName") or "").strip())
+                    if not it_name:
+                        continue
+                    it_qty = float(it.get("Quantity") or 1.0)
+                    it_rate = float(it.get("Rate") or 0.0)
+                    it_per = xml_escape(_normalize_stock_unit_name(str(it.get("Per") or "Nos")) or "Nos")
+                    it_godown = xml_escape(str(it.get("GodownName") or "Main Location"))
+                    it_particular = xml_escape(str(it.get("Particular") or particular_raw) or default_particular_ledger)
+                    it_tv = float(it.get("TaxableValue") or 0.0)
+                    it_amt_base = round(it_qty * it_rate, 2) if it_qty and it_rate else it_tv
+                    it_inv_amount = -it_amt_base if inv_is_deemed == "Yes" else it_amt_base
+                    a("     <ALLINVENTORYENTRIES.LIST>")
+                    a(f"      <STOCKITEMNAME>{it_name}</STOCKITEMNAME>")
+                    a(f"      <ISDEEMEDPOSITIVE>{inv_is_deemed}</ISDEEMEDPOSITIVE>")
+                    a(f"      <RATE>{fmt_amt(it_rate)}/{it_per}</RATE>")
+                    a(f"      <AMOUNT>{fmt_amt(it_inv_amount)}</AMOUNT>")
+                    a(f"      <ACTUALQTY>{fmt_amt(it_qty)} {it_per}</ACTUALQTY>")
+                    a(f"      <BILLEDQTY>{fmt_amt(it_qty)} {it_per}</BILLEDQTY>")
+                    a("      <BATCHALLOCATIONS.LIST>")
+                    a(f"       <GODOWNNAME>{it_godown}</GODOWNNAME>")
+                    a(f"       <AMOUNT>{fmt_amt(it_inv_amount)}</AMOUNT>")
+                    a(f"       <ACTUALQTY>{fmt_amt(it_qty)} {it_per}</ACTUALQTY>")
+                    a(f"       <BILLEDQTY>{fmt_amt(it_qty)} {it_per}</BILLEDQTY>")
+                    a("      </BATCHALLOCATIONS.LIST>")
+                    a("      <ACCOUNTINGALLOCATIONS.LIST>")
+                    a(f"       <LEDGERNAME>{it_particular}</LEDGERNAME>")
+                    a(f"       <ISDEEMEDPOSITIVE>{inv_is_deemed}</ISDEEMEDPOSITIVE>")
+                    a(f"       <AMOUNT>{fmt_amt(it_inv_amount)}</AMOUNT>")
+                    a("      </ACCOUNTINGALLOCATIONS.LIST>")
+                    a("     </ALLINVENTORYENTRIES.LIST>")
+            else:
+                # Single item (standard path)
+                inv_amount = -item_amt if inv_is_deemed == "Yes" else item_amt
+                a("     <ALLINVENTORYENTRIES.LIST>")
+                a(f"      <STOCKITEMNAME>{item_name}</STOCKITEMNAME>")
+                a(f"      <ISDEEMEDPOSITIVE>{inv_is_deemed}</ISDEEMEDPOSITIVE>")
+                a(f"      <RATE>{fmt_amt(rate)}/{per_unit}</RATE>")
+                a(f"      <AMOUNT>{fmt_amt(inv_amount)}</AMOUNT>")
+                a(f"      <ACTUALQTY>{fmt_amt(qty)} {per_unit}</ACTUALQTY>")
+                a(f"      <BILLEDQTY>{fmt_amt(qty)} {per_unit}</BILLEDQTY>")
+                a("      <BATCHALLOCATIONS.LIST>")
+                a(f"       <GODOWNNAME>{godown}</GODOWNNAME>")
+                a(f"       <AMOUNT>{fmt_amt(inv_amount)}</AMOUNT>")
+                a(f"       <ACTUALQTY>{fmt_amt(qty)} {per_unit}</ACTUALQTY>")
+                a(f"       <BILLEDQTY>{fmt_amt(qty)} {per_unit}</BILLEDQTY>")
+                a("      </BATCHALLOCATIONS.LIST>")
+                a("      <ACCOUNTINGALLOCATIONS.LIST>")
+                a(f"       <LEDGERNAME>{particular}</LEDGERNAME>")
+                a(f"       <ISDEEMEDPOSITIVE>{inv_is_deemed}</ISDEEMEDPOSITIVE>")
+                a(f"       <AMOUNT>{fmt_amt(inv_amount)}</AMOUNT>")
+                a("      </ACCOUNTINGALLOCATIONS.LIST>")
+                a("     </ALLINVENTORYENTRIES.LIST>")
+        else:
+            # Particular / income ledger — handle multi-particular merged rows
+            acct_entries = r.get("accounting_entries")
+            if acct_entries and len(acct_entries) > 1:
+                for ae in acct_entries:
+                    ae_particular = xml_escape(str(ae.get("Particular") or particular_raw) or default_particular_ledger)
+                    ae_tv = float(ae.get("TaxableValue") or 0.0)
+                    ae_amount = ae_tv if is_debit_note else -ae_tv
+                    a("     <LEDGERENTRIES.LIST>")
+                    a(f"      <LEDGERNAME>{ae_particular}</LEDGERNAME>")
+                    a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+                    a(f"      <AMOUNT>{fmt_amt(ae_amount)}</AMOUNT>")
+                    a("     </LEDGERENTRIES.LIST>")
+            else:
+                a("     <LEDGERENTRIES.LIST>")
+                a(f"      <LEDGERNAME>{particular}</LEDGERNAME>")
+                a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
+                a(f"      <AMOUNT>{fmt_amt(taxable_amount)}</AMOUNT>")
+                a("     </LEDGERENTRIES.LIST>")
 
         if cgst_amt > 0 and cgst_ledger_raw:
             a("     <LEDGERENTRIES.LIST>")
@@ -3875,6 +4770,8 @@ def generate_note_xml(
             a(f"      <ISDEEMEDPOSITIVE>{counter_is_deemed_positive}</ISDEEMEDPOSITIVE>")
             a(f"      <AMOUNT>{fmt_amt(igst_amount)}</AMOUNT>")
             a("     </LEDGERENTRIES.LIST>")
+
+        _append_round_off_entry(a, round_off_ledger, _ro_amt_n, is_purchase_mode=is_debit_note)
 
         a("    </VOUCHER>")
         a("   </TALLYMESSAGE>")
@@ -3906,6 +4803,605 @@ def read_excel(filepath: str, sheet: str = None) -> tuple:
         rows.append(dict(zip(headers, vals)))
     wb.close()
     return headers, rows
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  GST PORTAL SEARCHER  (reuses logic from user.py)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_GST_SEARCH_URL = "https://services.gst.gov.in/services/searchtp"
+_GST_MOBILE_UA = (
+    "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+)
+_GST_DEFAULT_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+)
+
+
+def _pan_from_gstin(gstin: str) -> str:
+    """Extract 10-character PAN from a 15-character GSTIN (chars 2–11 inclusive)."""
+    g = (gstin or "").strip().upper()
+    return g[2:12] if len(g) == 15 else ""
+
+
+def _parse_portal_data_to_ledger_def(portal_data: dict, ledger_name: str, parent: str) -> dict:
+    """Convert a GST portal search-result dict into a ledger definition dict."""
+    details = portal_data.get("details") or {}
+    key_details = details.get("key_details") or {}
+
+    trade_name = str(key_details.get("Trade Name") or "").strip()
+    legal_name = str(key_details.get("Legal Name of Business") or "").strip()
+    mailing_name = trade_name or legal_name or ledger_name
+
+    ppob = str(key_details.get("Principal Place of Business") or "").strip()
+    address1 = ""
+    address2 = ""
+    state_raw = ""
+    pincode_raw = ""
+
+    if ppob:
+        parts = [p.strip() for p in ppob.split(",") if p.strip()]
+        # last part is pincode if numeric
+        if parts and re.fullmatch(r"\d{6}", parts[-1]):
+            pincode_raw = parts.pop()
+        # second-to-last before pincode is state (e.g. "Delhi")
+        if parts:
+            state_raw = parts[-1]
+        # everything else is address
+        if len(parts) > 1:
+            mid = parts[:-1]
+            address1 = ", ".join(mid[:3])
+            address2 = ", ".join(mid[3:])
+        elif parts:
+            address1 = parts[0]
+
+    taxpayer_type = str(key_details.get("Taxpayer Type") or "").strip()
+    gstin_val = str(portal_data.get("gstin") or "").strip().upper()
+
+    reg_type_map = {
+        "regular": "Regular",
+        "composition": "Composition",
+        "unregistered": "Unregistered/Consumer",
+        "consumer": "Unregistered/Consumer",
+        "input service distributor": "Input Service Distributor",
+        "isd": "Input Service Distributor",
+        "sez unit": "SEZ",
+        "sez developer": "SEZ",
+        "embassy / consulate": "Overseas",
+        "overseas": "Overseas",
+    }
+    reg_type = reg_type_map.get(taxpayer_type.lower(), "Regular" if gstin_val else "Unregistered/Consumer")
+
+    normalized_state = _normalize_state_for_ledger(state_raw)
+    if not normalized_state and gstin_val:
+        normalized_state = _state_name_from_gstin(gstin_val)
+
+    gst_applicable = "Applicable" if gstin_val else "Not Applicable"
+
+    return {
+        "Name": ledger_name,
+        "Parent": parent,
+        "MailingName": mailing_name,
+        "GSTIN": gstin_val,
+        "PAN": _pan_from_gstin(gstin_val),
+        "GSTApplicable": gst_applicable,
+        "GSTRegistrationType": reg_type,
+        "StateOfSupply": normalized_state,
+        "Address1": address1,
+        "Address2": address2,
+        "Pincode": pincode_raw,
+        "Country": "India",
+        "Billwise": "Yes",
+        "TypeOfTaxation": "",
+        "GSTRate": "",
+    }
+
+
+class _GSTPortalSearcher:
+    """Minimal GST portal searcher (captcha + form submit). Mirrors user.py logic."""
+
+    def __init__(self):
+        self.driver = None
+        self.session = self._build_session() if _REQUESTS_AVAILABLE else None
+        self.mfp = ""
+        self.device_id = ""
+        self.captcha_png_bytes = b""
+
+    def _build_session(self):
+        session = requests.Session()
+        retry = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504],
+                      allowed_methods=frozenset(["GET", "POST"]))
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.headers.update({"User-Agent": _GST_DEFAULT_UA,
+                                 "Accept": "application/json, text/plain, */*"})
+        return session
+
+    def _ensure_driver(self):
+        if self.driver is not None:
+            return self.driver
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless=new")
+        options.add_argument(f"--user-agent={_GST_MOBILE_UA}")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--window-size=1200,900")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--lang=en-US")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        svc = Service(ChromeDriverManager().install())
+        self.driver = webdriver.Chrome(service=svc, options=options)
+        self.driver.set_page_load_timeout(60)
+        try:
+            self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument",
+                {"source": "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"})
+        except Exception:
+            pass
+        return self.driver
+
+    def _trigger_events(self, driver, element):
+        try:
+            driver.execute_script(
+                "const e=arguments[0];e.dispatchEvent(new Event('input',{bubbles:true}));"
+                "e.dispatchEvent(new Event('change',{bubbles:true}));"
+                "e.dispatchEvent(new Event('blur',{bubbles:true}));", element)
+        except Exception:
+            pass
+
+    def _find_ready_captcha(self, driver):
+        try:
+            el = driver.find_element(By.ID, "imgCaptcha")
+            src = (el.get_attribute("src") or "").lower()
+            if el.is_displayed() and "captcha" in src:
+                return el
+        except Exception:
+            pass
+        return False
+
+    def _capture_captcha_bytes(self, driver, el) -> bytes:
+        try:
+            WebDriverWait(driver, 15).until(
+                lambda d: d.execute_script(
+                    "const i=arguments[0];return i&&i.complete&&i.naturalWidth>0;", el))
+        except Exception:
+            pass
+        try:
+            png = el.screenshot_as_png
+            if png and len(png) > 200:
+                return png
+        except Exception:
+            pass
+        return b""
+
+    def _sync_cookies(self):
+        if not self.driver or not self.session:
+            return
+        self.session.cookies.clear()
+        for c in self.driver.get_cookies():
+            if c.get("name"):
+                self.session.cookies.set(
+                    name=c["name"], value=c.get("value", ""),
+                    path=c.get("path", "/"), domain=c.get("domain"))
+
+    def _find_captcha_input(self, driver):
+        locators = [(By.ID, "captcha"), (By.ID, "captchaCode"), (By.ID, "captchaText"),
+                    (By.NAME, "captcha"), (By.NAME, "captchaCode"),
+                    (By.CSS_SELECTOR, "input[ng-model*='captcha' i]"),
+                    (By.CSS_SELECTOR, "input[id*='captcha' i]")]
+        for by, val in locators:
+            try:
+                el = driver.find_element(by, val)
+                if el.is_displayed():
+                    return el
+            except Exception:
+                pass
+        return None
+
+    def load_captcha(self, gstin: str) -> bytes:
+        """Navigate to GST search page and return PNG bytes of captcha."""
+        if not _SELENIUM_AVAILABLE:
+            raise RuntimeError("Selenium not installed. Cannot load captcha.")
+        driver = self._ensure_driver()
+        driver.get(_GST_SEARCH_URL)
+        wait = WebDriverWait(driver, 35)
+        try:
+            inp = wait.until(EC.element_to_be_clickable((By.ID, "for_gstin")))
+            inp.clear()
+            inp.send_keys(gstin)
+            self._trigger_events(driver, inp)
+            el = wait.until(self._find_ready_captcha)
+        except TimeoutException:
+            raise RuntimeError("Timed out waiting for captcha on GST portal.")
+        self.captcha_png_bytes = self._capture_captcha_bytes(driver, el)
+        self._sync_cookies()
+        return self.captcha_png_bytes
+
+    def fetch(self, gstin: str, captcha_text: str) -> dict:
+        """Submit form and return portal data dict."""
+        if not _SELENIUM_AVAILABLE:
+            raise RuntimeError("Selenium not installed.")
+        driver = self._ensure_driver()
+        wait = WebDriverWait(driver, 25)
+        if "searchtp" not in (driver.current_url or "").lower():
+            driver.get(_GST_SEARCH_URL)
+
+        inp = wait.until(EC.element_to_be_clickable((By.ID, "for_gstin")))
+        inp.clear()
+        inp.send_keys(gstin)
+        self._trigger_events(driver, inp)
+
+        cap_inp = None
+        for _ in range(40):
+            cap_inp = self._find_captcha_input(driver)
+            if cap_inp:
+                break
+            time.sleep(0.3)
+        if not cap_inp:
+            raise RuntimeError("Captcha input not found on page.")
+        cap_inp.clear()
+        cap_inp.send_keys(captcha_text)
+
+        btn = wait.until(EC.element_to_be_clickable((By.ID, "lotsearch")))
+        btn.click()
+
+        # Wait for result
+        end = time.time() + 35
+        while time.time() < end:
+            for sel in ["#lottable", "#searchResult", ".panel-body", "table"]:
+                try:
+                    el = driver.find_element(By.CSS_SELECTOR, sel)
+                    if el.text.strip():
+                        break
+                except Exception:
+                    pass
+            else:
+                time.sleep(0.5)
+                continue
+            break
+
+        details = driver.execute_script("""
+            const getText=e=>e?(e.textContent||'').replace(/\\s+/g,' ').trim():'';
+            const result={};const container=document.querySelector('#lottable');
+            if(!container)return result;
+            const pairs={};
+            const cols=container.querySelectorAll('.tbl-format .inner .col-sm-4,.tbl-format .inner .col-sm-12');
+            cols.forEach(col=>{
+                const label=getText(col.querySelector('strong'));if(!label)return;
+                const list=col.querySelector('ul.jurisdictList');
+                if(list){const items=Array.from(list.querySelectorAll('li')).map(getText).filter(Boolean);
+                    if(items.length){pairs[label]=items;return;}}
+                const word=col.querySelector('.wordCls');
+                if(word){pairs[label]=getText(word);return;}
+                const ps=Array.from(col.querySelectorAll('p')).map(getText).filter(Boolean);
+                if(ps.length>1)pairs[label]=ps[ps.length-1];
+                else if(ps.length===1)pairs[label]=ps[0];
+            });
+            result.key_details=pairs;
+            return result;
+        """) or {}
+
+        return {"gstin": gstin, "fetchedAt": datetime.now().isoformat(), "details": details}
+
+    def quit(self):
+        if self.driver:
+            try:
+                self.driver.quit()
+            except Exception:
+                pass
+            self.driver = None
+
+
+# ───────────────────────────────────────────────────────────────────────────
+#  GST Fetch Dialog  – shown when user clicks "Fetch from Portal"
+# ───────────────────────────────────────────────────────────────────────────
+
+class _GSTFetchDialog(ctk.CTkToplevel):
+    """Popup for fetching party details from the GST portal."""
+
+    def __init__(self, parent, ledger_name: str, gstin_hint: str, ledger_parent: str):
+        super().__init__(parent)
+        self.title(f"Fetch from GST Portal — {ledger_name}")
+        self.geometry("560x620")
+        self.resizable(False, False)
+        self.grab_set()
+        self.lift()
+        self.focus_force()
+
+        self._ledger_name = ledger_name
+        self._ledger_parent = ledger_parent
+        self._searcher = _GSTPortalSearcher()
+        self._captcha_photo = None
+        self._portal_data = None
+        self._result_def = None   # set when user confirms
+
+        self._gstin_var = tk.StringVar(value=gstin_hint)
+        self._captcha_var = tk.StringVar()
+        self._status_var = tk.StringVar(value="Enter GSTIN, click Load Captcha.")
+        self._name_var = tk.StringVar()
+        self._state_var = tk.StringVar()
+        self._addr_var = tk.StringVar()
+        self._pin_var = tk.StringVar()
+        self._reg_type_var = tk.StringVar()
+
+        self._build_ui()
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+    def _build_ui(self):
+        pad = {"padx": 14, "pady": 6}
+        ctk.CTkLabel(self, text="GSTIN / UIN", anchor="w").pack(fill="x", **pad)
+        gstin_row = ctk.CTkFrame(self, fg_color="transparent")
+        gstin_row.pack(fill="x", padx=14, pady=(0, 6))
+        ctk.CTkEntry(gstin_row, textvariable=self._gstin_var, width=300).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(gstin_row, text="Load Captcha", width=130,
+                      command=self._on_load_captcha).pack(side="left")
+
+        ctk.CTkLabel(self, text="Captcha Image", anchor="w").pack(fill="x", **pad)
+        self._captcha_lbl = ctk.CTkLabel(self, text="— captcha not loaded —",
+                                          width=360, height=80, fg_color=("gray90", "gray20"),
+                                          corner_radius=6)
+        self._captcha_lbl.pack(padx=14, pady=(0, 6))
+
+        ctk.CTkLabel(self, text="Enter Captcha Text", anchor="w").pack(fill="x", **pad)
+        cap_row = ctk.CTkFrame(self, fg_color="transparent")
+        cap_row.pack(fill="x", padx=14, pady=(0, 6))
+        ctk.CTkEntry(cap_row, textvariable=self._captcha_var, width=200).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(cap_row, text="Fetch Details", width=130,
+                      command=self._on_fetch).pack(side="left")
+
+        ctk.CTkLabel(self, textvariable=self._status_var, anchor="w",
+                      text_color=("gray40", "gray70"), font=("Segoe UI", 11)).pack(
+            fill="x", padx=14, pady=(0, 8))
+
+        # Fetched data preview (editable)
+        sep = ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30"))
+        sep.pack(fill="x", padx=14, pady=(0, 8))
+        ctk.CTkLabel(self, text="Fetched Details (editable before creating):",
+                      anchor="w", font=("Segoe UI", 11, "bold")).pack(fill="x", padx=14, pady=(0, 4))
+
+        for label, var in [
+            ("Mailing Name", self._name_var),
+            ("GST Registration Type", self._reg_type_var),
+            ("State", self._state_var),
+            ("Address", self._addr_var),
+            ("Pincode", self._pin_var),
+        ]:
+            row = ctk.CTkFrame(self, fg_color="transparent")
+            row.pack(fill="x", padx=14, pady=2)
+            ctk.CTkLabel(row, text=label, width=190, anchor="w").pack(side="left")
+            ctk.CTkEntry(row, textvariable=var, width=300).pack(side="left")
+
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(fill="x", padx=14, pady=(12, 8))
+        self._confirm_btn = ctk.CTkButton(btn_row, text="Create Ledger with Portal Data",
+                                           fg_color=("#059669", "#10B981"),
+                                           command=self._on_confirm, state="disabled")
+        self._confirm_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray60", "gray30"),
+                       command=self._on_cancel, width=90).pack(side="left")
+
+    def _on_load_captcha(self):
+        gstin = self._gstin_var.get().strip().upper()
+        if not gstin:
+            self._status_var.set("Enter GSTIN first.")
+            return
+        if not _SELENIUM_AVAILABLE:
+            self._status_var.set("Selenium not installed — cannot load captcha.")
+            return
+        self._status_var.set("Loading captcha (opening browser)...")
+        self._captcha_lbl.configure(text="Loading…")
+        threading.Thread(target=self._bg_load_captcha, args=(gstin,), daemon=True).start()
+
+    def _bg_load_captcha(self, gstin):
+        try:
+            png = self._searcher.load_captcha(gstin)
+            self.after(0, self._show_captcha, png)
+            self.after(0, self._status_var.set, "Captcha loaded. Enter text and click Fetch Details.")
+        except Exception as exc:
+            self.after(0, self._status_var.set, f"Error: {exc}")
+            self.after(0, lambda: self._captcha_lbl.configure(text="Failed to load captcha"))
+
+    def _show_captcha(self, png_bytes):
+        if not _PIL_AVAILABLE or not png_bytes:
+            self._captcha_lbl.configure(text="Captcha loaded (PIL not available to render image)")
+            return
+        try:
+            img = Image.open(io.BytesIO(png_bytes))
+            img = img.resize((img.width * 2, img.height * 2), Image.LANCZOS if hasattr(Image, 'LANCZOS') else Image.Resampling.LANCZOS)
+            self._captcha_photo = ImageTk.PhotoImage(img)
+            self._captcha_lbl.configure(image=self._captcha_photo, text="")
+        except Exception:
+            self._captcha_lbl.configure(text="Captcha loaded (render error)")
+
+    def _on_fetch(self):
+        gstin = self._gstin_var.get().strip().upper()
+        captcha_text = self._captcha_var.get().strip()
+        if not gstin:
+            self._status_var.set("GSTIN is required.")
+            return
+        if not captcha_text:
+            self._status_var.set("Enter captcha text first.")
+            return
+        self._status_var.set("Fetching from GST portal...")
+        threading.Thread(target=self._bg_fetch, args=(gstin, captcha_text), daemon=True).start()
+
+    def _bg_fetch(self, gstin, captcha_text):
+        try:
+            data = self._searcher.fetch(gstin, captcha_text)
+            self._portal_data = data
+            led_def = _parse_portal_data_to_ledger_def(data, self._ledger_name, self._ledger_parent)
+            self.after(0, self._populate_fields, led_def)
+            self.after(0, self._status_var.set, "Details fetched. Review and click Create Ledger.")
+        except Exception as exc:
+            self.after(0, self._status_var.set, f"Fetch failed: {exc}")
+
+    def _populate_fields(self, led_def: dict):
+        self._name_var.set(led_def.get("MailingName", "") or led_def.get("Name", ""))
+        self._reg_type_var.set(led_def.get("GSTRegistrationType", ""))
+        self._state_var.set(led_def.get("StateOfSupply", ""))
+        self._addr_var.set(
+            ", ".join(filter(None, [led_def.get("Address1", ""), led_def.get("Address2", "")]))
+        )
+        self._pin_var.set(led_def.get("Pincode", ""))
+        self._confirm_btn.configure(state="normal")
+
+    def _on_confirm(self):
+        # Build enriched ledger def from (possibly edited) fields
+        addr_full = self._addr_var.get().strip()
+        addr_parts = [p.strip() for p in addr_full.split(",") if p.strip()]
+        led_def = {
+            "Name": self._ledger_name,
+            "Parent": self._ledger_parent,
+            "MailingName": self._name_var.get().strip() or self._ledger_name,
+            "GSTIN": self._gstin_var.get().strip().upper(),
+            "GSTApplicable": "Applicable" if self._gstin_var.get().strip() else "Not Applicable",
+            "GSTRegistrationType": self._reg_type_var.get().strip() or "Regular",
+            "StateOfSupply": _normalize_state_for_ledger(self._state_var.get().strip()),
+            "Address1": addr_parts[0] if addr_parts else "",
+            "Address2": ", ".join(addr_parts[1:]) if len(addr_parts) > 1 else "",
+            "Pincode": self._pin_var.get().strip(),
+            "Country": "India",
+            "Billwise": "Yes",
+            "TypeOfTaxation": "",
+            "GSTRate": "",
+        }
+        self._result_def = led_def
+        self._searcher.quit()
+        self.destroy()
+
+    def _on_cancel(self):
+        self._result_def = None
+        self._searcher.quit()
+        self.destroy()
+
+    def get_result(self):
+        return self._result_def
+
+
+# ───────────────────────────────────────────────────────────────────────────
+#  Missing Ledger Dialog  – shown when a party ledger needs to be created
+# ───────────────────────────────────────────────────────────────────────────
+
+class _MissingLedgerDialog(ctk.CTkToplevel):
+    """
+    Popup: "Ledger X not found — Fetch from Portal or Create Manually?"
+    Called from main thread. Sets choice_data["choice"] and fires event.
+    """
+
+    def __init__(self, parent, led_def: dict, choice_data: dict, event: threading.Event):
+        super().__init__(parent)
+        self._led_def = led_def
+        self._choice_data = choice_data
+        self._event = event
+
+        ledger_name = str(led_def.get("Name", "") or "Unknown")
+        gstin_hint = str(led_def.get("GSTIN", "") or "")
+        parent_account = str(led_def.get("Parent", "") or "Sundry Debtors")
+
+        self.title("Missing Ledger")
+        self.geometry("500x280")
+        self.resizable(False, False)
+        self.grab_set()
+        self.lift()
+        self.focus_force()
+        self.protocol("WM_DELETE_WINDOW", self._choose_manual)
+
+        # Header
+        header = ctk.CTkFrame(self, fg_color=("#FEF3C7", "#78350F"), corner_radius=0)
+        header.pack(fill="x")
+        ctk.CTkLabel(header, text="⚠  Ledger Not Found in Tally",
+                      font=("Segoe UI", 13, "bold"),
+                      text_color=("#92400E", "#FCD34D")).pack(padx=16, pady=10)
+
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=20, pady=12)
+
+        ctk.CTkLabel(body,
+                      text=f"The ledger  \"{ledger_name}\"  was not found in Tally.",
+                      font=("Segoe UI", 12), wraplength=440, justify="left").pack(anchor="w")
+        ctk.CTkLabel(body,
+                      text="How would you like to create it?",
+                      font=("Segoe UI", 11), text_color=("gray50", "gray60")).pack(
+            anchor="w", pady=(4, 0))
+
+        if gstin_hint:
+            ctk.CTkLabel(body,
+                          text=f"GSTIN: {gstin_hint}",
+                          font=("Segoe UI", 10, "italic"),
+                          text_color=("gray50", "gray60")).pack(anchor="w")
+
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(0, 16))
+
+        portal_enabled = _SELENIUM_AVAILABLE and _PIL_AVAILABLE
+        portal_tooltip = "" if portal_enabled else " (Selenium/PIL not installed)"
+
+        ctk.CTkButton(
+            btn_frame,
+            text=f"🌐  Fetch from GST Portal{portal_tooltip}",
+            fg_color=("#2563EB", "#3B82F6"),
+            hover_color=("#1D4ED8", "#2563EB"),
+            height=44,
+            font=("Segoe UI", 12),
+            command=lambda: self._choose_fetch(ledger_name, gstin_hint, parent_account),
+            state="normal" if portal_enabled else "disabled",
+        ).pack(fill="x", pady=(0, 8))
+
+        ctk.CTkButton(
+            btn_frame,
+            text="✏  Create Manually (Basic Info Only)",
+            fg_color=("gray70", "gray30"),
+            hover_color=("gray60", "gray40"),
+            height=44,
+            font=("Segoe UI", 12),
+            command=self._choose_manual,
+        ).pack(fill="x")
+
+    def _choose_fetch(self, ledger_name, gstin_hint, parent_account):
+        self.withdraw()
+        dlg = _GSTFetchDialog(self.master, ledger_name, gstin_hint, parent_account)
+        self.wait_window(dlg)
+        result_def = dlg.get_result()
+        if result_def:
+            self._choice_data["choice"] = "fetch"
+            self._choice_data["def"] = result_def
+        else:
+            # user cancelled the fetch dialog → fall back to manual
+            self._choice_data["choice"] = "manual"
+            self._choice_data["def"] = self._led_def
+        self._event.set()
+        self.destroy()
+
+    def _choose_manual(self):
+        self._choice_data["choice"] = "manual"
+        self._choice_data["def"] = self._led_def
+        self._event.set()
+        self.destroy()
+
+
+def _ask_create_party_ledger(widget, led_def: dict) -> dict:
+    """
+    Call from a worker thread. Shows _MissingLedgerDialog on the main thread,
+    waits for user choice (up to 5 min), and returns the (possibly enriched)
+    ledger definition dict.
+    """
+    event = threading.Event()
+    choice_data = {"choice": None, "def": led_def}
+
+    def _show():
+        dlg = _MissingLedgerDialog(widget, led_def, choice_data, event)
+
+    widget.after(0, _show)
+    event.wait(timeout=300)
+
+    if choice_data["choice"] is None:
+        # Timeout – fall back to manual
+        choice_data["def"] = led_def
+    return choice_data["def"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3955,7 +5451,8 @@ class TallySalesApp(ctk.CTk):
         self._voucher_type_vars = {}        # StringVar per mode for selected voucher type
         self._voucher_type_cbs = {}         # CTkComboBox per mode
         self._voucher_type_fetch_buttons = {}  # Fetch button per mode
-        self._note_type_var = ctk.StringVar(value="Credit Note")
+        self._note_type_var = ctk.StringVar(value="Credit Note (Accounting)")
+        self._note_entry_mode = "accounting"
         self.company_gst_registrations = []
         self._note_loaded_rows = []
         self._note_loaded_headers = []
@@ -3997,6 +5494,16 @@ class TallySalesApp(ctk.CTk):
         self._push_running = False
         self._push_overlay = None
         self._push_message_var = ctk.StringVar(value="")
+        self._roundoff_enabled_vars = {}   # BooleanVar per mode
+        self._roundoff_ledger_vars = {}    # StringVar per mode
+        self._roundoff_all_ledgers = {}    # cached ledger list per mode
+        self._roundoff_fetch_btns = {}     # Fetch button per mode
+        self._note_roundoff_enabled_var = ctk.BooleanVar(value=False)
+        self._note_roundoff_ledger_var = ctk.StringVar(value="")
+        self._note_roundoff_all_ledgers = []
+        self._jnl_roundoff_enabled_var = ctk.BooleanVar(value=False)
+        self._jnl_roundoff_ledger_var = ctk.StringVar(value="")
+        self._jnl_roundoff_all_ledgers = []
         self.workflow_demo_url = ""
         self.demo_btn = None
         self.voucher_date_current_cb = None
@@ -4248,8 +5755,10 @@ class TallySalesApp(ctk.CTk):
             "📦  Sales Item Invoice",
             "🧾  Purchase Accounting Invoice",
             "🛒  Purchase Item Invoice",
-            "📝  Credit Note",
-            "📒  Debit Note",
+            "📝  Credit Note (Accounting)",
+            "📒  Debit Note (Accounting)",
+            "📝  Credit Note (Item)",
+            "📒  Debit Note (Item)",
             "📓  Journal Entry",
             "🏦  Create Ledgers",
             "📁  Create Stock Items",
@@ -4259,8 +5768,10 @@ class TallySalesApp(ctk.CTk):
             "📦  Sales Item Invoice": "item",
             "🧾  Purchase Accounting Invoice": "purchase_accounting",
             "🛒  Purchase Item Invoice": "purchase_item",
-            "📝  Credit Note": "credit_note",
-            "📒  Debit Note": "debit_note",
+            "📝  Credit Note (Accounting)": "credit_note_accounting",
+            "📒  Debit Note (Accounting)": "debit_note_accounting",
+            "📝  Credit Note (Item)": "credit_note_item",
+            "📒  Debit Note (Item)": "debit_note_item",
             "📓  Journal Entry": "journal",
             "🏦  Create Ledgers": "ledger",
             "📁  Create Stock Items": "stock",
@@ -4305,6 +5816,10 @@ class TallySalesApp(ctk.CTk):
         _note_pf.grid(row=0, column=0, sticky="nsew")
         self._panels["credit_note"] = _note_pf
         self._panels["debit_note"] = _note_pf   # same frame — note_type_var controls type
+        self._panels["credit_note_accounting"] = _note_pf
+        self._panels["debit_note_accounting"] = _note_pf
+        self._panels["credit_note_item"] = _note_pf
+        self._panels["debit_note_item"] = _note_pf
         self._panels["note"] = _note_pf
 
         # Journal Entry panel
@@ -4534,7 +6049,7 @@ class TallySalesApp(ctk.CTk):
 
     def _build_voucher_tab(self, parent, mode="accounting"):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(5, weight=1)  # row 5 = preview container
+        parent.grid_rowconfigure(6, weight=1)  # row 6 = preview container
 
         # Row 0: Template download
         template_row = ctk.CTkFrame(parent, fg_color="transparent")
@@ -4654,9 +6169,85 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkLabel(vtype_row, text="Fetch voucher types from Tally",
                      font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=8)
 
-        # Row 4: Preview toggle + info label
+        # Row 4: Auto Round Off
+        roundoff_row = ctk.CTkFrame(parent, fg_color="transparent")
+        roundoff_row.grid(row=4, column=0, sticky="ew", padx=10, pady=(4, 0))
+
+        ro_enabled_var = ctk.BooleanVar(value=False)
+        self._roundoff_enabled_vars[mode] = ro_enabled_var
+        ro_ledger_var = ctk.StringVar(value="")
+        self._roundoff_ledger_vars[mode] = ro_ledger_var
+
+        ro_cb = ctk.CTkCheckBox(roundoff_row, text="Enable Auto Round Off",
+                                variable=ro_enabled_var, font=("Segoe UI", 12))
+        ro_cb.pack(side="left", padx=(0, 10))
+
+        ro_entry = ctk.CTkEntry(roundoff_row, textvariable=ro_ledger_var,
+                                placeholder_text="Search Round Off Ledger...",
+                                width=220, state="disabled",
+                                fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                                text_color=COLORS["text_primary"])
+        ro_entry.pack(side="left", padx=(0, 6))
+
+        ro_fetch_btn = ctk.CTkButton(roundoff_row, text="Fetch Ledgers", width=110,
+                                     fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                     text_color=COLORS["text_secondary"], state="disabled")
+        ro_fetch_btn.pack(side="left", padx=(0, 6))
+        self._roundoff_fetch_btns[mode] = ro_fetch_btn
+
+        ctk.CTkLabel(roundoff_row, text="Fractional amounts go to this ledger",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=4)
+
+        def _toggle_roundoff(_ev=ro_enabled_var, _e=ro_entry, _b=ro_fetch_btn, _v=ro_ledger_var):
+            if _ev.get():
+                _e.configure(state="normal")
+                _b.configure(state="normal")
+            else:
+                _e.configure(state="disabled")
+                _b.configure(state="disabled")
+                _v.set("")
+
+        ro_cb.configure(command=_toggle_roundoff)
+
+        def _do_fetch_roundoff(_m=mode, _e=ro_entry, _b=ro_fetch_btn, _v=ro_ledger_var):
+            try:
+                _url = self._get_tally_url()
+            except (ValueError, AttributeError):
+                messagebox.showerror("Settings", "Invalid Tally URL. Check host/port in Settings.")
+                return
+            _co = self._get_selected_company()
+            _b.configure(state="disabled", text="Fetching...")
+
+            def _worker():
+                result = _fetch_tally_ledgers(_url, timeout=15, company_name=_co)
+
+                def _done():
+                    _b.configure(state="normal", text="Fetch Ledgers")
+                    if result.get("success"):
+                        ledgers = result.get("ledgers") or []
+                        self._roundoff_all_ledgers[_m] = ledgers
+                        self._show_ledger_picker_popup(_e, _v, ledgers)
+                    else:
+                        messagebox.showwarning("Fetch Failed",
+                                               "Could not fetch ledgers from Tally.\nIs Tally running?")
+
+                self.after(0, _done)
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        ro_fetch_btn.configure(command=_do_fetch_roundoff)
+
+        def _entry_click(event, _m=mode, _e=ro_entry, _v=ro_ledger_var):
+            if ro_enabled_var.get():
+                ledgers = self._roundoff_all_ledgers.get(_m, [])
+                if ledgers:
+                    self._show_ledger_picker_popup(_e, _v, ledgers)
+
+        ro_entry.bind("<Button-1>", _entry_click)
+
+        # Row 5: Preview toggle + info label
         toggle_row = ctk.CTkFrame(parent, fg_color="transparent")
-        toggle_row.grid(row=4, column=0, sticky="ew", padx=10, pady=(8, 0))
+        toggle_row.grid(row=5, column=0, sticky="ew", padx=10, pady=(8, 0))
 
         excel_toggle_btn = ctk.CTkButton(
             toggle_row, text="📊 Excel Data", width=160, height=30,
@@ -4675,9 +6266,9 @@ class TallySalesApp(ctk.CTk):
         info_lbl.pack(side="left", padx=4)
         self._voucher_info_labels[mode] = info_lbl
 
-        # Row 5: Preview container — Excel treeview + XML text widget stacked
+        # Row 6: Preview container — Excel treeview + XML text widget stacked
         preview_container = ctk.CTkFrame(parent, fg_color="transparent")
-        preview_container.grid(row=5, column=0, sticky="nsew", padx=10, pady=(4, 4))
+        preview_container.grid(row=6, column=0, sticky="nsew", padx=10, pady=(4, 4))
         preview_container.grid_rowconfigure(0, weight=1)
         preview_container.grid_columnconfigure(0, weight=1)
 
@@ -4732,9 +6323,9 @@ class TallySalesApp(ctk.CTk):
         # Show Excel frame by default
         excel_tree_frame.tkraise()
 
-        # Row 6: Action buttons (smart Push: uses active preview mode)
+        # Row 7: Action buttons (smart Push: uses active preview mode)
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_frame.grid(row=6, column=0, sticky="ew", padx=10, pady=(4, 10))
+        btn_frame.grid(row=7, column=0, sticky="ew", padx=10, pady=(4, 10))
 
         save_btn = ctk.CTkButton(
             btn_frame, text="💾  Save XML File",
@@ -4755,6 +6346,72 @@ class TallySalesApp(ctk.CTk):
             font=("Segoe UI", 10), text_color=COLORS["text_muted"])
         hint_lbl.pack(side="left", padx=8)
 
+
+    def _show_ledger_picker_popup(self, anchor_entry, var, all_ledgers):
+        """Searchable popup for picking a ledger name."""
+        popup = tk.Toplevel(self)
+        popup.title("Select Round Off Ledger")
+        popup.geometry("360x340")
+        popup.resizable(False, False)
+        popup.transient(self)
+        popup.grab_set()
+        bg = self._resolve_theme_color("bg_card")
+        fg = self._resolve_theme_color("text_primary")
+        inp_bg = self._resolve_theme_color("bg_input")
+        popup.configure(bg=bg)
+
+        search_frame = tk.Frame(popup, bg=bg)
+        search_frame.pack(fill="x", padx=8, pady=8)
+        tk.Label(search_frame, text="Search:", bg=bg, fg=fg,
+                 font=("Segoe UI", 10)).pack(side="left")
+        search_var = tk.StringVar()
+        search_entry = tk.Entry(search_frame, textvariable=search_var,
+                                font=("Segoe UI", 10), bg=inp_bg, fg=fg,
+                                insertbackground=fg, relief="flat", bd=2)
+        search_entry.pack(side="left", padx=(6, 0), fill="x", expand=True)
+
+        list_frame = tk.Frame(popup, bg=bg)
+        list_frame.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side="right", fill="y")
+        listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set,
+                             font=("Segoe UI", 10), selectmode="single",
+                             bg=inp_bg, fg=fg, relief="flat", bd=0,
+                             selectbackground=self._resolve_theme_color("accent"),
+                             selectforeground="#FFFFFF")
+        listbox.pack(fill="both", expand=True)
+        scrollbar.config(command=listbox.yview)
+
+        def _filter(*_):
+            q = search_var.get().strip().lower()
+            listbox.delete(0, "end")
+            for name in all_ledgers:
+                if not q or q in name.lower():
+                    listbox.insert("end", name)
+
+        search_var.trace_add("write", _filter)
+        _filter()
+
+        def _select(*_):
+            sel = listbox.curselection()
+            if sel:
+                var.set(listbox.get(sel[0]))
+                popup.destroy()
+
+        btn_row = tk.Frame(popup, bg=bg)
+        btn_row.pack(fill="x", padx=8, pady=(0, 8))
+        tk.Button(btn_row, text="Select", command=_select, relief="flat",
+                  font=("Segoe UI", 10, "bold"),
+                  bg=self._resolve_theme_color("accent"), fg="#FFFFFF",
+                  activebackground=self._resolve_theme_color("accent_hover"),
+                  padx=12, pady=4).pack(side="left", padx=(0, 6))
+        tk.Button(btn_row, text="Cancel", command=popup.destroy, relief="flat",
+                  font=("Segoe UI", 10), bg=inp_bg, fg=fg,
+                  padx=12, pady=4).pack(side="left")
+
+        listbox.bind("<Double-Button-1>", _select)
+        listbox.bind("<Return>", _select)
+        search_entry.focus_set()
 
     def _set_voucher_loading_state(self, mode: str, is_loading: bool):
         self._voucher_load_running[mode] = is_loading
@@ -4794,6 +6451,8 @@ class TallySalesApp(ctk.CTk):
         for btn in self._voucher_xml_browse_buttons.values():
             btn.configure(state=state)
         for btn in self._voucher_type_fetch_buttons.values():
+            btn.configure(state=state)
+        for btn in self._roundoff_fetch_btns.values():
             btn.configure(state=state)
         if self.demo_btn is not None:
             self.demo_btn.configure(state=state)
@@ -4863,45 +6522,32 @@ class TallySalesApp(ctk.CTk):
                 "sheet_name": "Sheet1",
                 "headers": [
                     "Date",
-                    "VoucherNo",
                     "InvoiceNo",
+                    "VoucherNo",
                     "PartyLedger",
-                    "PartyName",
-                    "PartyMailingName",
-                    "PartyAddress1",
-                    "PartyAddress2",
-                    "PartyPincode",
-                    "PartyState",
                     "PlaceOfSupply",
-                    "PartyCountry",
-                    "GSTApplicable",
-                    "GSTRegistrationType",
                     "GSTIN/UIN",
                     "SalesLedger",
                     "TaxableValue",
                     "CGSTLedger",
-                    "CGSTRate",
+                    "CGST Amount",
                     "SGSTLedger",
-                    "SGSTRate",
+                    "SGST Amount",
                     "IGSTLedger",
-                    "IGSTRate",
+                    "IGST Amount",
                     "Narration",
                 ],
                 "sample_rows": [
-                    ["01/04/2024", "1", "INV-001", "ABC Traders", "ABC Traders", "ABC Traders",
-                     "123 Main Street", "City Centre", "400001", "Maharashtra", "Maharashtra", "India",
-                     "Applicable", "Regular", "27AABCU9603R1ZM", "Sales Account", 10000,
-                     "CGST", 9, "SGST", 9, "IGST", 0, "Being goods sold to ABC Traders"],
-                    ["02/04/2024", "2", "INV-002", "XYZ Enterprises", "XYZ Enterprises", "XYZ Enterprises",
-                     "456 Industrial Area", "", "110001", "Delhi", "Delhi", "India",
-                     "Applicable", "Regular", "07AAGFX1234A1Z5", "Sales Account", 20000,
-                     "CGST", 0, "SGST", 0, "IGST", 18, "Being goods sold to XYZ Enterprises"],
+                    ["20-04-2026", "SPL/25-26/024", "155", "Interactive Media Pvt Ltd", "Assam",
+                     "18AABCI8307G1ZM", "Lecture Income", 10000, "CGST", 0,
+                     "SGST", 0, "IGST Outward", 1800, "Testing"],
                 ],
             },
             "item": {
                 "sheet_name": "Sheet1",
                 "headers": [
                     "Date",
+                    "InvoiceNo",
                     "VoucherNo",
                     "GSTIN",
                     "PartyLedger",
@@ -4912,11 +6558,11 @@ class TallySalesApp(ctk.CTk):
                     "Rate",
                     "TaxableValue",
                     "CGSTLedger",
-                    "CGSTRate",
+                    "CGST Amount",
                     "SGSTLedger",
-                    "SGSTRate",
+                    "SGST Amount",
                     "IGSTLedger",
-                    "IGSTRate",
+                    "IGST Amount",
                     "Narration",
                 ],
                 "sample_rows": [],
@@ -4925,8 +6571,8 @@ class TallySalesApp(ctk.CTk):
                 "sheet_name": "Sheet1",
                 "headers": [
                     "Date",
-                    "VoucherNo",
                     "InvoiceNo",
+                    "VoucherNo",
                     "SupplierInvoiceNo",
                     "PartyLedger",
                     "PartyName",
@@ -4943,26 +6589,26 @@ class TallySalesApp(ctk.CTk):
                     "PurchaseLedger",
                     "TaxableValue",
                     "CGSTLedger",
-                    "CGSTRate",
+                    "CGST Amount",
                     "SGSTLedger",
-                    "SGSTRate",
+                    "SGST Amount",
                     "IGSTLedger",
-                    "IGSTRate",
+                    "IGST Amount",
                     "Narration",
                     "TDSLedger",
                     "TDSRate",
                     "TDSAmount",
                 ],
                 "sample_rows": [
-                    ["01/04/2024", "1", "SINV-001", "SINV-001", "PQR Suppliers", "PQR Suppliers", "PQR Suppliers",
+                    ["01/04/2024", "SINV-001", "1", "SINV-001", "PQR Suppliers", "PQR Suppliers", "PQR Suppliers",
                      "789 MIDC Road", "", "411001", "Maharashtra", "Maharashtra", "India",
                      "Applicable", "Regular", "27AAAPQ1234B1Z3", "Purchase Account", 10000,
-                     "CGST", 9, "SGST", 9, "IGST", 0, "Being goods purchased from PQR Suppliers",
+                     "CGST", 900, "SGST", 900, "IGST", 0, "Being goods purchased from PQR Suppliers",
                      "TDS Payable on Professional", 10, ""],
-                    ["02/04/2024", "2", "SINV-002", "SINV-002", "LMN Industries", "LMN Industries", "LMN Industries",
+                    ["02/04/2024", "SINV-002", "2", "SINV-002", "LMN Industries", "LMN Industries", "LMN Industries",
                      "321 Ring Road", "", "302001", "Rajasthan", "Maharashtra", "India",
                      "Applicable", "Regular", "08AAELM9876C1Z1", "Purchase Account", 20000,
-                     "CGST", 0, "SGST", 0, "IGST", 18, "Being goods purchased from LMN Industries",
+                     "CGST", 0, "SGST", 0, "IGST", 3600, "Being goods purchased from LMN Industries",
                      "", "", ""],
                 ],
             },
@@ -4970,8 +6616,21 @@ class TallySalesApp(ctk.CTk):
                 "sheet_name": "Sheet1",
                 "headers": [
                     "Date",
-                    "Invoice No",
+                    "InvoiceNo",
+                    "VoucherNo",
+                    "SupplierInvoiceNo",
                     "PartyLedger",
+                    "PartyName",
+                    "PartyMailingName",
+                    "PartyAddress1",
+                    "PartyAddress2",
+                    "PartyPincode",
+                    "PartyState",
+                    "PlaceOfSupply",
+                    "PartyCountry",
+                    "GSTApplicable",
+                    "GSTRegistrationType",
+                    "GSTIN/UIN",
                     "Purchase Ledger",
                     "Item Name",
                     "Unit",
@@ -4979,11 +6638,11 @@ class TallySalesApp(ctk.CTk):
                     "Rate",
                     "TaxableValue",
                     "CGSTLedger",
-                    "CGSTRate",
+                    "CGST Amount",
                     "SGSTLedger",
-                    "SGSTRate",
+                    "SGST Amount",
                     "IGSTLedger",
-                    "IGSTRate",
+                    "IGST Amount",
                     "Narration",
                 ],
                 "sample_rows": [],
@@ -5118,6 +6777,9 @@ class TallySalesApp(ctk.CTk):
 
         _default_vtype = "Sales" if mode in {"accounting", "item"} else "Purchase"
         voucher_type = (self._voucher_type_vars.get(mode) or ctk.StringVar(value=_default_vtype)).get() or _default_vtype
+        _ro_en = self._roundoff_enabled_vars.get(mode)
+        _ro_lv = self._roundoff_ledger_vars.get(mode)
+        round_off_ledger = (_ro_lv.get() or "").strip() if (_ro_en and _ro_en.get() and _ro_lv) else ""
         mode_to_file_name = {
             "accounting": "Tally_Sales_Accounting.xml",
             "item": "Tally_Sales_Item.xml",
@@ -5143,6 +6805,7 @@ class TallySalesApp(ctk.CTk):
                     start_voucher_number=voucher_start,
                     company_gst_registrations=company_gst_registrations,
                     voucher_type=voucher_type,
+                    round_off_ledger=round_off_ledger,
                 )
             if selected_mode == "item":
                 return generate_item_xml(
@@ -5154,6 +6817,7 @@ class TallySalesApp(ctk.CTk):
                     company_gst_registrations=company_gst_registrations,
                     legacy_invoice_context=legacy_item_invoice_context,
                     voucher_type=voucher_type,
+                    round_off_ledger=round_off_ledger,
                 )
             if selected_mode == "purchase_accounting":
                 return generate_purchase_accounting_xml(
@@ -5164,6 +6828,7 @@ class TallySalesApp(ctk.CTk):
                     start_voucher_number=voucher_start,
                     company_gst_registrations=company_gst_registrations,
                     voucher_type=voucher_type,
+                    round_off_ledger=round_off_ledger,
                 )
             if selected_mode == "purchase_item":
                 return generate_purchase_item_xml(
@@ -5174,12 +6839,24 @@ class TallySalesApp(ctk.CTk):
                     start_voucher_number=voucher_start,
                     company_gst_registrations=company_gst_registrations,
                     voucher_type=voucher_type,
+                    round_off_ledger=round_off_ledger,
                 )
             raise ValueError(f"Unsupported mode: {selected_mode}")
 
         try:
             if action == "save":
-                xml = build_voucher_xml(mode, date_mode, custom_tally_date, None, rows_to_use)
+                rows_for_save = list(rows_to_use)
+                if mode in {"accounting", "item"}:
+                    try:
+                        _save_url = self._get_tally_url()
+                        _save_state_map = _fetch_party_ledger_states(
+                            _save_url, company_name=company, timeout=8)
+                        if _save_state_map:
+                            rows_for_save = _inject_party_states_from_tally(
+                                rows_for_save, _save_state_map)
+                    except Exception:
+                        pass  # Tally not running — save as-is
+                xml = build_voucher_xml(mode, date_mode, custom_tally_date, None, rows_for_save)
                 out = filedialog.asksaveasfilename(defaultextension=".xml",
                         filetypes=[("XML","*.xml")],
                         initialfile=mode_to_file_name.get(mode, "Tally_Voucher.xml"))
@@ -5205,6 +6882,7 @@ class TallySalesApp(ctk.CTk):
                 self.status_var.set(f"Posting to Tally ({target_company}, {date_mode_label})...")
 
                 def worker():
+                    nonlocal rows_snapshot
                     result = {
                         "ok": False,
                         "target_company": target_company,
@@ -5242,6 +6920,26 @@ class TallySalesApp(ctk.CTk):
                             existing_ledger_names,
                         )
                         if auto_ledger_defs_to_create:
+                            # For party ledgers: ask the user how to create each one.
+                            # For tax/sales/purchase ledgers: auto-create silently.
+                            party_defs_to_ask = []
+                            non_party_defs = []
+                            for _ld in auto_ledger_defs_to_create:
+                                if _is_party_parent(str(_ld.get("Parent", "") or "")):
+                                    party_defs_to_ask.append(_ld)
+                                else:
+                                    non_party_defs.append(_ld)
+
+                            # Ask user for each missing party ledger
+                            asked_defs = []
+                            for _ld in party_defs_to_ask:
+                                self.after(0, lambda: self._push_message_var.set(
+                                    f"Waiting for user input: ledger '{_ld.get('Name', '')}' not found..."))
+                                enriched = _ask_create_party_ledger(self, _ld)
+                                asked_defs.append(enriched)
+
+                            auto_ledger_defs_to_create = non_party_defs + asked_defs
+
                             self.after(0, lambda: self._push_message_var.set("Creating required ledgers in Tally..."))
                             auto_ledger_xml = generate_ledger_xml(auto_ledger_defs_to_create, company)
                             auto_ledger_resp = push_to_tally(auto_ledger_xml, host, port_value)
@@ -5285,6 +6983,19 @@ class TallySalesApp(ctk.CTk):
                                 f"Posting to Tally ({target_company}, {date_mode_label}, {vno_label})..."
                             ),
                         )
+
+                        # For sales modes: fetch party ledger states from Tally so that
+                        # unregistered parties (no GSTIN, no State in Excel) get a valid
+                        # PlaceOfSupply — preventing "Uncertain" in GSTR-1.
+                        if mode in {"accounting", "item"}:
+                            self.after(0, lambda: self._push_message_var.set(
+                                "Fetching party states from Tally for unregistered parties..."))
+                            _party_state_map = _fetch_party_ledger_states(
+                                tally_url, company_name=company, timeout=15)
+                            if _party_state_map:
+                                rows_snapshot = _inject_party_states_from_tally(
+                                    rows_snapshot, _party_state_map)
+
                         self.after(0, lambda: self._push_message_var.set("Posting voucher data to Tally..."))
 
                         xml = build_voucher_xml(
@@ -5320,44 +7031,6 @@ class TallySalesApp(ctk.CTk):
                                 ),
                             }
                         else:
-                            if date_mode == "excel":
-                                self.after(0, lambda: self._push_message_var.set("Retrying with today date..."))
-                                retry_xml = build_voucher_xml(
-                                    mode,
-                                    "current",
-                                    "",
-                                    next_voucher,
-                                    rows_snapshot,
-                                    company_gst_registrations,
-                                )
-                                retry_resp = push_to_tally(retry_xml, host, port_value)
-                                retry_parsed = _parse_tally_response_details(retry_resp)
-                                self._append_debug_log(
-                                    mode,
-                                    target_company,
-                                    retry_xml,
-                                    retry_resp,
-                                    retry_parsed,
-                                    note=f"voucher_type={voucher_type}, auto_retry_today_date, {voucher_note}",
-                                )
-                                if retry_parsed.get("success"):
-                                    result = {
-                                        "ok": True,
-                                        "target_company": target_company,
-                                        "parsed": retry_parsed,
-                                        "message": (
-                                            "Initial push failed with Excel date; auto-retry with today date succeeded.\n\n"
-                                            f"Target Company: {target_company}\n"
-                                            f"Created: {retry_parsed.get('created', 0)}\n"
-                                            f"Altered: {retry_parsed.get('altered', 0)}\n"
-                                            f"Debug Log: {self.debug_log_path}"
-                                        ),
-                                    }
-                                else:
-                                    parsed = retry_parsed
-                                    effective_date_mode = "current"
-                                    effective_custom_tally_date = ""
-
                             if not result.get("ok"):
                                 missing_ledger_defs = _build_missing_ledger_defs(
                                     parsed.get("line_errors") or [],
@@ -5369,6 +7042,16 @@ class TallySalesApp(ctk.CTk):
                                     existing_ledger_names,
                                 )
                                 if missing_ledger_defs:
+                                    # Ask user for each missing party ledger before creating
+                                    final_missing_defs = []
+                                    for _mld in missing_ledger_defs:
+                                        if _is_party_parent(str(_mld.get("Parent", "") or "")):
+                                            self.after(0, lambda: self._push_message_var.set(
+                                                f"Waiting for user input: ledger '{_mld.get('Name', '')}' not found..."))
+                                            _mld = _ask_create_party_ledger(self, _mld)
+                                        final_missing_defs.append(_mld)
+                                    missing_ledger_defs = final_missing_defs
+
                                     self.after(0, lambda: self._push_message_var.set("Creating missing ledgers and retrying..."))
                                     missing_ledger_xml = generate_ledger_xml(missing_ledger_defs, company)
                                     missing_ledger_resp = push_to_tally(missing_ledger_xml, host, port_value)
@@ -5573,116 +7256,17 @@ class TallySalesApp(ctk.CTk):
 
         main = ctk.CTkFrame(parent, fg_color="transparent")
         main.pack(fill="both", expand=True, padx=10, pady=5)
-        main.grid_columnconfigure(0, weight=1, minsize=300)
+        main.grid_columnconfigure(0, weight=1, minsize=390)
         main.grid_columnconfigure(1, weight=2)
         main.grid_rowconfigure(0, weight=1)
 
-        # Left: Form
-        form = ctk.CTkScrollableFrame(
-            main,
-            fg_color=COLORS["bg_input"],
-            corner_radius=10,
-            width=360,
-            border_width=1,
-            border_color=COLORS["border"],
-        )
-        form.grid(row=0, column=0, sticky="nsew", padx=(0,10), pady=0)
-        form.grid_columnconfigure(0, weight=1)
+        # ── Shared state ──────────────────────────────────────────────────
+        self._ledger_list = []
+        self._ledger_gst_searcher = None   # lazy _GSTPortalSearcher
+        self._ledger_captcha_photo = None  # prevent GC
+        ledger_edit_index = None
 
-        fields = {}
-
-        ctk.CTkLabel(form, text="Ledger Name *", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
-        fields["led_name"] = ctk.CTkEntry(
-            form,
-            placeholder_text="e.g. ABC Traders",
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"],
-            text_color=COLORS["text_primary"],
-        )
-        fields["led_name"].pack(fill="x", padx=12, pady=(0,2))
-
-        ctk.CTkLabel(form, text="Parent Group *", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
-        fields["led_parent"] = ctk.CTkComboBox(
-            form,
-            values=LEDGER_PARENT_OPTIONS,
-            state="readonly",
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"],
-            button_color=COLORS["accent"],
-            button_hover_color=COLORS["accent_hover"],
-            text_color=COLORS["text_primary"],
-        )
-        fields["led_parent"].set(LEDGER_PARENT_OPTIONS[0])
-        fields["led_parent"].pack(fill="x", padx=12, pady=(0,2))
-
-        ctk.CTkLabel(form, text="GST Applicable", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
-        fields["led_gst_app"] = ctk.CTkComboBox(
-            form,
-            values=LEDGER_GST_APPLICABLE_OPTIONS,
-            state="readonly",
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"],
-            button_color=COLORS["accent"],
-            button_hover_color=COLORS["accent_hover"],
-            text_color=COLORS["text_primary"],
-        )
-        fields["led_gst_app"].set("Not Applicable")
-        fields["led_gst_app"].pack(fill="x", padx=12, pady=(0,2))
-
-        ctk.CTkLabel(form, text="GSTIN", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
-        fields["led_gstin"] = ctk.CTkEntry(
-            form,
-            placeholder_text="e.g. 07AAACR1718Q1ZZ",
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"],
-            text_color=COLORS["text_primary"],
-        )
-        fields["led_gstin"].pack(fill="x", padx=12, pady=(0,2))
-
-        ctk.CTkLabel(form, text="State", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
-        fields["led_state"] = ctk.CTkComboBox(
-            form,
-            values=LEDGER_STATE_OPTIONS,
-            state="readonly",
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"],
-            button_color=COLORS["accent"],
-            button_hover_color=COLORS["accent_hover"],
-            text_color=COLORS["text_primary"],
-        )
-        fields["led_state"].set("Not Applicable")
-        fields["led_state"].pack(fill="x", padx=12, pady=(0,2))
-
-        ctk.CTkLabel(form, text="Address Line 1", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
-        fields["led_addr1"] = ctk.CTkEntry(
-            form,
-            placeholder_text="e.g. Street / Building",
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"],
-            text_color=COLORS["text_primary"],
-        )
-        fields["led_addr1"].pack(fill="x", padx=12, pady=(0,2))
-
-        ctk.CTkLabel(form, text="Address Line 2", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
-        fields["led_addr2"] = ctk.CTkEntry(
-            form,
-            placeholder_text="e.g. Area / Locality",
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"],
-            text_color=COLORS["text_primary"],
-        )
-        fields["led_addr2"].pack(fill="x", padx=12, pady=(0,2))
-
-        ctk.CTkLabel(form, text="GST Rate %", font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
-        fields["led_gst_rate"] = ctk.CTkEntry(
-            form,
-            placeholder_text="e.g. 9",
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"],
-            text_color=COLORS["text_primary"],
-        )
-        fields["led_gst_rate"].pack(fill="x", padx=12, pady=(0,2))
-
+        # ── Helper ────────────────────────────────────────────────────────
         def _set_field(widget, value=""):
             text = str(value or "").strip()
             if isinstance(widget, ctk.CTkComboBox):
@@ -5698,62 +7282,146 @@ class TallySalesApp(ctk.CTk):
             if text:
                 widget.insert(0, text)
 
-        def _clear_ledger_form():
-            _set_field(fields["led_name"], "")
-            _set_field(fields["led_parent"], LEDGER_PARENT_OPTIONS[0])
-            _set_field(fields["led_gst_app"], "Not Applicable")
-            _set_field(fields["led_gstin"], "")
-            _set_field(fields["led_state"], "Not Applicable")
-            _set_field(fields["led_addr1"], "")
-            _set_field(fields["led_addr2"], "")
-            _set_field(fields["led_gst_rate"], "")
+        # ── RIGHT: Queue table + action buttons (built first so callbacks can ref it) ──
+        right = ctk.CTkFrame(main, fg_color="transparent")
+        right.grid(row=0, column=1, sticky="nsew")
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(0, weight=1)
 
-        self._ledger_list = []
-        ledger_edit_index = None
+        led_tree = ttk.Treeview(right, columns=("Name", "Parent", "GST", "GSTIN", "Rate"),
+                                 show="headings", height=8)
+        for col_name, col_w in (("Name", 160), ("Parent", 130), ("GST", 90), ("GSTIN", 150), ("Rate", 60)):
+            led_tree.heading(col_name, text=col_name)
+            led_tree.column(col_name, width=col_w)
+        led_tree.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
 
-        def add_ledger():
+        self._led_count_label = ctk.CTkLabel(right, text="0 ledger(s) queued",
+                                              font=("Segoe UI", 11), text_color=TEXT_MUTED)
+        self._led_count_label.grid(row=1, column=0, sticky="w")
+
+        def _enqueue(entry: dict):
+            """Add a ledger entry dict to list + tree."""
+            self._ledger_list.append(entry)
+            led_tree.insert("", "end", values=(
+                entry.get("Name", ""), entry.get("Parent", ""),
+                entry.get("GSTApplicable", ""), entry.get("GSTIN", ""),
+                entry.get("GSTRate", ""),
+            ))
+            self._led_count_label.configure(text=f"{len(self._ledger_list)} ledger(s) queued")
+
+        def _update_queue_row(idx: int, entry: dict):
+            """Update existing queue row at index idx."""
+            self._ledger_list[idx] = entry
+            item_ids = led_tree.get_children()
+            if idx < len(item_ids):
+                led_tree.item(item_ids[idx], values=(
+                    entry.get("Name", ""), entry.get("Parent", ""),
+                    entry.get("GSTApplicable", ""), entry.get("GSTIN", ""),
+                    entry.get("GSTRate", ""),
+                ))
+
+        # ── LEFT: CTkTabview — Manual | Fetch from GST ───────────────────
+        tab_view = ctk.CTkTabview(main, width=400, fg_color=COLORS["bg_card"],
+                                   segmented_button_selected_color=COLORS["accent"],
+                                   segmented_button_selected_hover_color=COLORS["accent_hover"])
+        tab_view.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=0)
+
+        tab_manual = tab_view.add("✏  Manual")
+        tab_fetch  = tab_view.add("🌐  Fetch from GST")
+
+        # ════════════════════════════════════════════════════════════════
+        #  MANUAL TAB
+        # ════════════════════════════════════════════════════════════════
+        form = ctk.CTkScrollableFrame(
+            tab_manual,
+            fg_color=COLORS["bg_input"],
+            corner_radius=8,
+            border_width=0,
+        )
+        form.pack(fill="both", expand=True)
+        form.grid_columnconfigure(0, weight=1)
+
+        m_fields = {}
+
+        def _mlabel(txt): ctk.CTkLabel(form, text=txt, font=("Segoe UI", 11),
+                                        text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+        def _mentry(key, ph=""):
+            m_fields[key] = ctk.CTkEntry(form, placeholder_text=ph,
+                                          fg_color=COLORS["bg_card"], border_color=COLORS["border"],
+                                          text_color=COLORS["text_primary"])
+            m_fields[key].pack(fill="x", padx=12, pady=(0,2))
+
+        def _mcombo(key, values, default=None):
+            m_fields[key] = ctk.CTkComboBox(form, values=values, state="readonly",
+                                              fg_color=COLORS["bg_card"], border_color=COLORS["border"],
+                                              button_color=COLORS["accent"],
+                                              button_hover_color=COLORS["accent_hover"],
+                                              text_color=COLORS["text_primary"])
+            m_fields[key].set(default or values[0])
+            m_fields[key].pack(fill="x", padx=12, pady=(0,2))
+
+        _mlabel("Ledger Name *");      _mentry("led_name",     "e.g. ABC Traders")
+        _mlabel("Parent Group *");     _mcombo("led_parent",   LEDGER_PARENT_OPTIONS, LEDGER_PARENT_OPTIONS[0])
+        _mlabel("GST Applicable");     _mcombo("led_gst_app",  LEDGER_GST_APPLICABLE_OPTIONS, "Not Applicable")
+        _mlabel("GSTIN");              _mentry("led_gstin",    "e.g. 07AAACR1718Q1ZZ")
+        _mlabel("PAN / IT No.");       _mentry("led_pan",      "Auto-filled from GSTIN")
+        _mlabel("State");              _mcombo("led_state",    LEDGER_STATE_OPTIONS, "Not Applicable")
+        _mlabel("Address Line 1");     _mentry("led_addr1",    "e.g. Street / Building")
+        _mlabel("Address Line 2");     _mentry("led_addr2",    "e.g. Area / Locality")
+        _mlabel("GST Rate %");         _mentry("led_gst_rate", "e.g. 9")
+
+        def _manual_gstin_changed(*_):
+            gstin_val = m_fields["led_gstin"].get().strip().upper()
+            pan_val = _pan_from_gstin(gstin_val)
+            if pan_val:
+                _set_field(m_fields["led_pan"], pan_val)
+
+        m_fields["led_gstin"].bind("<FocusOut>", _manual_gstin_changed)
+        m_fields["led_gstin"].bind("<KeyRelease>", _manual_gstin_changed)
+
+        def _clear_manual_form():
+            _set_field(m_fields["led_name"], "")
+            _set_field(m_fields["led_parent"], LEDGER_PARENT_OPTIONS[0])
+            _set_field(m_fields["led_gst_app"], "Not Applicable")
+            _set_field(m_fields["led_gstin"], "")
+            _set_field(m_fields["led_pan"], "")
+            _set_field(m_fields["led_state"], "Not Applicable")
+            _set_field(m_fields["led_addr1"], "")
+            _set_field(m_fields["led_addr2"], "")
+            _set_field(m_fields["led_gst_rate"], "")
+
+        def add_manual_ledger():
             nonlocal ledger_edit_index
-            name = fields["led_name"].get().strip()
-            parent_grp = fields["led_parent"].get().strip()
+            name      = m_fields["led_name"].get().strip()
+            parent_grp= m_fields["led_parent"].get().strip()
             if not name or not parent_grp:
-                messagebox.showwarning("Required","Ledger Name and Parent Group are required.")
+                messagebox.showwarning("Required", "Ledger Name and Parent Group are required.")
                 return
-
-            gst_app = fields["led_gst_app"].get().strip()
-            gstin = fields["led_gstin"].get().strip().upper()
-            state = _normalize_state_for_ledger(fields["led_state"].get().strip())
-            address1 = fields["led_addr1"].get().strip()
-            address2 = fields["led_addr2"].get().strip()
-            is_party_parent = _is_party_parent(parent_grp)
-
+            gst_app  = m_fields["led_gst_app"].get().strip()
+            gstin    = m_fields["led_gstin"].get().strip().upper()
+            pan_val  = m_fields["led_pan"].get().strip().upper() or _pan_from_gstin(gstin)
+            state    = _normalize_state_for_ledger(m_fields["led_state"].get().strip())
             entry = {
                 "Name": name, "Parent": parent_grp,
                 "GSTApplicable": gst_app,
                 "GSTIN": gstin,
+                "PAN": pan_val,
                 "StateOfSupply": state,
-                "Address1": address1,
-                "Address2": address2,
+                "Address1": m_fields["led_addr1"].get().strip(),
+                "Address2": m_fields["led_addr2"].get().strip(),
                 "MailingName": name,
-                "Country": "India",
-                "Pincode": "",
-                "Billwise": "Yes" if is_party_parent else "No",
-                "GSTRate": fields["led_gst_rate"].get().strip(),
+                "Country": "India", "Pincode": "",
+                "Billwise": "Yes" if _is_party_parent(parent_grp) else "No",
+                "GSTRate": m_fields["led_gst_rate"].get().strip(),
             }
-            row_values = (name, parent_grp, entry["GSTApplicable"], entry["GSTIN"], entry["GSTRate"])
-
             if ledger_edit_index is None:
-                self._ledger_list.append(entry)
-                led_tree.insert("", "end", values=row_values)
+                _enqueue(entry)
             else:
-                self._ledger_list[ledger_edit_index] = entry
-                item_ids = led_tree.get_children()
-                if ledger_edit_index < len(item_ids):
-                    led_tree.item(item_ids[ledger_edit_index], values=row_values)
+                _update_queue_row(ledger_edit_index, entry)
                 ledger_edit_index = None
                 add_ledger_btn.configure(text="➕  Add to Queue")
-
-            _clear_ledger_form()
-            self._led_count_label.configure(text=f"{len(self._ledger_list)} ledger(s) queued")
+                gst_add_btn.configure(text="✅  Add to Queue", fg_color=ACCENT, hover_color=ACCENT_HOVER)
+            _clear_manual_form()
 
         def edit_selected_ledger():
             nonlocal ledger_edit_index
@@ -5761,62 +7429,346 @@ class TallySalesApp(ctk.CTk):
             if not selected:
                 messagebox.showwarning("Select Row", "Select a queued ledger row to edit.")
                 return
-
-            item_id = selected[0]
-            idx = led_tree.index(item_id)
+            idx = led_tree.index(selected[0])
             if idx >= len(self._ledger_list):
-                messagebox.showwarning("Selection Error", "Selected row is out of sync with queue.")
                 return
-
             entry = self._ledger_list[idx]
-            _set_field(fields["led_name"], entry.get("Name", ""))
-            _set_field(fields["led_parent"], entry.get("Parent", ""))
-            _set_field(fields["led_gst_app"], entry.get("GSTApplicable", ""))
-            _set_field(fields["led_gstin"], entry.get("GSTIN", ""))
-            _set_field(fields["led_state"], entry.get("StateOfSupply", "Not Applicable") or "Not Applicable")
-            _set_field(fields["led_addr1"], entry.get("Address1", ""))
-            _set_field(fields["led_addr2"], entry.get("Address2", ""))
-            _set_field(fields["led_gst_rate"], entry.get("GSTRate", ""))
-
+            _set_field(m_fields["led_name"],     entry.get("Name", ""))
+            _set_field(m_fields["led_parent"],   entry.get("Parent", ""))
+            _set_field(m_fields["led_gst_app"],  entry.get("GSTApplicable", ""))
+            _set_field(m_fields["led_gstin"],    entry.get("GSTIN", ""))
+            gstin_for_pan = entry.get("GSTIN", "")
+            _set_field(m_fields["led_pan"],      entry.get("PAN", "") or _pan_from_gstin(gstin_for_pan))
+            _set_field(m_fields["led_state"],    entry.get("StateOfSupply", "Not Applicable") or "Not Applicable")
+            _set_field(m_fields["led_addr1"],    entry.get("Address1", ""))
+            _set_field(m_fields["led_addr2"],    entry.get("Address2", ""))
+            _set_field(m_fields["led_gst_rate"], entry.get("GSTRate", ""))
             ledger_edit_index = idx
             add_ledger_btn.configure(text="💾  Update Selected")
+            # Reset Fetch tab button so it doesn't stay in Update mode
+            gst_add_btn.configure(text="✅  Add to Queue", fg_color=ACCENT, hover_color=ACCENT_HOVER)
+            tab_view.set("✏  Manual")
 
-        add_ledger_btn = ctk.CTkButton(
-            form,
-            text="➕  Add to Queue",
-            fg_color=ACCENT,
-            hover_color=ACCENT_HOVER,
-            command=add_ledger,
-        )
-        add_ledger_btn.pack(fill="x", padx=12, pady=(10,6))
-        ctk.CTkButton(
-            form,
-            text="✏️  Edit Selected",
-            fg_color="#94A3B8",
-            hover_color="#64748B",
-            text_color="#FFFFFF",
-            command=edit_selected_ledger,
-        ).pack(fill="x", padx=12, pady=(0,12))
+        add_ledger_btn = ctk.CTkButton(form, text="➕  Add to Queue",
+                                        fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                        command=add_manual_ledger)
+        add_ledger_btn.pack(fill="x", padx=12, pady=(10, 4))
+        ctk.CTkButton(form, text="✏️  Edit Selected", fg_color="#94A3B8", hover_color="#64748B",
+                       text_color="#FFFFFF", command=edit_selected_ledger).pack(fill="x", padx=12, pady=(0, 12))
 
-        # Right: Queue table + actions
-        right = ctk.CTkFrame(main, fg_color="transparent")
-        right.grid(row=0, column=1, sticky="nsew")
-        right.grid_columnconfigure(0, weight=1)
-        right.grid_rowconfigure(0, weight=1)
+        # ════════════════════════════════════════════════════════════════
+        #  FETCH FROM GST TAB
+        # ════════════════════════════════════════════════════════════════
+        gst_frame = ctk.CTkScrollableFrame(tab_fetch, fg_color=COLORS["bg_input"],
+                                            corner_radius=8, border_width=0)
+        gst_frame.pack(fill="both", expand=True)
+        gst_frame.grid_columnconfigure(0, weight=1)
 
-        led_tree = ttk.Treeview(right, columns=("Name","Parent","GST","GSTIN","Rate"),
-                                 show="headings", height=8)
-        for c in ("Name","Parent","GST","GSTIN","Rate"):
-            led_tree.heading(c, text=c)
-            led_tree.column(c, width=120)
-        led_tree.grid(row=0, column=0, sticky="nsew", pady=(0,8))
+        g = {}  # widgets for fetch tab
 
-        self._led_count_label = ctk.CTkLabel(right, text="0 ledger(s) queued",
-                                              font=("Segoe UI", 11), text_color=TEXT_MUTED)
-        self._led_count_label.grid(row=1, column=0, sticky="w")
+        def _glabel(txt, bold=False):
+            ctk.CTkLabel(gst_frame, text=txt,
+                          font=("Segoe UI", 11, "bold" if bold else "normal"),
+                          text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
 
+        def _gentry(key, ph=""):
+            g[key] = ctk.CTkEntry(gst_frame, placeholder_text=ph,
+                                   fg_color=COLORS["bg_card"], border_color=COLORS["border"],
+                                   text_color=COLORS["text_primary"])
+            g[key].pack(fill="x", padx=12, pady=(0,2))
+
+        def _gcombo(key, values, default=None):
+            g[key] = ctk.CTkComboBox(gst_frame, values=values, state="readonly",
+                                      fg_color=COLORS["bg_card"], border_color=COLORS["border"],
+                                      button_color=COLORS["accent"],
+                                      button_hover_color=COLORS["accent_hover"],
+                                      text_color=COLORS["text_primary"])
+            g[key].set(default or values[0])
+            g[key].pack(fill="x", padx=12, pady=(0,2))
+
+        # ── Step 1: GSTIN + captcha ──
+        _glabel("Step 1 — Enter GSTIN", bold=True)
+        gstin_row = ctk.CTkFrame(gst_frame, fg_color="transparent")
+        gstin_row.pack(fill="x", padx=12, pady=(4, 2))
+        g["gstin"] = ctk.CTkEntry(gstin_row, placeholder_text="e.g. 07AAACB2894G1ZP",
+                                   fg_color=COLORS["bg_card"], border_color=COLORS["border"],
+                                   text_color=COLORS["text_primary"])
+        g["gstin"].pack(side="left", fill="x", expand=True, padx=(0,8))
+        g["load_cap_btn"] = ctk.CTkButton(gstin_row, text="Load Captcha", width=120,
+                                           fg_color=COLORS["accent"],
+                                           hover_color=COLORS["accent_hover"],
+                                           command=lambda: _gst_load_captcha())
+        g["load_cap_btn"].pack(side="left")
+
+        def _gst_gstin_changed(*_):
+            gstin_val = g["gstin"].get().strip().upper()
+            pan_val = _pan_from_gstin(gstin_val)
+            if pan_val and "g_pan" in g:
+                _set_field(g["g_pan"], pan_val)
+
+        g["gstin"].bind("<FocusOut>", _gst_gstin_changed)
+        g["gstin"].bind("<KeyRelease>", _gst_gstin_changed)
+
+        _glabel("Step 2 — Enter Captcha", bold=True)
+        g["captcha_img"] = ctk.CTkLabel(gst_frame, text="— captcha not loaded —",
+                                         width=300, height=70,
+                                         fg_color=("gray90","gray25"), corner_radius=6)
+        g["captcha_img"].pack(padx=12, pady=(4,4))
+
+        cap_row = ctk.CTkFrame(gst_frame, fg_color="transparent")
+        cap_row.pack(fill="x", padx=12, pady=(0,4))
+        g["captcha_text"] = ctk.CTkEntry(cap_row, placeholder_text="Type captcha here",
+                                          fg_color=COLORS["bg_card"], border_color=COLORS["border"],
+                                          text_color=COLORS["text_primary"])
+        g["captcha_text"].pack(side="left", fill="x", expand=True, padx=(0,8))
+        g["fetch_btn"] = ctk.CTkButton(cap_row, text="Fetch Details", width=120,
+                                        fg_color=COLORS["success"],
+                                        hover_color="#047857",
+                                        command=lambda: _gst_fetch())
+        g["fetch_btn"].pack(side="left")
+
+        g["status"] = ctk.CTkLabel(gst_frame, text="Enter GSTIN and click Load Captcha.",
+                                    anchor="w", font=("Segoe UI", 10),
+                                    text_color=("gray45","gray65"), wraplength=340)
+        g["status"].pack(fill="x", padx=12, pady=(0,6))
+
+        # Separator
+        ctk.CTkFrame(gst_frame, height=1, fg_color=COLORS["border"]).pack(fill="x", padx=12, pady=(2,6))
+
+        # ── Step 3: Fetched / editable fields ──
+        _glabel("Step 3 — Review & Edit Details", bold=True)
+
+        _glabel("Ledger Name *");         _gentry("g_name",     "Will be set from Trade Name")
+        _glabel("Mailing Name");          _gentry("g_mailing",  "Legal / Trade Name from portal")
+        _glabel("PAN / IT No.");          _gentry("g_pan",      "Auto-filled from GSTIN")
+        _glabel("Parent Group *");        _gcombo("g_parent",   LEDGER_PARENT_OPTIONS, "Sundry Debtors")
+        _glabel("GST Registration Type"); _gcombo("g_reg_type",
+            ["Regular", "Unregistered/Consumer", "Composition", "Input Service Distributor",
+             "SEZ", "Overseas", "Not Applicable"], "Regular")
+        _glabel("GST Applicable");        _gcombo("g_gst_app",  LEDGER_GST_APPLICABLE_OPTIONS, "Applicable")
+        _glabel("State");                 _gcombo("g_state",    LEDGER_STATE_OPTIONS, "Not Applicable")
+        _glabel("Address Line 1");        _gentry("g_addr1",    "Street / Building")
+        _glabel("Address Line 2");        _gentry("g_addr2",    "Area / Locality / City")
+        _glabel("Pincode");               _gentry("g_pincode",  "e.g. 110020")
+
+        def _gst_clear_details():
+            _set_field(g["g_name"], "")
+            _set_field(g["g_mailing"], "")
+            _set_field(g["g_pan"], "")
+            _set_field(g["g_parent"], "Sundry Debtors")
+            _set_field(g["g_reg_type"], "Regular")
+            _set_field(g["g_gst_app"], "Applicable")
+            _set_field(g["g_state"], "Not Applicable")
+            _set_field(g["g_addr1"], "")
+            _set_field(g["g_addr2"], "")
+            _set_field(g["g_pincode"], "")
+
+        def _gst_populate(led_def: dict):
+            _set_field(g["g_name"],     led_def.get("Name", ""))
+            _set_field(g["g_mailing"],  led_def.get("MailingName", "") or led_def.get("Name", ""))
+            pan_v = led_def.get("PAN", "") or _pan_from_gstin(led_def.get("GSTIN", ""))
+            _set_field(g["g_pan"],      pan_v)
+            # Keep current parent selection — user should choose
+            reg = led_def.get("GSTRegistrationType", "Regular") or "Regular"
+            _set_field(g["g_reg_type"], reg)
+            gst_app = led_def.get("GSTApplicable", "")
+            _set_field(g["g_gst_app"],  gst_app if gst_app else "Applicable")
+            _set_field(g["g_state"],    led_def.get("StateOfSupply", "") or "Not Applicable")
+            _set_field(g["g_addr1"],    led_def.get("Address1", ""))
+            _set_field(g["g_addr2"],    led_def.get("Address2", ""))
+            _set_field(g["g_pincode"],  led_def.get("Pincode", ""))
+
+        def _gst_load_captcha():
+            if not _SELENIUM_AVAILABLE:
+                g["status"].configure(text="Selenium not installed — cannot load captcha.")
+                return
+            gstin = g["gstin"].get().strip().upper()
+            if not gstin:
+                g["status"].configure(text="Enter GSTIN first.")
+                return
+            if self._ledger_gst_searcher is None:
+                self._ledger_gst_searcher = _GSTPortalSearcher()
+            g["load_cap_btn"].configure(state="disabled", text="Loading…")
+            g["status"].configure(text="Opening browser and loading captcha…")
+
+            def _bg():
+                try:
+                    png = self._ledger_gst_searcher.load_captcha(gstin)
+                    self.after(0, _show_cap, png)
+                    self.after(0, lambda: g["status"].configure(
+                        text="Captcha loaded. Enter the text and click Fetch Details."))
+                except Exception as exc:
+                    err = str(exc)
+                    self.after(0, lambda e=err: g["status"].configure(text=f"Error loading captcha: {e}"))
+                finally:
+                    self.after(0, lambda: g["load_cap_btn"].configure(state="normal", text="Load Captcha"))
+
+            threading.Thread(target=_bg, daemon=True).start()
+
+        def _show_cap(png_bytes: bytes):
+            if not _PIL_AVAILABLE or not png_bytes:
+                g["captcha_img"].configure(text="Captcha loaded (install Pillow to render image)")
+                return
+            try:
+                img = Image.open(io.BytesIO(png_bytes))
+                img = img.resize((img.width * 2, img.height * 2),
+                                  Image.LANCZOS if hasattr(Image, "LANCZOS") else Image.Resampling.LANCZOS)
+                self._ledger_captcha_photo = ImageTk.PhotoImage(img)
+                g["captcha_img"].configure(image=self._ledger_captcha_photo, text="")
+            except Exception:
+                g["captcha_img"].configure(text="Captcha image render error")
+
+        def _gst_fetch():
+            if not _SELENIUM_AVAILABLE:
+                g["status"].configure(text="Selenium not installed — cannot fetch.")
+                return
+            gstin       = g["gstin"].get().strip().upper()
+            captcha_txt = g["captcha_text"].get().strip()
+            if not gstin:
+                g["status"].configure(text="GSTIN is required.")
+                return
+            if not captcha_txt:
+                g["status"].configure(text="Enter the captcha text first.")
+                return
+            if self._ledger_gst_searcher is None:
+                self._ledger_gst_searcher = _GSTPortalSearcher()
+            g["fetch_btn"].configure(state="disabled", text="Fetching…")
+            g["status"].configure(text="Fetching details from GST portal…")
+
+            def _bg():
+                try:
+                    data = self._ledger_gst_searcher.fetch(gstin, captcha_txt)
+                    # use Trade/Legal name as default ledger name
+                    details   = data.get("details") or {}
+                    kd        = details.get("key_details") or {}
+                    trade_nm  = str(kd.get("Trade Name") or "").strip()
+                    legal_nm  = str(kd.get("Legal Name of Business") or "").strip()
+                    led_name  = trade_nm or legal_nm or gstin
+                    led_def   = _parse_portal_data_to_ledger_def(data, led_name, "Sundry Debtors")
+                    self.after(0, _gst_populate, led_def)
+                    ok_msg = f"✅ Fetched: {led_name}. Review details and click Add to Queue."
+                    self.after(0, lambda m=ok_msg: g["status"].configure(text=m))
+                except Exception as exc:
+                    err = str(exc)
+                    self.after(0, lambda e=err: g["status"].configure(
+                        text=f"Fetch failed: {e}. Try reloading captcha."))
+                finally:
+                    self.after(0, lambda: g["fetch_btn"].configure(state="normal", text="Fetch Details"))
+
+            threading.Thread(target=_bg, daemon=True).start()
+
+        def _gst_build_entry() -> dict:
+            """Build ledger entry dict from the Fetch tab fields."""
+            name       = g["g_name"].get().strip()
+            parent_grp = g["g_parent"].get().strip()
+            gstin_val  = g["gstin"].get().strip().upper()
+            pan_val    = g["g_pan"].get().strip().upper() or _pan_from_gstin(gstin_val)
+            state_val  = _normalize_state_for_ledger(g["g_state"].get().strip())
+            return {
+                "Name":                name,
+                "Parent":              parent_grp,
+                "MailingName":         g["g_mailing"].get().strip() or name,
+                "GSTIN":               gstin_val,
+                "PAN":                 pan_val,
+                "GSTApplicable":       g["g_gst_app"].get().strip(),
+                "GSTRegistrationType": g["g_reg_type"].get().strip(),
+                "StateOfSupply":       state_val,
+                "Address1":            g["g_addr1"].get().strip(),
+                "Address2":            g["g_addr2"].get().strip(),
+                "Pincode":             g["g_pincode"].get().strip(),
+                "Country":             "India",
+                "Billwise":            "Yes" if _is_party_parent(parent_grp) else "No",
+                "TypeOfTaxation":      "",
+                "GSTRate":             "",
+            }
+
+        def _gst_reset_form_state():
+            """Clear all fetch-tab fields and reset to Add mode."""
+            nonlocal ledger_edit_index
+            _gst_clear_details()
+            _set_field(g["gstin"], "")
+            _set_field(g["captcha_text"], "")
+            g["captcha_img"].configure(image="", text="— captcha not loaded —")
+            self._ledger_captcha_photo = None
+            ledger_edit_index = None
+            gst_add_btn.configure(text="✅  Add to Queue", fg_color=ACCENT, hover_color=ACCENT_HOVER)
+            # Quit searcher; a fresh one is created on the next Load Captcha click
+            if self._ledger_gst_searcher:
+                self._ledger_gst_searcher.quit()
+                self._ledger_gst_searcher = None
+
+        def _gst_add_to_queue():
+            nonlocal ledger_edit_index
+            name       = g["g_name"].get().strip()
+            parent_grp = g["g_parent"].get().strip()
+            if not name or not parent_grp:
+                messagebox.showwarning("Required", "Ledger Name and Parent Group are required.")
+                return
+            entry = _gst_build_entry()
+            if ledger_edit_index is None:
+                _enqueue(entry)
+                g["status"].configure(text="Added to queue. You can fetch another GSTIN.")
+            else:
+                _update_queue_row(ledger_edit_index, entry)
+                g["status"].configure(text=f"Updated row {ledger_edit_index + 1}. You can fetch another GSTIN.")
+            _gst_reset_form_state()
+
+        def _gst_edit_selected():
+            """Load a selected queue row into the Fetch tab for editing."""
+            nonlocal ledger_edit_index
+            selected = led_tree.selection()
+            if not selected:
+                messagebox.showwarning("Select Row", "Select a queued ledger row to edit.")
+                return
+            idx = led_tree.index(selected[0])
+            if idx >= len(self._ledger_list):
+                return
+            e = self._ledger_list[idx]
+            # Populate GSTIN (Step 1 field)
+            gstin_e = e.get("GSTIN", "")
+            _set_field(g["gstin"], gstin_e)
+            # Populate Step 3 editable fields
+            _set_field(g["g_name"],     e.get("Name", ""))
+            _set_field(g["g_mailing"],  e.get("MailingName", "") or e.get("Name", ""))
+            _set_field(g["g_pan"],      e.get("PAN", "") or _pan_from_gstin(gstin_e))
+            _set_field(g["g_parent"],   e.get("Parent", "Sundry Debtors"))
+            _set_field(g["g_reg_type"], e.get("GSTRegistrationType", "") or "Regular")
+            _set_field(g["g_gst_app"],  e.get("GSTApplicable", "") or "Applicable")
+            _set_field(g["g_state"],    e.get("StateOfSupply", "") or "Not Applicable")
+            _set_field(g["g_addr1"],    e.get("Address1", ""))
+            _set_field(g["g_addr2"],    e.get("Address2", ""))
+            _set_field(g["g_pincode"],  e.get("Pincode", ""))
+            # Clear captcha since it's a manual edit (no new fetch needed)
+            g["captcha_img"].configure(image="", text="— not needed for edit —")
+            g["status"].configure(text=f"Editing row {idx + 1}: \"{e.get('Name', '')}\". Edit fields and click Update.")
+            ledger_edit_index = idx
+            gst_add_btn.configure(text="💾  Update Selected",
+                                   fg_color=COLORS["warning"], hover_color="#B45309")
+            # Switch to fetch tab so user sees the fields
+            tab_view.set("🌐  Fetch from GST")
+
+        # Buttons at bottom of fetch frame
+        gst_add_btn = ctk.CTkButton(gst_frame, text="✅  Add to Queue",
+                                     fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                     command=_gst_add_to_queue)
+        gst_add_btn.pack(fill="x", padx=12, pady=(12, 4))
+
+        btn2_row = ctk.CTkFrame(gst_frame, fg_color="transparent")
+        btn2_row.pack(fill="x", padx=12, pady=(0, 12))
+        btn2_row.grid_columnconfigure(0, weight=1)
+        btn2_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkButton(btn2_row, text="✏️  Edit Selected",
+                       fg_color=("#94A3B8","#475569"), hover_color=("#64748B","#334155"),
+                       text_color="#FFFFFF", command=_gst_edit_selected
+                       ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ctk.CTkButton(btn2_row, text="🔄  Clear Fields",
+                       fg_color=("gray65","gray35"), hover_color=("gray55","gray45"),
+                       command=_gst_reset_form_state
+                       ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+        # ── RIGHT: Queue action buttons ───────────────────────────────────
         btn_row = ctk.CTkFrame(right, fg_color="transparent")
-        btn_row.grid(row=2, column=0, sticky="ew", pady=(5,0))
+        btn_row.grid(row=2, column=0, sticky="ew", pady=(5, 0))
         btn_row.grid_columnconfigure(0, weight=1)
         btn_row.grid_columnconfigure(1, weight=1)
 
@@ -5827,7 +7779,8 @@ class TallySalesApp(ctk.CTk):
             self._led_count_label.configure(text="0 ledger(s) queued")
             ledger_edit_index = None
             add_ledger_btn.configure(text="➕  Add to Queue")
-            _clear_ledger_form()
+            gst_add_btn.configure(text="✅  Add to Queue", fg_color=ACCENT, hover_color=ACCENT_HOVER)
+            _clear_manual_form()
 
         def export_ledgers(action):
             company = self._get_selected_company()
@@ -6266,15 +8219,21 @@ class TallySalesApp(ctk.CTk):
         """Raise the panel matching the dropdown selection."""
         key = self._panel_option_to_key.get(selected_label, "accounting")
         # Update note type var when a note option is selected
-        if key == "credit_note":
-            self._note_type_var.set("Credit Note")
+        if key in {"credit_note", "credit_note_accounting", "credit_note_item"}:
+            is_item = (key == "credit_note_item")
+            self._note_entry_mode = "item" if is_item else "accounting"
+            self._note_type_var.set("Credit Note (Item)" if is_item else "Credit Note (Accounting)")
             if hasattr(self, "_note_type_display_label"):
-                self._note_type_display_label.configure(text="Mode: Credit Note 📝",
+                suffix = "Item" if is_item else "Accounting"
+                self._note_type_display_label.configure(text=f"Mode: Credit Note ({suffix}) 📝",
                                                          text_color=COLORS["success"])
-        elif key == "debit_note":
-            self._note_type_var.set("Debit Note")
+        elif key in {"debit_note", "debit_note_accounting", "debit_note_item"}:
+            is_item = (key == "debit_note_item")
+            self._note_entry_mode = "item" if is_item else "accounting"
+            self._note_type_var.set("Debit Note (Item)" if is_item else "Debit Note (Accounting)")
             if hasattr(self, "_note_type_display_label"):
-                self._note_type_display_label.configure(text="Mode: Debit Note 📒",
+                suffix = "Item" if is_item else "Accounting"
+                self._note_type_display_label.configure(text=f"Mode: Debit Note ({suffix}) 📒",
                                                          text_color=COLORS["warning"])
         elif key == "journal":
             pass  # no special state to set
@@ -6496,6 +8455,7 @@ class TallySalesApp(ctk.CTk):
             return
 
         note_type = self._note_type_var.get() or "Credit Note"
+        note_entry_mode = str(getattr(self, "_note_entry_mode", "accounting") or "accounting").strip().lower()
 
         # Determine rows based on active tab
         if hasattr(self, '_note_source_tabs') and self._note_source_tabs is not None:
@@ -6533,6 +8493,11 @@ class TallySalesApp(ctk.CTk):
                 except Exception:
                     pass
 
+            _note_ro_ledger = (
+                self._note_roundoff_ledger_var.get().strip()
+                if self._note_roundoff_enabled_var.get()
+                else ""
+            )
             xml_payload, voucher_count = generate_note_xml(
                 rows,
                 company=company,
@@ -6540,6 +8505,8 @@ class TallySalesApp(ctk.CTk):
                 custom_tally_date=custom_tally_date,
                 voucher_type=note_type,
                 company_gst_registrations=_cmp_gst_regs,
+                entry_mode=note_entry_mode,
+                round_off_ledger=_note_ro_ledger,
             )
             if voucher_count <= 0:
                 messagebox.showwarning("No Vouchers", "No valid rows (TaxableValue must be > 0).")
@@ -6562,14 +8529,67 @@ class TallySalesApp(ctk.CTk):
 
             host = (self.tally_host_var.get() or "localhost").strip()
             port = int((self.tally_port_var.get() or "9000").strip())
+            tally_url = self._get_tally_url()
+            is_debit = (_normalize_note_type(note_type) == "Debit Note")
+            note_rows_snap = list(rows)
 
             self._set_push_loading_state(True, f"Pushing {voucher_count} {note_type} voucher(s)...")
             self.status_var.set("Pushing to Tally...")
 
             def worker():
                 try:
+                    # Pre-creation: check & create missing party ledgers
+                    self.after(0, lambda: self._push_message_var.set("Checking existing ledgers in Tally..."))
+                    _el_result = _fetch_existing_ledger_names(tally_url, company_name=company, timeout=15)
+                    existing_note_ledgers = set(_el_result.get("ledgers") or set()) if _el_result.get("success") else set()
+
+                    auto_note_defs = _collect_auto_note_ledgers(note_rows_snap, is_debit_note=is_debit)
+                    auto_note_to_create = _filter_out_existing_ledgers(auto_note_defs, existing_note_ledgers)
+                    if auto_note_to_create:
+                        party_defs_n = [d for d in auto_note_to_create if _is_party_parent(str(d.get("Parent", "")))]
+                        non_party_n  = [d for d in auto_note_to_create if not _is_party_parent(str(d.get("Parent", "")))]
+                        asked_n = []
+                        for _ld in party_defs_n:
+                            self.after(0, lambda: self._push_message_var.set("Waiting for user input on missing ledger..."))
+                            asked_n.append(_ask_create_party_ledger(self, _ld))
+                        auto_note_to_create = non_party_n + asked_n
+                        self.after(0, lambda: self._push_message_var.set("Creating required ledgers in Tally..."))
+                        push_to_tally(generate_ledger_xml(auto_note_to_create, company), host=host, port=port)
+                        existing_note_ledgers.update(
+                            str(e.get("Name", "")).strip() for e in auto_note_to_create
+                            if str(e.get("Name", "")).strip()
+                        )
+
+                    # Push note XML
+                    self.after(0, lambda: self._push_message_var.set(f"Pushing {note_type} vouchers..."))
                     resp = push_to_tally(xml_payload, host=host, port=port)
                     parsed = _parse_tally_response_details(resp)
+
+                    # On failure: auto-create missing ledgers from line errors and retry
+                    if not parsed.get("success"):
+                        line_errs = parsed.get("line_errors", [])
+                        if line_errs:
+                            miss_mode = "purchase_accounting" if is_debit else "accounting"
+                            miss_defs = _build_missing_ledger_defs(line_errs, note_rows_snap, miss_mode)
+                            miss_defs = _filter_out_existing_ledgers(miss_defs, existing_note_ledgers)
+                            if miss_defs:
+                                final_miss = []
+                                for _mld in miss_defs:
+                                    if _is_party_parent(str(_mld.get("Parent", ""))):
+                                        self.after(0, lambda: self._push_message_var.set("Waiting for user input on missing ledger..."))
+                                        _mld = _ask_create_party_ledger(self, _mld)
+                                    final_miss.append(_mld)
+                                self.after(0, lambda: self._push_message_var.set("Creating missing ledgers and retrying..."))
+                                push_to_tally(generate_ledger_xml(final_miss, company), host=host, port=port)
+                                existing_note_ledgers.update(
+                                    str(e.get("Name", "")).strip() for e in final_miss
+                                    if str(e.get("Name", "")).strip()
+                                )
+                                retry_resp = push_to_tally(xml_payload, host=host, port=port)
+                                retry_parsed = _parse_tally_response_details(retry_resp)
+                                if retry_parsed.get("success"):
+                                    parsed = retry_parsed
+
                     result = {"ok": True, "parsed": parsed}
                 except Exception as exc:
                     result = {"ok": False, "error": str(exc)}
@@ -6604,9 +8624,9 @@ class TallySalesApp(ctk.CTk):
     # ─── NOTE PANEL BUILDER ───────────────────────────────────────────────────
 
     NOTE_TEMPLATE_HEADERS = [
-        "Date", "VoucherNo", "GSTIN", "PartyLedger", "Particular",
-        "TaxableValue", "CGSTLedger", "CGSTRate", "SGSTLedger", "SGSTRate",
-        "IGSTLedger", "IGSTRate", "Narration",
+        "Date", "GSTIN", "VoucherNo", "PartyLedger", "Particular", "Item Name", "Unit",
+        "Quantity", "Rate", "TaxableValue", "CGSTLedger", "CGSTRate", "SGSTLedger",
+        "SGSTRate", "IGSTLedger", "IGSTRate", "Narration"
     ]
 
     def _build_note_panel(self, parent):
@@ -6621,12 +8641,12 @@ class TallySalesApp(ctk.CTk):
         type_badge = ctk.CTkFrame(top_row, fg_color=COLORS["bg_input"], corner_radius=8)
         type_badge.pack(side="left")
         self._note_type_display_label = ctk.CTkLabel(
-            type_badge, text="Mode: Credit Note 📝",
+            type_badge, text="Mode: Credit Note (Accounting) 📝",
             font=("Segoe UI", 11, "bold"), text_color=COLORS["success"], padx=10, pady=4)
         self._note_type_display_label.pack()
 
         ctk.CTkLabel(top_row,
-                     text="Select Credit Note or Debit Note from the dropdown above",
+                     text="Select Credit/Debit Note (Accounting or Item) from the dropdown above",
                      font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=12)
 
         note_template_btn = ctk.CTkButton(
@@ -6657,9 +8677,66 @@ class TallySalesApp(ctk.CTk):
         self._build_note_manual_tab(manual_tab)
         self._build_note_create_party_tab(party_tab)
 
-        # Row 2: Action buttons
+        # Row 2: Round off row
+        note_ro_row = ctk.CTkFrame(parent, fg_color="transparent")
+        note_ro_row.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 2))
+
+        note_ro_cb = ctk.CTkCheckBox(note_ro_row, text="Enable Auto Round Off",
+                                     variable=self._note_roundoff_enabled_var,
+                                     font=("Segoe UI", 12), text_color=COLORS["text_primary"])
+        note_ro_cb.pack(side="left", padx=(0, 10))
+
+        note_ro_entry = ctk.CTkEntry(note_ro_row, textvariable=self._note_roundoff_ledger_var,
+                                     placeholder_text="Search Round Off Ledger...",
+                                     width=220, state="disabled",
+                                     fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                                     text_color=COLORS["text_primary"])
+        note_ro_entry.pack(side="left", padx=(0, 6))
+
+        note_ro_fetch_btn = ctk.CTkButton(note_ro_row, text="Fetch Ledgers", width=110,
+                                          fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                          text_color=COLORS["text_secondary"], state="disabled")
+        note_ro_fetch_btn.pack(side="left", padx=(0, 6))
+
+        ctk.CTkLabel(note_ro_row, text="Fractional amounts go to this ledger",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=4)
+
+        def _note_toggle_ro(_e=note_ro_entry, _b=note_ro_fetch_btn, _v=self._note_roundoff_ledger_var):
+            if self._note_roundoff_enabled_var.get():
+                _e.configure(state="normal"); _b.configure(state="normal")
+            else:
+                _e.configure(state="disabled"); _b.configure(state="disabled"); _v.set("")
+        note_ro_cb.configure(command=_note_toggle_ro)
+
+        def _note_do_fetch_ro(_e=note_ro_entry, _b=note_ro_fetch_btn, _v=self._note_roundoff_ledger_var):
+            try:
+                _url = self._get_tally_url()
+            except (ValueError, AttributeError):
+                messagebox.showerror("Settings", "Invalid Tally URL. Check host/port in Settings.")
+                return
+            _co = self._get_selected_company()
+            _b.configure(state="disabled", text="Fetching...")
+            def _worker():
+                result = _fetch_tally_ledgers(_url, timeout=15, company_name=_co)
+                def _done():
+                    _b.configure(state="normal", text="Fetch Ledgers")
+                    if result.get("success"):
+                        self._note_roundoff_all_ledgers = result.get("ledgers") or []
+                        self._show_ledger_picker_popup(_e, _v, self._note_roundoff_all_ledgers)
+                    else:
+                        messagebox.showwarning("Fetch Failed", "Could not fetch ledgers from Tally.\nIs Tally running?")
+                self.after(0, _done)
+            threading.Thread(target=_worker, daemon=True).start()
+        note_ro_fetch_btn.configure(command=_note_do_fetch_ro)
+
+        def _note_ro_entry_click(event, _e=note_ro_entry, _v=self._note_roundoff_ledger_var):
+            if self._note_roundoff_enabled_var.get() and self._note_roundoff_all_ledgers:
+                self._show_ledger_picker_popup(_e, _v, self._note_roundoff_all_ledgers)
+        note_ro_entry.bind("<Button-1>", _note_ro_entry_click)
+
+        # Row 3: Action buttons
         btn_row = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_row.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        btn_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
 
         ctk.CTkButton(
             btn_row, text="💾  Save XML File", fg_color=SUCCESS, hover_color="#15803D", width=155,
@@ -6758,6 +8835,10 @@ class TallySalesApp(ctk.CTk):
             ("GSTIN", "GSTIN", "Optional"),
             ("PartyLedger", "Party Ledger", "Required"),
             ("Particular", "Particular", "Required"),
+            ("Item Name", "Item Name", "Required for item mode"),
+            ("Quantity", "Quantity", "1"),
+            ("Unit", "Unit", "Nos"),
+            ("Rate", "Rate", "0"),
             ("TaxableValue", "Taxable Value", "Required Amount"),
             ("CGSTLedger", "CGST Ledger", "Optional"),
             ("CGSTRate", "CGST Rate", "0"),
@@ -7136,6 +9217,24 @@ class TallySalesApp(ctk.CTk):
         if taxable <= 0:
             messagebox.showwarning("Invalid Value", "Taxable Value must be greater than zero.")
             return None
+
+        is_item_mode = str(getattr(self, "_note_entry_mode", "accounting") or "accounting").strip().lower() == "item"
+        if is_item_mode:
+            item_name = _row_text_any(row, ["Item Name", "ItemName", "Item", "StockItem", "ProductName"], "")
+            if not item_name:
+                messagebox.showwarning("Missing Field", "Item Name is required for item notes.")
+                return None
+            qty = _row_float(row, "Quantity", 0.0) or _row_float(row, "Qty", 0.0)
+            if qty <= 0:
+                qty = 1.0
+            rate = _row_float(row, "Rate", 0.0)
+            if rate <= 0 and taxable > 0 and qty > 0:
+                rate = taxable / qty
+            if not _row_text_any(row, ["Unit", "UOM", "Per"], ""):
+                row["Unit"] = "Nos"
+            row["Quantity"] = str(qty)
+            row["Rate"] = str(rate)
+
         if not str(row.get("Date") or "").strip():
             row["Date"] = datetime.today().strftime("%d-%m-%y")
         for key in ["CGSTRate", "SGSTRate", "IGSTRate"]:
@@ -7367,8 +9466,7 @@ class TallySalesApp(ctk.CTk):
     def _download_note_template(self):
         note_type = self._note_type_var.get() or "Credit Note"
         headers = self.NOTE_TEMPLATE_HEADERS
-        sample = ["16-12-25", "1", "", "Interactive Media Pvt Ltd", "Lecture Income",
-                  100000, "CGST", 9, "SGST", 9, "", 0, "Test Note"]
+        sample = ["22-04-2026", "18AABCI8307G1ZM", "1", "ABC Corp Pvt Ltd", "Sales Account", 20000, "", 0, "", 0, "IGST", 18, "Test Entry for ABC Corp"]
         out = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             initialfile=f"Template_{note_type.replace(' ', '_')}.xlsx",
@@ -7391,9 +9489,9 @@ class TallySalesApp(ctk.CTk):
     # ─── JOURNAL PANEL BUILDER ────────────────────────────────────────────────
 
     JNL_TEMPLATE_HEADERS = [
-        "Date", "VoucherNo", "PartyLedger", "Particular", "TaxableValue",
-        "CGSTLedger", "CGSTRate", "SGSTLedger", "SGSTRate",
-        "IGSTLedger", "IGSTRate", "Narration", "TDSLedger", "TDSRate", "TDSAmount",
+        "Date", "GSTIN", "VoucherNo", "PartyLedger", "Particular", "TaxableValue",
+        "CGSTLedger", "CGSTRate", "SGSTLedger", "SGSTRate", "IGSTLedger", "IGSTRate",
+        "Narration"
     ]
 
     def _build_journal_panel(self, parent):
@@ -7402,6 +9500,7 @@ class TallySalesApp(ctk.CTk):
         parent.grid_rowconfigure(0, weight=0)
         parent.grid_rowconfigure(1, weight=1)
         parent.grid_rowconfigure(2, weight=0)
+        parent.grid_rowconfigure(3, weight=0)
 
         # Row 0: Journal Type + header
         top_row = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"],
@@ -7445,9 +9544,66 @@ class TallySalesApp(ctk.CTk):
         self._build_journal_excel_tab(excel_tab)
         self._build_journal_manual_tab(manual_tab)
 
-        # Row 2: Action buttons
+        # Row 2: Round off row
+        jnl_ro_row = ctk.CTkFrame(parent, fg_color="transparent")
+        jnl_ro_row.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 2))
+
+        jnl_ro_cb = ctk.CTkCheckBox(jnl_ro_row, text="Enable Auto Round Off",
+                                     variable=self._jnl_roundoff_enabled_var,
+                                     font=("Segoe UI", 12), text_color=COLORS["text_primary"])
+        jnl_ro_cb.pack(side="left", padx=(0, 10))
+
+        jnl_ro_entry = ctk.CTkEntry(jnl_ro_row, textvariable=self._jnl_roundoff_ledger_var,
+                                     placeholder_text="Search Round Off Ledger...",
+                                     width=220, state="disabled",
+                                     fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                                     text_color=COLORS["text_primary"])
+        jnl_ro_entry.pack(side="left", padx=(0, 6))
+
+        jnl_ro_fetch_btn = ctk.CTkButton(jnl_ro_row, text="Fetch Ledgers", width=110,
+                                          fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                          text_color=COLORS["text_secondary"], state="disabled")
+        jnl_ro_fetch_btn.pack(side="left", padx=(0, 6))
+
+        ctk.CTkLabel(jnl_ro_row, text="Fractional amounts go to this ledger",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=4)
+
+        def _jnl_toggle_ro(_e=jnl_ro_entry, _b=jnl_ro_fetch_btn, _v=self._jnl_roundoff_ledger_var):
+            if self._jnl_roundoff_enabled_var.get():
+                _e.configure(state="normal"); _b.configure(state="normal")
+            else:
+                _e.configure(state="disabled"); _b.configure(state="disabled"); _v.set("")
+        jnl_ro_cb.configure(command=_jnl_toggle_ro)
+
+        def _jnl_do_fetch_ro(_e=jnl_ro_entry, _b=jnl_ro_fetch_btn, _v=self._jnl_roundoff_ledger_var):
+            try:
+                _url = self._get_tally_url()
+            except (ValueError, AttributeError):
+                messagebox.showerror("Settings", "Invalid Tally URL. Check host/port in Settings.")
+                return
+            _co = self._get_selected_company()
+            _b.configure(state="disabled", text="Fetching...")
+            def _worker():
+                result = _fetch_tally_ledgers(_url, timeout=15, company_name=_co)
+                def _done():
+                    _b.configure(state="normal", text="Fetch Ledgers")
+                    if result.get("success"):
+                        self._jnl_roundoff_all_ledgers = result.get("ledgers") or []
+                        self._show_ledger_picker_popup(_e, _v, self._jnl_roundoff_all_ledgers)
+                    else:
+                        messagebox.showwarning("Fetch Failed", "Could not fetch ledgers from Tally.\nIs Tally running?")
+                self.after(0, _done)
+            threading.Thread(target=_worker, daemon=True).start()
+        jnl_ro_fetch_btn.configure(command=_jnl_do_fetch_ro)
+
+        def _jnl_ro_entry_click(event, _e=jnl_ro_entry, _v=self._jnl_roundoff_ledger_var):
+            if self._jnl_roundoff_enabled_var.get() and self._jnl_roundoff_all_ledgers:
+                self._show_ledger_picker_popup(_e, _v, self._jnl_roundoff_all_ledgers)
+        jnl_ro_entry.bind("<Button-1>", _jnl_ro_entry_click)
+
+        # Row 3: Action buttons
         btn_row = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_row.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        btn_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
 
         ctk.CTkButton(
             btn_row, text="💾  Save XML File", fg_color=SUCCESS, hover_color="#15803D", width=155,
@@ -7949,9 +10105,7 @@ class TallySalesApp(ctk.CTk):
             ws = wb.active
             ws.title = "Sheet1"
             ws.append(self.JNL_TEMPLATE_HEADERS)
-            ws.append(["16-12-25", "1", "Interactive Media Pvt Ltd", "Professional Fee Expense",
-                        100000, "", 0, "", 0, "IGST", 18, "This is Testing Voucher",
-                        "TDS Payable on Professional", 10, ""])
+            ws.append(["22-04-2026", "18AABCI8307G1ZM", "1", "ABC Corp Pvt Ltd", "Office Expense 18%", 10000, "", 0, "", 0, "IGST", 18, "Test Entry for ABC Corp"])
             wb.save(out)
             messagebox.showinfo("Template Saved", f"Journal template saved to:\n{out}")
         except Exception as exc:
@@ -7998,6 +10152,11 @@ class TallySalesApp(ctk.CTk):
                 except Exception:
                     pass
 
+            _jnl_ro_ledger = (
+                self._jnl_roundoff_ledger_var.get().strip()
+                if self._jnl_roundoff_enabled_var.get()
+                else ""
+            )
             xml_payload, voucher_count = generate_journal_xml(
                 rows,
                 company=company,
@@ -8005,6 +10164,7 @@ class TallySalesApp(ctk.CTk):
                 custom_tally_date=custom_tally_date,
                 journal_type=journal_type,
                 company_gst_registrations=_cmp_regs,
+                round_off_ledger=_jnl_ro_ledger,
             )
             if voucher_count <= 0:
                 messagebox.showwarning("No Vouchers", "No valid rows found (TaxableValue must be greater than zero).")
@@ -8029,14 +10189,67 @@ class TallySalesApp(ctk.CTk):
             if not port_text.isdigit():
                 raise ValueError("Port must be numeric.")
             port = int(port_text)
+            tally_url_jnl = self._get_tally_url()
+            jnl_is_purchase = (journal_type == "purchase")
+            jnl_rows_snap = list(rows)
 
             self._set_push_loading_state(True, f"Pushing {voucher_count} Journal voucher(s) from {source_label}...")
             self.status_var.set("Pushing to Tally...")
 
             def worker():
                 try:
+                    # Pre-creation: check & create missing party ledgers
+                    self.after(0, lambda: self._push_message_var.set("Checking existing ledgers in Tally..."))
+                    _jel_result = _fetch_existing_ledger_names(tally_url_jnl, company_name=company, timeout=15)
+                    existing_jnl_ledgers = set(_jel_result.get("ledgers") or set()) if _jel_result.get("success") else set()
+
+                    auto_jnl_defs = _collect_auto_note_ledgers(jnl_rows_snap, is_debit_note=jnl_is_purchase)
+                    auto_jnl_to_create = _filter_out_existing_ledgers(auto_jnl_defs, existing_jnl_ledgers)
+                    if auto_jnl_to_create:
+                        party_defs_j = [d for d in auto_jnl_to_create if _is_party_parent(str(d.get("Parent", "")))]
+                        non_party_j  = [d for d in auto_jnl_to_create if not _is_party_parent(str(d.get("Parent", "")))]
+                        asked_j = []
+                        for _ld in party_defs_j:
+                            self.after(0, lambda: self._push_message_var.set("Waiting for user input on missing ledger..."))
+                            asked_j.append(_ask_create_party_ledger(self, _ld))
+                        auto_jnl_to_create = non_party_j + asked_j
+                        self.after(0, lambda: self._push_message_var.set("Creating required ledgers in Tally..."))
+                        push_to_tally(generate_ledger_xml(auto_jnl_to_create, company), host=host, port=port)
+                        existing_jnl_ledgers.update(
+                            str(e.get("Name", "")).strip() for e in auto_jnl_to_create
+                            if str(e.get("Name", "")).strip()
+                        )
+
+                    # Push journal XML
+                    self.after(0, lambda: self._push_message_var.set("Pushing journal vouchers..."))
                     resp = push_to_tally(xml_payload, host=host, port=port)
                     parsed = _parse_tally_response_details(resp)
+
+                    # On failure: auto-create missing ledgers from line errors and retry
+                    if not parsed.get("success"):
+                        line_errs = parsed.get("line_errors", [])
+                        if line_errs:
+                            miss_mode = "purchase_accounting" if jnl_is_purchase else "accounting"
+                            miss_defs = _build_missing_ledger_defs(line_errs, jnl_rows_snap, miss_mode)
+                            miss_defs = _filter_out_existing_ledgers(miss_defs, existing_jnl_ledgers)
+                            if miss_defs:
+                                final_miss = []
+                                for _mld in miss_defs:
+                                    if _is_party_parent(str(_mld.get("Parent", ""))):
+                                        self.after(0, lambda: self._push_message_var.set("Waiting for user input on missing ledger..."))
+                                        _mld = _ask_create_party_ledger(self, _mld)
+                                    final_miss.append(_mld)
+                                self.after(0, lambda: self._push_message_var.set("Creating missing ledgers and retrying..."))
+                                push_to_tally(generate_ledger_xml(final_miss, company), host=host, port=port)
+                                existing_jnl_ledgers.update(
+                                    str(e.get("Name", "")).strip() for e in final_miss
+                                    if str(e.get("Name", "")).strip()
+                                )
+                                retry_resp = push_to_tally(xml_payload, host=host, port=port)
+                                retry_parsed = _parse_tally_response_details(retry_resp)
+                                if retry_parsed.get("success"):
+                                    parsed = retry_parsed
+
                     result = {"ok": True, "parsed": parsed}
                 except Exception as exc:
                     result = {"ok": False, "error": str(exc)}
