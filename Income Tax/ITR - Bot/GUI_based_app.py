@@ -497,45 +497,23 @@ class App(ctk.CTk):
         self.file_frame = ctk.CTkFrame(self.config_frame, fg_color="transparent")
         self.file_frame.pack(fill="x", padx=15, pady=(0, 5))
         
-        self.entry_file = ctk.CTkEntry(self.file_frame, placeholder_text="Add PAN/User ID and Password manually...")
+        self.entry_file = ctk.CTkEntry(self.file_frame, placeholder_text="Select IT profiles via 'Load ID Pass' button...", height=35)
         self.entry_file.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
         self.file_actions_frame = ctk.CTkFrame(self.file_frame, fg_color="transparent")
         self.file_actions_frame.pack(side="right")
-        # Add ID first
-        self.btn_manual = ctk.CTkButton(self.file_actions_frame, text="➕ Add ID Password", command=self.add_id_password,
-            fg_color="#059669", hover_color="#047857", width=150,
-                font=("Segoe UI", 12, "bold"))
-        self.btn_manual.pack(side="left")
-
-        # Bulk Options
-        ctk.CTkButton(self.file_actions_frame, text="📂 Browse Excel", command=self.browse_file,
-            fg_color="#2563EB", hover_color="#1D4ED8", width=130,
-            font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
         
-        ctk.CTkButton(self.file_actions_frame, text="📥 Sample", command=self.download_sample,
-            fg_color="#7C3AED", hover_color="#6D28D9", width=100,
-            font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
-
-        # View and Delete next
-        self.btn_view_id = ctk.CTkButton(self.file_actions_frame, text="👁 View ID", command=self.view_saved_user,
-             fg_color="#475569", hover_color="#334155", width=95,
-             font=("Segoe UI", 11, "bold"))
-        self.btn_view_id.pack(side="left", padx=(5, 0))
-
-        self.btn_delete_id = ctk.CTkButton(self.file_actions_frame, text="🗑 Delete ID", command=self.delete_saved_user,
-               fg_color="#7C3AED", hover_color="#6D28D9", width=105,
-               font=("Segoe UI", 11, "bold"))
-        self.btn_delete_id.pack(side="left", padx=(5, 0))
+        # Load from Suite Database
+        self.btn_load_db = ctk.CTkButton(self.file_actions_frame, text="📥 Load ID Pass", command=self.load_id_pass,
+            fg_color="#059669", hover_color="#047857", width=150,
+            font=("Segoe UI", 12, "bold"))
+        self.btn_load_db.pack(side="left")
 
         # Demo last
         self.btn_demo = ctk.CTkButton(self.file_actions_frame, text="▶ Demo", command=self.open_demo_link,
-                  fg_color="#DC2626", hover_color="#B91C1C", width=80,
+                  fg_color="#DC2626", hover_color="#B91C1C", width=100,
                   font=("Segoe UI", 12, "bold"))
-        self.btn_demo.pack(side="left", padx=(5, 0))
-
-        self.btn_view_id.configure(state="disabled")
-        self.btn_delete_id.configure(state="disabled")
+        self.btn_demo.pack(side="left", padx=(10, 0))
 
         # 1.2 Year Selection
         self.step2_label = ctk.CTkLabel(self.config_frame, text="2. DOWNLOAD SETTINGS", 
@@ -633,8 +611,6 @@ class App(ctk.CTk):
 
     def _refresh_manual_controls(self):
         has_manual = bool(self.manual_credentials)
-        self.btn_view_id.configure(state="normal" if has_manual else "disabled")
-        self.btn_delete_id.configure(state="normal" if has_manual else "disabled")
         if has_manual:
             user_id = self._get_saved_user_id()
             self.entry_file.delete(0, "end")
@@ -658,6 +634,76 @@ class App(ctk.CTk):
         self.entry_file.delete(0, "end")
         self._refresh_manual_controls()
         messagebox.showinfo("Deleted", "Saved ID deleted successfully.")
+
+    def load_id_pass(self):
+        import sqlite3 as _sq, os as _os
+        db_path = _os.path.join(_os.environ.get("APPDATA", _os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
+        if not _os.path.exists(db_path):
+             # Try local if appdata doesn't exist
+             db_path = "suite_profiles.db"
+        try:
+            conn = _sq.connect(db_path)
+            # Check if dob column exists
+            try:
+                rows = conn.execute("SELECT username, password, dob FROM it_profiles ORDER BY username").fetchall()
+            except:
+                rows = conn.execute("SELECT username, password FROM it_profiles ORDER BY username").fetchall()
+                rows = [(r[0], r[1], "") for r in rows]
+            conn.close()
+        except Exception:
+            rows = []
+        
+        if not rows:
+            messagebox.showinfo("No Profiles", "No saved Income Tax profiles found. Add via GST Suite -> Manage ID/Pass.", parent=self)
+            return
+            
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Load IT ID Password")
+        dialog.geometry("400x460")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.attributes("-topmost", True)
+        
+        ctk.CTkLabel(dialog, text="Select IT Profiles to Load", font=("Segoe UI", 14, "bold")).pack(pady=(16, 8))
+        
+        sel_all_var = ctk.BooleanVar()
+        vars_ = {}
+        
+        def _toggle_all():
+            state = sel_all_var.get()
+            for v in vars_.values():
+                v.set(state)
+        
+        ctk.CTkCheckBox(dialog, text="Select All", variable=sel_all_var, command=_toggle_all,
+                        font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20, pady=(0, 4))
+                        
+        scroll = ctk.CTkScrollableFrame(dialog, height=300)
+        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        
+        for u, p, d in rows:
+            v = ctk.BooleanVar()
+            vars_[(u, p, d)] = v
+            ctk.CTkCheckBox(scroll, text=u, variable=v).pack(anchor="w", padx=10, pady=3)
+            
+        def _load():
+            selected = [{"User ID": u, "Password": p, "DOB": d} for (u, p, d), v in vars_.items() if v.get()]
+            if not selected:
+                return
+            
+            self.manual_credentials = selected
+            self.excel_file_path = ""
+            self._refresh_manual_controls()
+            
+            n = len(selected)
+            label = selected[0]["User ID"] if n == 1 else f"Loaded {n} profiles"
+            self.entry_file.delete(0, "end")
+            self.entry_file.insert(0, label)
+            
+            self.log_to_gui(f"Loaded {n} Profiles from database")
+            dialog.destroy()
+            
+        ctk.CTkButton(dialog, text="✅ Load Selected", command=_load, height=35, fg_color="#059669").pack(pady=10)
 
     def add_id_password(self):
         dialog = ctk.CTkToplevel(self)
@@ -799,4 +845,4 @@ class App(ctk.CTk):
 
 if __name__ == "__main__":
     app = App()
-    app.mainloop()
+    app.mainloop()

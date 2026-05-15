@@ -2783,3 +2783,2021 @@
 [2026-04-28 13:38:18] main_import begin tab=🔄  GST Reco uid=_suite_mod_1_GST_RECO
 [2026-04-28 13:38:18] main_import success tab=🔄  GST Reco class=App
 [2026-04-28 13:38:18] instantiate success tab=🔄  GST Reco instance=_Handle
+[2026-05-05 15:59:46] dependency warmup start
+[2026-05-05 15:59:50] warmup ok pandas
+[2026-05-05 15:59:50] warmup ok numpy
+[2026-05-05 15:59:50] warmup ok openpyxl
+[2026-05-05 15:59:51] warmup ok fitz
+[2026-05-05 15:59:52] warmup ok pdfplumber
+[2026-05-05 15:59:52] warmup ok pdfminer
+[2026-05-05 15:59:52] warmup ok selenium
+[2026-05-05 15:59:52] warmup ok webdriver_manager
+[2026-05-05 15:59:52] warmup ok requests
+[2026-05-05 15:59:52] warmup ok PIL
+[2026-05-05 15:59:52] dependency warmup done
+[2026-05-05 16:09:04] activate_tab start cat=pdf tab=⊕  Merge module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 16:09:04] main_import begin tab=⊕  Merge uid=_suite_mod_0_PDF_Utilities
+[2026-05-05 16:09:04] main_import success tab=⊕  Merge class=MergeApp
+[2026-05-05 16:09:04] instantiate success tab=⊕  Merge instance=MergeApp
+[2026-05-05 16:16:28] dependency warmup start
+[2026-05-05 16:16:29] warmup ok pandas
+[2026-05-05 16:16:29] warmup ok numpy
+[2026-05-05 16:16:30] warmup ok openpyxl
+[2026-05-05 16:16:30] warmup ok fitz
+[2026-05-05 16:16:31] warmup ok pdfplumber
+[2026-05-05 16:16:31] warmup ok pdfminer
+[2026-05-05 16:16:31] warmup ok selenium
+[2026-05-05 16:16:31] warmup ok webdriver_manager
+[2026-05-05 16:16:31] warmup ok requests
+[2026-05-05 16:16:31] warmup ok PIL
+[2026-05-05 16:16:31] dependency warmup done
+[2026-05-05 16:17:13] dependency warmup start
+[2026-05-05 16:17:14] warmup ok pandas
+[2026-05-05 16:17:14] warmup ok numpy
+[2026-05-05 16:17:14] warmup ok openpyxl
+[2026-05-05 16:17:14] warmup ok fitz
+[2026-05-05 16:17:15] warmup ok pdfplumber
+[2026-05-05 16:17:15] warmup ok pdfminer
+[2026-05-05 16:17:15] warmup ok selenium
+[2026-05-05 16:17:15] warmup ok webdriver_manager
+[2026-05-05 16:17:15] warmup ok requests
+[2026-05-05 16:17:15] warmup ok PIL
+[2026-05-05 16:17:15] dependency warmup done
+[2026-05-05 16:25:41] dependency warmup start
+[2026-05-05 16:25:42] warmup ok pandas
+[2026-05-05 16:25:42] warmup ok numpy
+[2026-05-05 16:25:43] warmup ok openpyxl
+[2026-05-05 16:25:43] warmup ok fitz
+[2026-05-05 16:25:43] warmup ok pdfplumber
+[2026-05-05 16:25:43] warmup ok pdfminer
+[2026-05-05 16:25:43] warmup ok selenium
+[2026-05-05 16:25:43] warmup ok webdriver_manager
+[2026-05-05 16:25:43] warmup ok requests
+[2026-05-05 16:25:43] warmup ok PIL
+[2026-05-05 16:25:43] dependency warmup done
+[2026-05-05 16:26:13] dependency warmup start
+[2026-05-05 16:26:14] warmup ok pandas
+[2026-05-05 16:26:14] warmup ok numpy
+[2026-05-05 16:26:14] warmup ok openpyxl
+[2026-05-05 16:26:14] warmup ok fitz
+[2026-05-05 16:26:15] warmup ok pdfplumber
+[2026-05-05 16:26:15] warmup ok pdfminer
+[2026-05-05 16:26:15] warmup ok selenium
+[2026-05-05 16:26:15] warmup ok webdriver_manager
+[2026-05-05 16:26:15] warmup ok requests
+[2026-05-05 16:26:15] warmup ok PIL
+[2026-05-05 16:26:15] dependency warmup done
+[2026-05-05 16:36:21] dependency warmup start
+[2026-05-05 16:36:22] warmup ok pandas
+[2026-05-05 16:36:22] warmup ok numpy
+[2026-05-05 16:36:22] warmup ok openpyxl
+[2026-05-05 16:36:22] warmup ok fitz
+[2026-05-05 16:36:22] warmup ok pdfplumber
+[2026-05-05 16:36:22] warmup ok pdfminer
+[2026-05-05 16:36:23] warmup ok selenium
+[2026-05-05 16:36:23] warmup ok webdriver_manager
+[2026-05-05 16:36:23] warmup ok requests
+[2026-05-05 16:36:23] warmup ok PIL
+[2026-05-05 16:36:23] dependency warmup done
+[2026-05-05 16:36:50] dependency warmup start
+[2026-05-05 16:36:51] warmup ok pandas
+[2026-05-05 16:36:51] warmup ok numpy
+[2026-05-05 16:36:51] warmup ok openpyxl
+[2026-05-05 16:36:51] warmup ok fitz
+[2026-05-05 16:36:52] warmup ok pdfplumber
+[2026-05-05 16:36:52] warmup ok pdfminer
+[2026-05-05 16:36:52] warmup ok selenium
+[2026-05-05 16:36:52] warmup ok webdriver_manager
+[2026-05-05 16:36:52] warmup ok requests
+[2026-05-05 16:36:52] warmup ok PIL
+[2026-05-05 16:36:52] dependency warmup done
+[2026-05-05 16:36:55] activate_tab start cat=pdf tab=⊜  Compress module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 16:36:55] main_import begin tab=⊜  Compress uid=_suite_mod_0_PDF_Utilities
+[2026-05-05 16:36:55] main_import success tab=⊜  Compress class=CompressApp
+[2026-05-05 16:36:56] instantiate success tab=⊜  Compress instance=CompressApp
+[2026-05-05 16:47:53] dependency warmup start
+[2026-05-05 16:47:56] warmup ok pandas
+[2026-05-05 16:47:56] warmup ok numpy
+[2026-05-05 16:47:56] warmup ok openpyxl
+[2026-05-05 16:47:57] warmup ok fitz
+[2026-05-05 16:47:57] warmup ok pdfplumber
+[2026-05-05 16:47:57] warmup ok pdfminer
+[2026-05-05 16:47:57] warmup ok selenium
+[2026-05-05 16:47:57] warmup ok webdriver_manager
+[2026-05-05 16:47:57] warmup ok requests
+[2026-05-05 16:47:57] warmup ok PIL
+[2026-05-05 16:47:57] dependency warmup done
+[2026-05-05 17:03:26] activate_tab start cat=pdf tab=⊕  Merge module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 17:03:26] main_import begin tab=⊕  Merge uid=_suite_mod_0_PDF_Utilities
+[2026-05-05 17:03:26] main_import success tab=⊕  Merge class=MergeApp
+[2026-05-05 17:03:26] instantiate success tab=⊕  Merge instance=MergeApp
+[2026-05-05 17:03:27] activate_tab start cat=pdf tab=✂  Split module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 17:03:27] main_import cache_hit tab=✂  Split module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
+[2026-05-05 17:03:27] instantiate success tab=✂  Split instance=SplitApp
+[2026-05-05 17:03:28] activate_tab start cat=pdf tab=⊙  Extract module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 17:03:28] main_import cache_hit tab=⊙  Extract module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
+[2026-05-05 17:03:28] instantiate success tab=⊙  Extract instance=ExtractApp
+[2026-05-05 17:07:03] dependency warmup start
+[2026-05-05 17:07:04] warmup ok pandas
+[2026-05-05 17:07:04] warmup ok numpy
+[2026-05-05 17:07:04] warmup ok openpyxl
+[2026-05-05 17:07:04] warmup ok fitz
+[2026-05-05 17:07:05] warmup ok pdfplumber
+[2026-05-05 17:07:05] warmup ok pdfminer
+[2026-05-05 17:07:05] warmup ok selenium
+[2026-05-05 17:07:05] warmup ok webdriver_manager
+[2026-05-05 17:07:05] warmup ok requests
+[2026-05-05 17:07:05] warmup ok PIL
+[2026-05-05 17:07:05] dependency warmup done
+[2026-05-05 17:08:44] dependency warmup start
+[2026-05-05 17:08:46] warmup ok pandas
+[2026-05-05 17:08:46] warmup ok numpy
+[2026-05-05 17:08:46] warmup ok openpyxl
+[2026-05-05 17:08:46] warmup ok fitz
+[2026-05-05 17:08:47] warmup ok pdfplumber
+[2026-05-05 17:08:47] warmup ok pdfminer
+[2026-05-05 17:08:47] warmup ok selenium
+[2026-05-05 17:08:47] warmup ok webdriver_manager
+[2026-05-05 17:08:47] warmup ok requests
+[2026-05-05 17:08:47] warmup ok PIL
+[2026-05-05 17:08:47] dependency warmup done
+[2026-05-05 17:23:03] dependency warmup start
+[2026-05-05 17:23:04] warmup ok pandas
+[2026-05-05 17:23:04] warmup ok numpy
+[2026-05-05 17:23:05] warmup ok openpyxl
+[2026-05-05 17:23:05] warmup ok fitz
+[2026-05-05 17:23:05] warmup ok pdfplumber
+[2026-05-05 17:23:05] warmup ok pdfminer
+[2026-05-05 17:23:05] warmup ok selenium
+[2026-05-05 17:23:05] warmup ok webdriver_manager
+[2026-05-05 17:23:06] warmup ok requests
+[2026-05-05 17:23:06] warmup ok PIL
+[2026-05-05 17:23:06] dependency warmup done
+[2026-05-05 17:23:08] activate_tab start cat=pdf tab=⊕  Merge module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 17:23:08] main_import begin tab=⊕  Merge uid=_suite_mod_0_PDF_Utilities
+[2026-05-05 17:23:08] main_import success tab=⊕  Merge class=MergeApp
+[2026-05-05 17:23:08] instantiate success tab=⊕  Merge instance=MergeApp
+[2026-05-05 17:23:10] activate_tab start cat=pdf tab=✂  Split module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 17:23:10] main_import cache_hit tab=✂  Split module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
+[2026-05-05 17:23:10] instantiate success tab=✂  Split instance=SplitApp
+[2026-05-05 17:23:12] activate_tab start cat=pdf tab=⊙  Extract module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 17:23:12] main_import cache_hit tab=⊙  Extract module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
+[2026-05-05 17:23:12] instantiate success tab=⊙  Extract instance=ExtractApp
+[2026-05-05 17:23:13] activate_tab start cat=pdf tab=⬛  Redact module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 17:23:13] main_import cache_hit tab=⬛  Redact module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
+[2026-05-05 17:23:13] instantiate success tab=⬛  Redact instance=RedactApp
+[2026-05-05 18:47:30] dependency warmup start
+[2026-05-05 18:47:33] warmup ok pandas
+[2026-05-05 18:47:33] warmup ok numpy
+[2026-05-05 18:47:34] warmup ok openpyxl
+[2026-05-05 18:47:34] warmup ok fitz
+[2026-05-05 18:47:35] warmup ok pdfplumber
+[2026-05-05 18:47:35] warmup ok pdfminer
+[2026-05-05 18:47:35] warmup ok selenium
+[2026-05-05 18:47:35] warmup ok webdriver_manager
+[2026-05-05 18:47:35] warmup ok requests
+[2026-05-05 18:47:35] warmup ok PIL
+[2026-05-05 18:47:35] dependency warmup done
+[2026-05-05 18:47:42] activate_tab start cat=pdf tab=⊙  Extract module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 18:47:42] main_import begin tab=⊙  Extract uid=_suite_mod_0_PDF_Utilities
+[2026-05-05 18:47:42] main_import success tab=⊙  Extract class=ExtractApp
+[2026-05-05 18:47:42] instantiate success tab=⊙  Extract instance=ExtractApp
+[2026-05-05 18:47:44] activate_tab start cat=pdf tab=⬛  Redact module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py exists=True tk=True
+[2026-05-05 18:47:44] main_import cache_hit tab=⬛  Redact module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\PDF_Utilities\main.py
+[2026-05-05 18:47:44] instantiate success tab=⬛  Redact instance=RedactApp
+[2026-05-06 13:43:02] DB: Suite profiles database initialized.
+[2026-05-06 13:43:05] dependency warmup start
+[2026-05-06 13:43:10] warmup ok pandas
+[2026-05-06 13:43:10] warmup ok numpy
+[2026-05-06 13:43:10] warmup ok openpyxl
+[2026-05-06 13:43:10] warmup ok fitz
+[2026-05-06 13:43:11] warmup ok pdfplumber
+[2026-05-06 13:43:11] warmup ok pdfminer
+[2026-05-06 13:43:11] warmup ok selenium
+[2026-05-06 13:43:11] warmup ok webdriver_manager
+[2026-05-06 13:43:11] warmup ok requests
+[2026-05-06 13:43:11] warmup ok PIL
+[2026-05-06 13:43:11] dependency warmup done
+[2026-05-06 13:43:30] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 13:43:30] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 13:43:30] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 13:43:30] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 13:44:07] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 13:44:07] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-06 13:44:07] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 13:44:07] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 13:49:03] DB: Settings database initialized.
+[2026-05-06 13:49:05] dependency warmup start
+[2026-05-06 13:49:06] warmup ok pandas
+[2026-05-06 13:49:06] warmup ok numpy
+[2026-05-06 13:49:06] warmup ok openpyxl
+[2026-05-06 13:49:06] warmup ok fitz
+[2026-05-06 13:49:06] warmup ok pdfplumber
+[2026-05-06 13:49:06] warmup ok pdfminer
+[2026-05-06 13:49:06] warmup ok selenium
+[2026-05-06 13:49:06] warmup ok webdriver_manager
+[2026-05-06 13:49:06] warmup ok requests
+[2026-05-06 13:49:06] warmup ok PIL
+[2026-05-06 13:49:06] dependency warmup done
+[2026-05-06 13:49:12] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 13:49:12] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 13:49:12] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 13:49:13] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 13:49:19] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 13:49:19] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-06 13:49:19] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 13:49:20] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 13:49:21] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 13:49:21] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-06 13:49:21] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 13:49:22] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 15:02:57] DB: Settings database initialized.
+[2026-05-06 15:02:59] dependency warmup start
+[2026-05-06 15:03:02] warmup ok pandas
+[2026-05-06 15:03:02] warmup ok numpy
+[2026-05-06 15:03:02] warmup ok openpyxl
+[2026-05-06 15:03:03] warmup ok fitz
+[2026-05-06 15:03:03] warmup ok pdfplumber
+[2026-05-06 15:03:03] warmup ok pdfminer
+[2026-05-06 15:03:03] warmup ok selenium
+[2026-05-06 15:03:03] warmup ok webdriver_manager
+[2026-05-06 15:03:03] warmup ok requests
+[2026-05-06 15:03:03] warmup ok PIL
+[2026-05-06 15:03:03] dependency warmup done
+[2026-05-06 15:04:29] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 15:04:29] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 15:04:29] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 15:04:30] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 15:43:39] DB: Settings database initialized.
+[2026-05-06 15:43:43] dependency warmup start
+[2026-05-06 15:43:45] warmup ok pandas
+[2026-05-06 15:43:45] warmup ok numpy
+[2026-05-06 15:43:46] warmup ok openpyxl
+[2026-05-06 15:43:46] warmup ok fitz
+[2026-05-06 15:43:46] warmup ok pdfplumber
+[2026-05-06 15:43:46] warmup ok pdfminer
+[2026-05-06 15:43:46] warmup ok selenium
+[2026-05-06 15:43:46] warmup ok webdriver_manager
+[2026-05-06 15:43:46] warmup ok requests
+[2026-05-06 15:43:46] warmup ok PIL
+[2026-05-06 15:43:46] dependency warmup done
+[2026-05-06 15:44:14] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 15:44:15] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 15:44:15] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 15:44:15] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 15:44:44] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 15:44:44] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-06 15:44:44] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 15:44:46] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 15:45:09] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 15:45:09] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-06 15:45:09] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 15:45:09] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 15:45:24] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 15:45:25] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-06 15:45:25] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-06 15:45:28] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-06 15:45:38] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-06 15:45:38] main_import begin tab=📲  IMS uid=_suite_mod_4_IMS_Downloader
+[2026-05-06 15:45:38] main_import success tab=📲  IMS class=App
+[2026-05-06 15:45:39] instantiate success tab=📲  IMS instance=App
+[2026-05-06 15:45:43] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-06 15:45:43] main_import begin tab=📥  GSTR 2B uid=_suite_mod_5_GST_2B_Downloader
+[2026-05-06 15:45:43] main_import success tab=📥  GSTR 2B class=App
+[2026-05-06 15:45:45] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-06 15:46:01] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-06 15:46:01] main_import begin tab=📥  GSTR 3B uid=_suite_mod_6_GST_3B_Downloader
+[2026-05-06 15:46:01] main_import success tab=📥  GSTR 3B class=App
+[2026-05-06 15:46:03] instantiate success tab=📥  GSTR 3B instance=App
+[2026-05-06 15:46:35] activate_tab start cat=gst tab=📊  GSTR 3B to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B to Excel\main.py exists=True tk=False
+[2026-05-06 15:46:35] main_import begin tab=📊  GSTR 3B to Excel uid=_suite_mod_7_GST_3B_to_Excel
+[2026-05-06 15:46:35] main_import success tab=📊  GSTR 3B to Excel class=GSTR3BConverterPro
+[2026-05-06 15:46:35] instantiate success tab=📊  GSTR 3B to Excel instance=GSTR3BConverterPro
+[2026-05-06 15:46:37] activate_tab start cat=gst tab=🔄  GST Reco module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST_RECO\mainpy-reco-speqtra.py exists=True tk=False
+[2026-05-06 15:46:37] main_import begin tab=🔄  GST Reco uid=_suite_mod_8_GST_RECO
+[2026-05-06 15:46:37] main_import success tab=🔄  GST Reco class=App
+[2026-05-06 15:46:37] instantiate success tab=🔄  GST Reco instance=_Handle
+[2026-05-06 15:46:39] activate_tab start cat=gst tab=💰  GST Challan module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Challan Downloader\main.py exists=True tk=False
+[2026-05-06 15:46:39] main_import begin tab=💰  GST Challan uid=_suite_mod_9_GST_Challan_Downloader
+[2026-05-06 15:46:39] main_import success tab=💰  GST Challan class=App
+[2026-05-06 15:46:41] instantiate success tab=💰  GST Challan instance=App
+[2026-05-06 15:57:42] DB: Profile database initialized.
+[2026-05-06 15:57:45] dependency warmup start
+[2026-05-06 15:57:47] warmup ok pandas
+[2026-05-06 15:57:47] warmup ok numpy
+[2026-05-06 15:57:47] warmup ok openpyxl
+[2026-05-06 15:57:47] warmup ok fitz
+[2026-05-06 15:57:47] warmup ok pdfplumber
+[2026-05-06 15:57:47] warmup ok pdfminer
+[2026-05-06 15:57:47] warmup ok selenium
+[2026-05-06 15:57:47] warmup ok webdriver_manager
+[2026-05-06 15:57:47] warmup ok requests
+[2026-05-06 15:57:47] warmup ok PIL
+[2026-05-06 15:57:47] dependency warmup done
+[2026-05-06 15:57:59] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 15:57:59] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 15:57:59] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 15:57:59] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 15:58:05] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 15:58:05] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-06 15:58:05] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 15:58:06] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 16:12:51] DB: Profile database initialized.
+[2026-05-06 16:12:55] dependency warmup start
+[2026-05-06 16:12:57] warmup ok pandas
+[2026-05-06 16:12:57] warmup ok numpy
+[2026-05-06 16:12:57] warmup ok openpyxl
+[2026-05-06 16:12:58] warmup ok fitz
+[2026-05-06 16:12:58] warmup ok pdfplumber
+[2026-05-06 16:12:58] warmup ok pdfminer
+[2026-05-06 16:12:58] warmup ok selenium
+[2026-05-06 16:12:58] warmup ok webdriver_manager
+[2026-05-06 16:12:59] warmup ok requests
+[2026-05-06 16:12:59] warmup ok PIL
+[2026-05-06 16:12:59] dependency warmup done
+[2026-05-06 16:21:38] DB: Profile database initialized.
+[2026-05-06 16:21:41] dependency warmup start
+[2026-05-06 16:21:44] warmup ok pandas
+[2026-05-06 16:21:44] warmup ok numpy
+[2026-05-06 16:21:46] warmup ok openpyxl
+[2026-05-06 16:21:46] warmup ok fitz
+[2026-05-06 16:21:47] warmup ok pdfplumber
+[2026-05-06 16:21:47] warmup ok pdfminer
+[2026-05-06 16:21:47] warmup ok selenium
+[2026-05-06 16:21:47] warmup ok webdriver_manager
+[2026-05-06 16:21:47] warmup ok requests
+[2026-05-06 16:21:47] warmup ok PIL
+[2026-05-06 16:21:47] dependency warmup done
+[2026-05-06 16:22:11] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 16:22:11] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 16:22:11] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 16:22:12] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 16:22:14] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 16:22:14] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-06 16:22:14] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 16:22:15] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 16:22:17] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 16:22:17] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-06 16:22:17] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 16:22:17] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 16:22:20] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 16:22:20] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-06 16:22:20] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-06 16:22:21] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-06 16:26:23] DB: Profile database initialized.
+[2026-05-06 16:26:27] dependency warmup start
+[2026-05-06 16:26:29] warmup ok pandas
+[2026-05-06 16:26:29] warmup ok numpy
+[2026-05-06 16:26:29] warmup ok openpyxl
+[2026-05-06 16:26:29] warmup ok fitz
+[2026-05-06 16:26:30] warmup ok pdfplumber
+[2026-05-06 16:26:30] warmup ok pdfminer
+[2026-05-06 16:26:30] warmup ok selenium
+[2026-05-06 16:26:30] warmup ok webdriver_manager
+[2026-05-06 16:26:30] warmup ok requests
+[2026-05-06 16:26:30] warmup ok PIL
+[2026-05-06 16:26:30] dependency warmup done
+[2026-05-06 16:26:33] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 16:26:33] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 16:26:33] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 16:26:33] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 16:26:39] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 16:26:39] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-06 16:26:39] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 16:26:40] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 16:27:09] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 16:27:09] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-06 16:27:09] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 16:27:09] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 16:27:10] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 16:27:10] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-06 16:27:10] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-06 16:27:11] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-06 17:25:57] DB: Profile database initialized.
+[2026-05-06 17:26:02] dependency warmup start
+[2026-05-06 17:26:04] warmup ok pandas
+[2026-05-06 17:26:04] warmup ok numpy
+[2026-05-06 17:26:04] warmup ok openpyxl
+[2026-05-06 17:26:05] warmup ok fitz
+[2026-05-06 17:26:05] warmup ok pdfplumber
+[2026-05-06 17:26:05] warmup ok pdfminer
+[2026-05-06 17:26:05] warmup ok selenium
+[2026-05-06 17:26:05] warmup ok webdriver_manager
+[2026-05-06 17:26:05] warmup ok requests
+[2026-05-06 17:26:05] warmup ok PIL
+[2026-05-06 17:26:05] dependency warmup done
+[2026-05-06 17:26:57] dependency warmup start
+[2026-05-06 17:26:58] warmup ok pandas
+[2026-05-06 17:26:58] warmup ok numpy
+[2026-05-06 17:26:58] warmup ok openpyxl
+[2026-05-06 17:26:58] warmup ok fitz
+[2026-05-06 17:26:58] warmup ok pdfplumber
+[2026-05-06 17:26:58] warmup ok pdfminer
+[2026-05-06 17:26:58] warmup ok selenium
+[2026-05-06 17:26:58] warmup ok webdriver_manager
+[2026-05-06 17:26:58] warmup ok requests
+[2026-05-06 17:26:58] warmup ok PIL
+[2026-05-06 17:26:58] dependency warmup done
+[2026-05-06 17:27:01] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 17:27:01] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 17:27:01] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 17:27:01] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 17:39:41] dependency warmup start
+[2026-05-06 17:39:42] warmup ok pandas
+[2026-05-06 17:39:42] warmup ok numpy
+[2026-05-06 17:39:43] warmup ok openpyxl
+[2026-05-06 17:39:43] warmup ok fitz
+[2026-05-06 17:39:43] warmup ok pdfplumber
+[2026-05-06 17:39:43] warmup ok pdfminer
+[2026-05-06 17:39:43] warmup ok selenium
+[2026-05-06 17:39:43] warmup ok webdriver_manager
+[2026-05-06 17:39:43] warmup ok requests
+[2026-05-06 17:39:43] warmup ok PIL
+[2026-05-06 17:39:43] dependency warmup done
+[2026-05-06 17:40:59] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 17:40:59] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 17:40:59] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 17:41:00] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 17:41:04] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 17:41:04] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-06 17:41:04] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 17:41:05] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 17:42:01] Delete profile error: bad window path name ".!profilemanagerdialog2.!ctkframe4.!canvas.!ctkscrollableframe"
+[2026-05-06 17:42:02] Delete profile error: bad window path name ".!profilemanagerdialog2.!ctkframe4.!canvas.!ctkscrollableframe"
+[2026-05-06 17:42:47] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 17:42:47] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-06 17:42:47] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 17:42:47] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 17:42:48] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 17:42:48] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-06 17:42:50] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-06 17:42:50] main_import begin tab=📲  IMS uid=_suite_mod_3_IMS_Downloader
+[2026-05-06 17:42:52] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-06 17:42:52] main_import begin tab=📥  GSTR 2B uid=_suite_mod_3_GST_2B_Downloader
+[2026-05-06 17:42:52] main_import success tab=📥  GSTR 2B class=App
+[2026-05-06 17:42:53] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-06 18:47:09] dependency warmup start
+[2026-05-06 18:47:10] warmup ok pandas
+[2026-05-06 18:47:10] warmup ok numpy
+[2026-05-06 18:47:11] warmup ok openpyxl
+[2026-05-06 18:47:11] warmup ok fitz
+[2026-05-06 18:47:11] warmup ok pdfplumber
+[2026-05-06 18:47:11] warmup ok pdfminer
+[2026-05-06 18:47:11] warmup ok selenium
+[2026-05-06 18:47:11] warmup ok webdriver_manager
+[2026-05-06 18:47:11] warmup ok requests
+[2026-05-06 18:47:11] warmup ok PIL
+[2026-05-06 18:47:11] dependency warmup done
+[2026-05-06 18:47:34] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 18:47:34] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 18:47:35] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 18:47:35] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 18:47:40] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=False tk=False
+[2026-05-06 18:47:40] load error tab=📑  GSTR1 JSON: FileNotFoundError: Tool module not found: c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py
+[2026-05-06 18:47:43] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 18:47:44] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_1_JSON_to_Excel
+[2026-05-06 18:47:44] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 18:47:44] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 18:47:46] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 18:47:46] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_2_R1_PDF_Downloader
+[2026-05-06 18:47:46] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-06 18:47:47] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-06 18:49:32] dependency warmup start
+[2026-05-06 18:49:33] warmup ok pandas
+[2026-05-06 18:49:33] warmup ok numpy
+[2026-05-06 18:49:33] warmup ok openpyxl
+[2026-05-06 18:49:33] warmup ok fitz
+[2026-05-06 18:49:33] warmup ok pdfplumber
+[2026-05-06 18:49:33] warmup ok pdfminer
+[2026-05-06 18:49:33] warmup ok selenium
+[2026-05-06 18:49:33] warmup ok webdriver_manager
+[2026-05-06 18:49:34] warmup ok requests
+[2026-05-06 18:49:34] warmup ok PIL
+[2026-05-06 18:49:34] dependency warmup done
+[2026-05-06 18:51:17] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 18:51:17] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_0_JSON_to_Excel
+[2026-05-06 18:51:17] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 18:51:17] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 18:51:18] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-06 18:51:19] main_import begin tab=📲  IMS uid=_suite_mod_1_IMS_Downloader
+[2026-05-06 18:51:19] main_import success tab=📲  IMS class=App
+[2026-05-06 18:51:19] load error tab=📲  IMS: _tkinter.TclError: cannot use geometry manager grid inside .!ctkframe2.!ctkframe2.!ctktabview.!ctkframe6.!app.!ctkframe2.!canvas.!ctkscrollableframe which already has slaves managed by pack
+[2026-05-06 18:51:19] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 18:51:20] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_2_R1_PDF_Downloader
+[2026-05-06 18:51:20] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-06 18:51:20] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-06 18:51:25] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-06 18:51:25] main_import cache_hit tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py
+[2026-05-06 18:51:25] load error tab=📲  IMS: _tkinter.TclError: cannot use geometry manager grid inside .!ctkframe2.!ctkframe2.!ctktabview.!ctkframe6.!app2.!ctkframe2.!canvas.!ctkscrollableframe which already has slaves managed by pack
+[2026-05-06 18:51:26] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-06 18:51:26] main_import begin tab=📥  GSTR 2B uid=_suite_mod_3_GST_2B_Downloader
+[2026-05-06 18:51:26] main_import success tab=📥  GSTR 2B class=App
+[2026-05-06 18:51:27] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-06 18:51:27] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-06 18:51:27] main_import begin tab=📥  GSTR 3B uid=_suite_mod_4_GST_3B_Downloader
+[2026-05-06 18:51:27] main_import success tab=📥  GSTR 3B class=App
+[2026-05-06 18:51:28] instantiate success tab=📥  GSTR 3B instance=App
+[2026-05-06 18:51:28] activate_tab start cat=gst tab=📊  GSTR 3B to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B to Excel\main.py exists=True tk=False
+[2026-05-06 18:51:29] main_import begin tab=📊  GSTR 3B to Excel uid=_suite_mod_5_GST_3B_to_Excel
+[2026-05-06 18:51:29] main_import success tab=📊  GSTR 3B to Excel class=GSTR3BConverterPro
+[2026-05-06 18:51:29] instantiate success tab=📊  GSTR 3B to Excel instance=GSTR3BConverterPro
+[2026-05-06 18:51:30] activate_tab start cat=gst tab=🔄  GST Reco module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST_RECO\mainpy-reco-speqtra.py exists=True tk=False
+[2026-05-06 18:51:30] main_import begin tab=🔄  GST Reco uid=_suite_mod_6_GST_RECO
+[2026-05-06 18:51:30] main_import success tab=🔄  GST Reco class=App
+[2026-05-06 18:51:30] instantiate success tab=🔄  GST Reco instance=_Handle
+[2026-05-06 18:51:32] activate_tab start cat=gst tab=💰  GST Challan module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Challan Downloader\main.py exists=True tk=False
+[2026-05-06 18:51:32] main_import begin tab=💰  GST Challan uid=_suite_mod_7_GST_Challan_Downloader
+[2026-05-06 18:51:32] main_import success tab=💰  GST Challan class=App
+[2026-05-06 18:51:32] instantiate success tab=💰  GST Challan instance=App
+[2026-05-06 18:57:18] dependency warmup start
+[2026-05-06 18:57:19] warmup ok pandas
+[2026-05-06 18:57:19] warmup ok numpy
+[2026-05-06 18:57:20] warmup ok openpyxl
+[2026-05-06 18:57:20] warmup ok fitz
+[2026-05-06 18:57:21] warmup ok pdfplumber
+[2026-05-06 18:57:21] warmup ok pdfminer
+[2026-05-06 18:57:21] warmup ok selenium
+[2026-05-06 18:57:21] warmup ok webdriver_manager
+[2026-05-06 18:57:21] warmup ok requests
+[2026-05-06 18:57:21] warmup ok PIL
+[2026-05-06 18:57:21] dependency warmup done
+[2026-05-06 18:57:24] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 18:57:24] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 18:57:24] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 18:57:24] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 18:57:30] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 18:57:30] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-06 18:57:30] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 18:57:31] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 23:05:57] dependency warmup start
+[2026-05-06 23:06:02] warmup ok pandas
+[2026-05-06 23:06:02] warmup ok numpy
+[2026-05-06 23:06:02] warmup ok openpyxl
+[2026-05-06 23:06:03] warmup ok fitz
+[2026-05-06 23:06:03] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 23:06:03] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 23:06:03] warmup ok pdfplumber
+[2026-05-06 23:06:03] warmup ok pdfminer
+[2026-05-06 23:06:03] warmup ok selenium
+[2026-05-06 23:06:03] warmup ok webdriver_manager
+[2026-05-06 23:06:03] warmup ok requests
+[2026-05-06 23:06:03] warmup ok PIL
+[2026-05-06 23:06:03] dependency warmup done
+[2026-05-06 23:06:03] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 23:06:03] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 23:06:10] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 23:06:10] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-06 23:06:10] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 23:06:11] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 23:06:24] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 23:06:24] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-06 23:06:24] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 23:06:25] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 23:06:25] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 23:06:26] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-06 23:06:26] load error tab=📄  GSTR1 PDF: SyntaxError: invalid syntax
+[2026-05-06 23:06:27] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-06 23:06:28] main_import begin tab=📲  IMS uid=_suite_mod_3_IMS_Downloader
+[2026-05-06 23:06:28] load error tab=📲  IMS: SyntaxError: invalid syntax
+[2026-05-06 23:06:29] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-06 23:06:29] main_import begin tab=📥  GSTR 2B uid=_suite_mod_3_GST_2B_Downloader
+[2026-05-06 23:06:29] load error tab=📥  GSTR 2B: IndentationError: unexpected indent
+[2026-05-06 23:06:44] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-06 23:06:44] main_import begin tab=📥  GSTR 3B uid=_suite_mod_3_GST_3B_Downloader
+[2026-05-06 23:06:44] load error tab=📥  GSTR 3B: IndentationError: unexpected indent
+[2026-05-06 23:06:45] activate_tab start cat=gst tab=📊  GSTR 3B to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B to Excel\main.py exists=True tk=False
+[2026-05-06 23:06:46] main_import begin tab=📊  GSTR 3B to Excel uid=_suite_mod_3_GST_3B_to_Excel
+[2026-05-06 23:06:46] main_import success tab=📊  GSTR 3B to Excel class=GSTR3BConverterPro
+[2026-05-06 23:06:46] instantiate success tab=📊  GSTR 3B to Excel instance=GSTR3BConverterPro
+[2026-05-06 23:06:47] activate_tab start cat=gst tab=🔄  GST Reco module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST_RECO\mainpy-reco-speqtra.py exists=True tk=False
+[2026-05-06 23:06:47] main_import begin tab=🔄  GST Reco uid=_suite_mod_4_GST_RECO
+[2026-05-06 23:06:47] main_import success tab=🔄  GST Reco class=App
+[2026-05-06 23:06:47] instantiate success tab=🔄  GST Reco instance=_Handle
+[2026-05-06 23:06:49] activate_tab start cat=gst tab=💰  GST Challan module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Challan Downloader\main.py exists=True tk=False
+[2026-05-06 23:06:49] main_import begin tab=💰  GST Challan uid=_suite_mod_5_GST_Challan_Downloader
+[2026-05-06 23:06:49] load error tab=💰  GST Challan: SyntaxError: invalid syntax
+[2026-05-06 23:07:44] dependency warmup start
+[2026-05-06 23:07:45] warmup ok pandas
+[2026-05-06 23:07:45] warmup ok numpy
+[2026-05-06 23:07:46] warmup ok openpyxl
+[2026-05-06 23:07:46] warmup ok fitz
+[2026-05-06 23:07:47] warmup ok pdfplumber
+[2026-05-06 23:07:47] warmup ok pdfminer
+[2026-05-06 23:07:47] warmup ok selenium
+[2026-05-06 23:07:47] warmup ok webdriver_manager
+[2026-05-06 23:07:47] warmup ok requests
+[2026-05-06 23:07:47] warmup ok PIL
+[2026-05-06 23:07:47] dependency warmup done
+[2026-05-06 23:12:10] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 23:12:10] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 23:12:10] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 23:12:10] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 23:12:22] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 23:12:22] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_1_R1_PDF_Downloader
+[2026-05-06 23:12:22] load error tab=📄  GSTR1 PDF: SyntaxError: invalid syntax
+[2026-05-06 23:12:24] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 23:12:24] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_1_JSON_to_Excel
+[2026-05-06 23:12:24] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 23:12:25] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 23:12:26] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 23:12:26] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_2_GST_R1_Downloader
+[2026-05-06 23:12:26] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 23:12:27] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 23:12:33] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 23:12:34] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-06 23:12:34] load error tab=📄  GSTR1 PDF: SyntaxError: invalid syntax
+[2026-05-06 23:12:36] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-06 23:12:36] main_import begin tab=📲  IMS uid=_suite_mod_3_IMS_Downloader
+[2026-05-06 23:12:36] load error tab=📲  IMS: SyntaxError: invalid syntax
+[2026-05-06 23:12:37] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-06 23:12:37] main_import begin tab=📥  GSTR 2B uid=_suite_mod_3_GST_2B_Downloader
+[2026-05-06 23:12:37] load error tab=📥  GSTR 2B: IndentationError: unexpected indent
+[2026-05-06 23:12:37] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-06 23:12:37] main_import begin tab=📥  GSTR 3B uid=_suite_mod_3_GST_3B_Downloader
+[2026-05-06 23:12:37] load error tab=📥  GSTR 3B: IndentationError: unexpected indent
+[2026-05-06 23:12:38] activate_tab start cat=gst tab=📊  GSTR 3B to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B to Excel\main.py exists=True tk=False
+[2026-05-06 23:12:38] main_import begin tab=📊  GSTR 3B to Excel uid=_suite_mod_3_GST_3B_to_Excel
+[2026-05-06 23:12:38] main_import success tab=📊  GSTR 3B to Excel class=GSTR3BConverterPro
+[2026-05-06 23:12:38] instantiate success tab=📊  GSTR 3B to Excel instance=GSTR3BConverterPro
+[2026-05-06 23:12:40] activate_tab start cat=gst tab=💰  GST Challan module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Challan Downloader\main.py exists=True tk=False
+[2026-05-06 23:12:40] main_import begin tab=💰  GST Challan uid=_suite_mod_4_GST_Challan_Downloader
+[2026-05-06 23:12:40] load error tab=💰  GST Challan: SyntaxError: invalid syntax
+[2026-05-06 23:19:09] dependency warmup start
+[2026-05-06 23:19:10] warmup ok pandas
+[2026-05-06 23:19:10] warmup ok numpy
+[2026-05-06 23:19:10] warmup ok openpyxl
+[2026-05-06 23:19:10] warmup ok fitz
+[2026-05-06 23:19:11] warmup ok pdfplumber
+[2026-05-06 23:19:11] warmup ok pdfminer
+[2026-05-06 23:19:11] warmup ok selenium
+[2026-05-06 23:19:11] warmup ok webdriver_manager
+[2026-05-06 23:19:11] warmup ok requests
+[2026-05-06 23:19:11] warmup ok PIL
+[2026-05-06 23:19:11] dependency warmup done
+[2026-05-06 23:19:17] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 23:19:17] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_0_JSON_to_Excel
+[2026-05-06 23:19:17] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 23:19:17] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 23:19:18] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 23:19:19] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_1_R1_PDF_Downloader
+[2026-05-06 23:19:19] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-06 23:19:20] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-06 23:19:27] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 23:19:27] main_import begin tab=🤖  GST Verifier uid=_suite_mod_2_GST_Bot
+[2026-05-06 23:19:27] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 23:19:27] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 23:19:31] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 23:19:31] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_3_GST_R1_Downloader
+[2026-05-06 23:19:31] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 23:19:32] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 23:19:39] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-06 23:19:40] main_import begin tab=📲  IMS uid=_suite_mod_4_IMS_Downloader
+[2026-05-06 23:19:40] main_import success tab=📲  IMS class=App
+[2026-05-06 23:19:40] instantiate success tab=📲  IMS instance=App
+[2026-05-06 23:26:08] dependency warmup start
+[2026-05-06 23:26:09] warmup ok pandas
+[2026-05-06 23:26:09] warmup ok numpy
+[2026-05-06 23:26:09] warmup ok openpyxl
+[2026-05-06 23:26:10] warmup ok fitz
+[2026-05-06 23:26:10] warmup ok pdfplumber
+[2026-05-06 23:26:10] warmup ok pdfminer
+[2026-05-06 23:26:10] warmup ok selenium
+[2026-05-06 23:26:10] warmup ok webdriver_manager
+[2026-05-06 23:26:10] warmup ok requests
+[2026-05-06 23:26:10] warmup ok PIL
+[2026-05-06 23:26:10] dependency warmup done
+[2026-05-06 23:30:55] dependency warmup start
+[2026-05-06 23:30:56] warmup ok pandas
+[2026-05-06 23:30:56] warmup ok numpy
+[2026-05-06 23:30:56] warmup ok openpyxl
+[2026-05-06 23:30:56] warmup ok fitz
+[2026-05-06 23:30:57] warmup ok pdfplumber
+[2026-05-06 23:30:57] warmup ok pdfminer
+[2026-05-06 23:30:57] warmup ok selenium
+[2026-05-06 23:30:57] warmup ok webdriver_manager
+[2026-05-06 23:30:57] warmup ok requests
+[2026-05-06 23:30:57] warmup ok PIL
+[2026-05-06 23:30:57] dependency warmup done
+[2026-05-06 23:35:21] dependency warmup start
+[2026-05-06 23:35:23] warmup ok pandas
+[2026-05-06 23:35:23] warmup ok numpy
+[2026-05-06 23:35:23] warmup ok openpyxl
+[2026-05-06 23:35:23] warmup ok fitz
+[2026-05-06 23:35:23] warmup ok pdfplumber
+[2026-05-06 23:35:23] warmup ok pdfminer
+[2026-05-06 23:35:23] warmup ok selenium
+[2026-05-06 23:35:23] warmup ok webdriver_manager
+[2026-05-06 23:35:24] warmup ok requests
+[2026-05-06 23:35:24] warmup ok PIL
+[2026-05-06 23:35:24] dependency warmup done
+[2026-05-06 23:36:06] dependency warmup start
+[2026-05-06 23:36:07] warmup ok pandas
+[2026-05-06 23:36:07] warmup ok numpy
+[2026-05-06 23:36:08] warmup ok openpyxl
+[2026-05-06 23:36:08] warmup ok fitz
+[2026-05-06 23:36:08] warmup ok pdfplumber
+[2026-05-06 23:36:08] warmup ok pdfminer
+[2026-05-06 23:36:08] warmup ok selenium
+[2026-05-06 23:36:08] warmup ok webdriver_manager
+[2026-05-06 23:36:08] warmup ok requests
+[2026-05-06 23:36:08] warmup ok PIL
+[2026-05-06 23:36:08] dependency warmup done
+[2026-05-06 23:37:01] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-06 23:37:01] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-06 23:37:02] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-06 23:37:02] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-06 23:37:04] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 23:37:04] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-06 23:37:04] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 23:37:06] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-06 23:37:08] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-06 23:37:08] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-06 23:37:08] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-06 23:37:08] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-06 23:37:40] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-06 23:37:40] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-06 23:37:40] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-06 23:37:41] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-06 23:37:58] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-06 23:37:58] main_import begin tab=📲  IMS uid=_suite_mod_4_IMS_Downloader
+[2026-05-06 23:37:58] main_import success tab=📲  IMS class=App
+[2026-05-06 23:37:59] instantiate success tab=📲  IMS instance=App
+[2026-05-06 23:42:21] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-06 23:42:21] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_5_26_AS_Downlaoder
+[2026-05-06 23:42:21] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-06 23:42:23] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-06 23:42:34] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-06 23:42:34] main_import begin tab=💰  Challan Downloader uid=_suite_mod_6_Challan_Downloader
+[2026-05-06 23:42:34] load error tab=💰  Challan Downloader: SyntaxError: invalid syntax
+[2026-05-06 23:42:37] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-06 23:42:37] main_import begin tab=🤖  ITR Bot uid=_suite_mod_6_ITR_-_Bot
+[2026-05-06 23:42:37] load error tab=🤖  ITR Bot: SyntaxError: invalid syntax
+[2026-05-06 23:42:41] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-06 23:42:41] main_import begin tab=💰  Challan Downloader uid=_suite_mod_6_Challan_Downloader
+[2026-05-06 23:42:41] load error tab=💰  Challan Downloader: SyntaxError: invalid syntax
+[2026-05-06 23:42:42] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-06 23:42:42] main_import begin tab=🤖  ITR Bot uid=_suite_mod_6_ITR_-_Bot
+[2026-05-06 23:42:42] load error tab=🤖  ITR Bot: SyntaxError: invalid syntax
+[2026-05-06 23:42:44] activate_tab start cat=it tab=🔍  Demand Checker module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\demand_checker_app.py exists=True tk=False
+[2026-05-06 23:42:44] main_import begin tab=🔍  Demand Checker uid=_suite_mod_6_Challan_Downloader
+[2026-05-06 23:42:44] main_import success tab=🔍  Demand Checker class=DemandCheckerApp
+[2026-05-06 23:42:44] instantiate success tab=🔍  Demand Checker instance=DemandCheckerApp
+[2026-05-06 23:42:45] activate_tab start cat=it tab=📊  Refund Checker module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\refund_checker_app.py exists=True tk=False
+[2026-05-06 23:42:45] main_import begin tab=📊  Refund Checker uid=_suite_mod_7_26_AS_Downlaoder
+[2026-05-06 23:42:45] main_import success tab=📊  Refund Checker class=RefundCheckerApp
+[2026-05-06 23:42:46] instantiate success tab=📊  Refund Checker instance=RefundCheckerApp
+[2026-05-06 23:42:50] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-06 23:42:50] main_import begin tab=🤖  ITR Bot uid=_suite_mod_8_ITR_-_Bot
+[2026-05-06 23:42:50] load error tab=🤖  ITR Bot: SyntaxError: invalid syntax
+[2026-05-06 23:43:22] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-06 23:43:22] main_import begin tab=💰  Challan Downloader uid=_suite_mod_8_Challan_Downloader
+[2026-05-06 23:43:22] load error tab=💰  Challan Downloader: SyntaxError: invalid syntax
+[2026-05-06 23:43:47] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-06 23:43:47] main_import begin tab=💰  Challan Downloader uid=_suite_mod_8_Challan_Downloader
+[2026-05-06 23:43:47] load error tab=💰  Challan Downloader: SyntaxError: invalid syntax
+[2026-05-06 23:44:22] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-06 23:44:22] main_import begin tab=🤖  ITR Bot uid=_suite_mod_8_ITR_-_Bot
+[2026-05-06 23:44:23] load error tab=🤖  ITR Bot: SyntaxError: invalid syntax
+[2026-05-06 23:44:24] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-06 23:44:24] main_import begin tab=💰  Challan Downloader uid=_suite_mod_8_Challan_Downloader
+[2026-05-06 23:44:24] load error tab=💰  Challan Downloader: SyntaxError: invalid syntax
+[2026-05-06 23:51:30] dependency warmup start
+[2026-05-06 23:51:32] warmup ok pandas
+[2026-05-06 23:51:32] warmup ok numpy
+[2026-05-06 23:51:32] warmup ok openpyxl
+[2026-05-06 23:51:32] warmup ok fitz
+[2026-05-06 23:51:33] warmup ok pdfplumber
+[2026-05-06 23:51:33] warmup ok pdfminer
+[2026-05-06 23:51:33] warmup ok selenium
+[2026-05-06 23:51:33] warmup ok webdriver_manager
+[2026-05-06 23:51:33] warmup ok requests
+[2026-05-06 23:51:33] warmup ok PIL
+[2026-05-06 23:51:33] dependency warmup done
+[2026-05-06 23:51:40] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-06 23:51:40] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_0_GST_R1_Downloader
+[2026-05-06 23:51:41] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-06 23:51:43] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 11:30:12] dependency warmup start
+[2026-05-07 11:30:16] warmup ok pandas
+[2026-05-07 11:30:16] warmup ok numpy
+[2026-05-07 11:30:17] warmup ok openpyxl
+[2026-05-07 11:30:17] warmup ok fitz
+[2026-05-07 11:30:18] warmup ok pdfplumber
+[2026-05-07 11:30:18] warmup ok pdfminer
+[2026-05-07 11:30:18] warmup ok selenium
+[2026-05-07 11:30:18] warmup ok webdriver_manager
+[2026-05-07 11:30:18] warmup ok requests
+[2026-05-07 11:30:18] warmup ok PIL
+[2026-05-07 11:30:18] dependency warmup done
+[2026-05-07 11:30:36] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 11:30:37] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_0_JSON_to_Excel
+[2026-05-07 11:30:37] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 11:30:37] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 11:30:37] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 11:30:38] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_1_R1_PDF_Downloader
+[2026-05-07 11:30:38] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 11:30:39] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 11:33:50] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 11:33:51] main_import begin tab=🤖  GST Verifier uid=_suite_mod_2_GST_Bot
+[2026-05-07 11:33:51] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 11:33:51] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 11:34:06] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 11:34:07] main_import begin tab=📲  IMS uid=_suite_mod_3_IMS_Downloader
+[2026-05-07 11:34:07] main_import success tab=📲  IMS class=App
+[2026-05-07 11:34:07] instantiate success tab=📲  IMS instance=App
+[2026-05-07 11:56:01] dependency warmup start
+[2026-05-07 11:56:03] warmup ok pandas
+[2026-05-07 11:56:03] warmup ok numpy
+[2026-05-07 11:56:04] warmup ok openpyxl
+[2026-05-07 11:56:04] warmup ok fitz
+[2026-05-07 11:56:04] warmup ok pdfplumber
+[2026-05-07 11:56:04] warmup ok pdfminer
+[2026-05-07 11:56:04] warmup ok selenium
+[2026-05-07 11:56:04] warmup ok webdriver_manager
+[2026-05-07 11:56:05] warmup ok requests
+[2026-05-07 11:56:05] warmup ok PIL
+[2026-05-07 11:56:05] dependency warmup done
+[2026-05-07 11:58:15] dependency warmup start
+[2026-05-07 11:58:16] warmup ok pandas
+[2026-05-07 11:58:16] warmup ok numpy
+[2026-05-07 11:58:16] warmup ok openpyxl
+[2026-05-07 11:58:16] warmup ok fitz
+[2026-05-07 11:58:16] warmup ok pdfplumber
+[2026-05-07 11:58:16] warmup ok pdfminer
+[2026-05-07 11:58:16] warmup ok selenium
+[2026-05-07 11:58:16] warmup ok webdriver_manager
+[2026-05-07 11:58:16] warmup ok requests
+[2026-05-07 11:58:16] warmup ok PIL
+[2026-05-07 11:58:16] dependency warmup done
+[2026-05-07 11:58:46] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 11:58:46] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_0_JSON_to_Excel
+[2026-05-07 11:58:46] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 11:58:46] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 11:58:48] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 11:58:48] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_1_R1_PDF_Downloader
+[2026-05-07 11:58:48] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 11:58:49] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 11:59:01] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 11:59:01] main_import begin tab=📲  IMS uid=_suite_mod_2_IMS_Downloader
+[2026-05-07 11:59:01] main_import success tab=📲  IMS class=App
+[2026-05-07 11:59:01] instantiate success tab=📲  IMS instance=App
+[2026-05-07 11:59:09] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-07 11:59:09] main_import begin tab=📥  GSTR 2B uid=_suite_mod_3_GST_2B_Downloader
+[2026-05-07 11:59:09] main_import success tab=📥  GSTR 2B class=App
+[2026-05-07 11:59:10] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-07 12:10:05] dependency warmup start
+[2026-05-07 12:10:05] warmup ok pandas
+[2026-05-07 12:10:05] warmup ok numpy
+[2026-05-07 12:10:05] warmup ok openpyxl
+[2026-05-07 12:10:05] warmup ok fitz
+[2026-05-07 12:10:06] warmup ok pdfplumber
+[2026-05-07 12:10:06] warmup ok pdfminer
+[2026-05-07 12:10:06] warmup ok selenium
+[2026-05-07 12:10:06] warmup ok webdriver_manager
+[2026-05-07 12:10:06] warmup ok requests
+[2026-05-07 12:10:06] warmup ok PIL
+[2026-05-07 12:10:06] dependency warmup done
+[2026-05-07 12:16:25] dependency warmup start
+[2026-05-07 12:16:27] warmup ok pandas
+[2026-05-07 12:16:27] warmup ok numpy
+[2026-05-07 12:16:28] warmup ok openpyxl
+[2026-05-07 12:16:28] warmup ok fitz
+[2026-05-07 12:16:28] warmup ok pdfplumber
+[2026-05-07 12:16:28] warmup ok pdfminer
+[2026-05-07 12:16:28] warmup ok selenium
+[2026-05-07 12:16:28] warmup ok webdriver_manager
+[2026-05-07 12:16:29] warmup ok requests
+[2026-05-07 12:16:29] warmup ok PIL
+[2026-05-07 12:16:29] dependency warmup done
+[2026-05-07 12:21:07] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 12:21:07] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 12:21:07] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 12:21:07] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 12:35:28] dependency warmup start
+[2026-05-07 12:35:30] warmup ok pandas
+[2026-05-07 12:35:30] warmup ok numpy
+[2026-05-07 12:35:30] warmup ok openpyxl
+[2026-05-07 12:35:31] warmup ok fitz
+[2026-05-07 12:35:31] warmup ok pdfplumber
+[2026-05-07 12:35:31] warmup ok pdfminer
+[2026-05-07 12:35:31] warmup ok selenium
+[2026-05-07 12:35:31] warmup ok webdriver_manager
+[2026-05-07 12:35:31] warmup ok requests
+[2026-05-07 12:35:31] warmup ok PIL
+[2026-05-07 12:35:31] dependency warmup done
+[2026-05-07 12:35:42] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 12:35:43] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_0_JSON_to_Excel
+[2026-05-07 12:35:43] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 12:35:43] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 12:35:44] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 12:35:44] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_1_R1_PDF_Downloader
+[2026-05-07 12:35:44] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 12:35:45] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 12:36:03] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 12:36:03] main_import begin tab=📲  IMS uid=_suite_mod_2_IMS_Downloader
+[2026-05-07 12:36:03] main_import success tab=📲  IMS class=App
+[2026-05-07 12:36:03] instantiate success tab=📲  IMS instance=App
+[2026-05-07 12:37:02] dependency warmup start
+[2026-05-07 12:37:02] warmup ok pandas
+[2026-05-07 12:37:02] warmup ok numpy
+[2026-05-07 12:37:03] warmup ok openpyxl
+[2026-05-07 12:37:03] warmup ok fitz
+[2026-05-07 12:37:03] warmup ok pdfplumber
+[2026-05-07 12:37:03] warmup ok pdfminer
+[2026-05-07 12:37:03] warmup ok selenium
+[2026-05-07 12:37:03] warmup ok webdriver_manager
+[2026-05-07 12:37:03] warmup ok requests
+[2026-05-07 12:37:03] warmup ok PIL
+[2026-05-07 12:37:03] dependency warmup done
+[2026-05-07 12:37:24] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 12:37:24] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 12:37:24] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 12:37:25] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 12:37:26] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 12:37:26] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 12:37:26] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 12:37:27] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 12:43:04] dependency warmup start
+[2026-05-07 12:43:05] warmup ok pandas
+[2026-05-07 12:43:05] warmup ok numpy
+[2026-05-07 12:43:05] warmup ok openpyxl
+[2026-05-07 12:43:05] warmup ok fitz
+[2026-05-07 12:43:06] warmup ok pdfplumber
+[2026-05-07 12:43:06] warmup ok pdfminer
+[2026-05-07 12:43:06] warmup ok selenium
+[2026-05-07 12:43:06] warmup ok webdriver_manager
+[2026-05-07 12:43:06] warmup ok requests
+[2026-05-07 12:43:06] warmup ok PIL
+[2026-05-07 12:43:06] dependency warmup done
+[2026-05-07 12:43:08] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 12:43:08] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 12:43:08] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 12:43:08] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 12:43:28] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 12:43:28] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 12:43:28] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 12:43:29] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 12:44:11] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 12:44:12] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-07 12:44:12] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 12:44:12] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 12:44:18] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 12:44:18] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-07 12:44:18] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 12:44:19] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 12:44:22] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 12:44:22] main_import begin tab=📲  IMS uid=_suite_mod_4_IMS_Downloader
+[2026-05-07 12:44:22] main_import success tab=📲  IMS class=App
+[2026-05-07 12:44:22] instantiate success tab=📲  IMS instance=App
+[2026-05-07 12:44:35] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-07 12:44:35] main_import begin tab=📥  GSTR 2B uid=_suite_mod_5_GST_2B_Downloader
+[2026-05-07 12:44:35] main_import success tab=📥  GSTR 2B class=App
+[2026-05-07 12:44:35] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-07 12:44:38] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-07 12:44:38] main_import begin tab=📥  GSTR 3B uid=_suite_mod_6_GST_3B_Downloader
+[2026-05-07 12:44:38] main_import success tab=📥  GSTR 3B class=App
+[2026-05-07 12:44:39] instantiate success tab=📥  GSTR 3B instance=App
+[2026-05-07 12:44:41] activate_tab start cat=gst tab=📊  GSTR 3B to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B to Excel\main.py exists=True tk=False
+[2026-05-07 12:44:41] main_import begin tab=📊  GSTR 3B to Excel uid=_suite_mod_7_GST_3B_to_Excel
+[2026-05-07 12:44:41] main_import success tab=📊  GSTR 3B to Excel class=GSTR3BConverterPro
+[2026-05-07 12:44:41] instantiate success tab=📊  GSTR 3B to Excel instance=GSTR3BConverterPro
+[2026-05-07 12:44:48] activate_tab start cat=gst tab=🔄  GST Reco module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST_RECO\mainpy-reco-speqtra.py exists=True tk=False
+[2026-05-07 12:44:48] main_import begin tab=🔄  GST Reco uid=_suite_mod_8_GST_RECO
+[2026-05-07 12:44:48] main_import success tab=🔄  GST Reco class=App
+[2026-05-07 12:44:48] instantiate success tab=🔄  GST Reco instance=_Handle
+[2026-05-07 12:44:50] activate_tab start cat=gst tab=💰  GST Challan module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Challan Downloader\main.py exists=True tk=False
+[2026-05-07 12:44:50] main_import begin tab=💰  GST Challan uid=_suite_mod_9_GST_Challan_Downloader
+[2026-05-07 12:44:50] main_import success tab=💰  GST Challan class=App
+[2026-05-07 12:44:51] instantiate success tab=💰  GST Challan instance=App
+[2026-05-07 12:59:01] dependency warmup start
+[2026-05-07 12:59:02] warmup ok pandas
+[2026-05-07 12:59:02] warmup ok numpy
+[2026-05-07 12:59:02] warmup ok openpyxl
+[2026-05-07 12:59:02] warmup ok fitz
+[2026-05-07 12:59:02] warmup ok pdfplumber
+[2026-05-07 12:59:02] warmup ok pdfminer
+[2026-05-07 12:59:02] warmup ok selenium
+[2026-05-07 12:59:02] warmup ok webdriver_manager
+[2026-05-07 12:59:02] warmup ok requests
+[2026-05-07 12:59:02] warmup ok PIL
+[2026-05-07 12:59:02] dependency warmup done
+[2026-05-07 12:59:09] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 12:59:09] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 12:59:09] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 12:59:09] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 12:59:27] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 12:59:27] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 12:59:27] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 12:59:28] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 12:59:37] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 12:59:37] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-07 12:59:37] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 12:59:37] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 12:59:38] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 12:59:38] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-07 12:59:38] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 12:59:39] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 13:01:55] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 13:01:55] main_import begin tab=📲  IMS uid=_suite_mod_4_IMS_Downloader
+[2026-05-07 13:01:55] main_import success tab=📲  IMS class=App
+[2026-05-07 13:01:55] instantiate success tab=📲  IMS instance=App
+[2026-05-07 13:10:43] dependency warmup start
+[2026-05-07 13:10:44] warmup ok pandas
+[2026-05-07 13:10:44] warmup ok numpy
+[2026-05-07 13:10:44] warmup ok openpyxl
+[2026-05-07 13:10:44] warmup ok fitz
+[2026-05-07 13:10:44] warmup ok pdfplumber
+[2026-05-07 13:10:44] warmup ok pdfminer
+[2026-05-07 13:10:44] warmup ok selenium
+[2026-05-07 13:10:44] warmup ok webdriver_manager
+[2026-05-07 13:10:44] warmup ok requests
+[2026-05-07 13:10:44] warmup ok PIL
+[2026-05-07 13:10:44] dependency warmup done
+[2026-05-07 13:10:48] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 13:10:48] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 13:10:48] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 13:10:48] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 13:13:13] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 13:13:13] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 13:13:13] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 13:13:14] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 13:13:16] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 13:13:16] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-07 13:13:16] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 13:13:16] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 13:14:55] dependency warmup start
+[2026-05-07 13:14:56] warmup ok pandas
+[2026-05-07 13:14:56] warmup ok numpy
+[2026-05-07 13:14:56] warmup ok openpyxl
+[2026-05-07 13:14:56] warmup ok fitz
+[2026-05-07 13:14:57] warmup ok pdfplumber
+[2026-05-07 13:14:57] warmup ok pdfminer
+[2026-05-07 13:14:57] warmup ok selenium
+[2026-05-07 13:14:57] warmup ok webdriver_manager
+[2026-05-07 13:14:57] warmup ok requests
+[2026-05-07 13:14:57] warmup ok PIL
+[2026-05-07 13:14:57] dependency warmup done
+[2026-05-07 13:14:59] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 13:14:59] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 13:15:00] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 13:15:00] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 13:15:02] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 13:15:02] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 13:15:02] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 13:15:03] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 13:15:07] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 13:15:08] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-07 13:15:08] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 13:15:08] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 13:16:14] dependency warmup start
+[2026-05-07 13:16:15] warmup ok pandas
+[2026-05-07 13:16:15] warmup ok numpy
+[2026-05-07 13:16:15] warmup ok openpyxl
+[2026-05-07 13:16:15] warmup ok fitz
+[2026-05-07 13:16:15] warmup ok pdfplumber
+[2026-05-07 13:16:15] warmup ok pdfminer
+[2026-05-07 13:16:15] warmup ok selenium
+[2026-05-07 13:16:15] warmup ok webdriver_manager
+[2026-05-07 13:16:15] warmup ok requests
+[2026-05-07 13:16:15] warmup ok PIL
+[2026-05-07 13:16:15] dependency warmup done
+[2026-05-07 13:16:18] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 13:16:18] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_0_GST_R1_Downloader
+[2026-05-07 13:16:18] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 13:16:19] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 13:16:34] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 13:16:34] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_1_JSON_to_Excel
+[2026-05-07 13:16:34] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 13:16:34] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 13:16:35] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 13:16:36] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_2_R1_PDF_Downloader
+[2026-05-07 13:16:36] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 13:16:36] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 13:22:21] dependency warmup start
+[2026-05-07 13:22:22] warmup ok pandas
+[2026-05-07 13:22:22] warmup ok numpy
+[2026-05-07 13:22:22] warmup ok openpyxl
+[2026-05-07 13:22:22] warmup ok fitz
+[2026-05-07 13:22:22] warmup ok pdfplumber
+[2026-05-07 13:22:22] warmup ok pdfminer
+[2026-05-07 13:22:22] warmup ok selenium
+[2026-05-07 13:22:22] warmup ok webdriver_manager
+[2026-05-07 13:22:22] warmup ok requests
+[2026-05-07 13:22:22] warmup ok PIL
+[2026-05-07 13:22:22] dependency warmup done
+[2026-05-07 13:22:43] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 13:22:43] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 13:22:43] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 13:22:43] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 13:22:44] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 13:22:44] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 13:22:44] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 13:22:45] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 13:26:17] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 13:26:17] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-07 13:26:17] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 13:26:18] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 13:26:19] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 13:26:19] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-07 13:26:19] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 13:26:20] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 13:26:28] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 13:26:28] main_import begin tab=📲  IMS uid=_suite_mod_4_IMS_Downloader
+[2026-05-07 13:26:28] main_import success tab=📲  IMS class=App
+[2026-05-07 13:26:28] instantiate success tab=📲  IMS instance=App
+[2026-05-07 13:26:30] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-07 13:26:30] main_import begin tab=📥  GSTR 2B uid=_suite_mod_5_GST_2B_Downloader
+[2026-05-07 13:26:30] main_import success tab=📥  GSTR 2B class=App
+[2026-05-07 13:26:31] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-07 13:26:33] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-07 13:26:33] main_import begin tab=📥  GSTR 3B uid=_suite_mod_6_GST_3B_Downloader
+[2026-05-07 13:26:33] main_import success tab=📥  GSTR 3B class=App
+[2026-05-07 13:26:33] instantiate success tab=📥  GSTR 3B instance=App
+[2026-05-07 13:26:39] activate_tab start cat=gst tab=📊  GSTR 3B to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B to Excel\main.py exists=True tk=False
+[2026-05-07 13:26:39] main_import begin tab=📊  GSTR 3B to Excel uid=_suite_mod_7_GST_3B_to_Excel
+[2026-05-07 13:26:39] main_import success tab=📊  GSTR 3B to Excel class=GSTR3BConverterPro
+[2026-05-07 13:26:39] instantiate success tab=📊  GSTR 3B to Excel instance=GSTR3BConverterPro
+[2026-05-07 13:31:02] dependency warmup start
+[2026-05-07 13:31:03] warmup ok pandas
+[2026-05-07 13:31:03] warmup ok numpy
+[2026-05-07 13:31:04] warmup ok openpyxl
+[2026-05-07 13:31:04] warmup ok fitz
+[2026-05-07 13:31:05] warmup ok pdfplumber
+[2026-05-07 13:31:05] warmup ok pdfminer
+[2026-05-07 13:31:05] warmup ok selenium
+[2026-05-07 13:31:05] warmup ok webdriver_manager
+[2026-05-07 13:31:05] warmup ok requests
+[2026-05-07 13:31:05] warmup ok PIL
+[2026-05-07 13:31:05] dependency warmup done
+[2026-05-07 13:31:10] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 13:31:10] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 13:31:10] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 13:31:10] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 13:39:44] dependency warmup start
+[2026-05-07 13:39:46] warmup ok pandas
+[2026-05-07 13:39:46] warmup ok numpy
+[2026-05-07 13:39:46] warmup ok openpyxl
+[2026-05-07 13:39:46] warmup ok fitz
+[2026-05-07 13:39:47] warmup ok pdfplumber
+[2026-05-07 13:39:47] warmup ok pdfminer
+[2026-05-07 13:39:47] warmup ok selenium
+[2026-05-07 13:39:47] warmup ok webdriver_manager
+[2026-05-07 13:39:47] warmup ok requests
+[2026-05-07 13:39:47] warmup ok PIL
+[2026-05-07 13:39:47] dependency warmup done
+[2026-05-07 13:39:50] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 13:39:50] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 13:39:50] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 13:39:50] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 13:45:12] dependency warmup start
+[2026-05-07 13:45:14] warmup ok pandas
+[2026-05-07 13:45:14] warmup ok numpy
+[2026-05-07 13:45:15] warmup ok openpyxl
+[2026-05-07 13:45:15] warmup ok fitz
+[2026-05-07 13:45:15] warmup ok pdfplumber
+[2026-05-07 13:45:15] warmup ok pdfminer
+[2026-05-07 13:45:15] warmup ok selenium
+[2026-05-07 13:45:15] warmup ok webdriver_manager
+[2026-05-07 13:45:15] warmup ok requests
+[2026-05-07 13:45:15] warmup ok PIL
+[2026-05-07 13:45:15] dependency warmup done
+[2026-05-07 13:45:19] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 13:45:19] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 13:45:20] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 13:45:20] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 14:57:08] dependency warmup start
+[2026-05-07 14:57:09] warmup ok pandas
+[2026-05-07 14:57:09] warmup ok numpy
+[2026-05-07 14:57:09] warmup ok openpyxl
+[2026-05-07 14:57:09] warmup ok fitz
+[2026-05-07 14:57:10] warmup ok pdfplumber
+[2026-05-07 14:57:10] warmup ok pdfminer
+[2026-05-07 14:57:10] warmup ok selenium
+[2026-05-07 14:57:10] warmup ok webdriver_manager
+[2026-05-07 14:57:10] warmup ok requests
+[2026-05-07 14:57:10] warmup ok PIL
+[2026-05-07 14:57:10] dependency warmup done
+[2026-05-07 14:57:16] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 14:57:16] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 14:57:16] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 14:57:16] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 14:58:03] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 14:58:03] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 14:58:03] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 14:58:04] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 14:59:54] dependency warmup start
+[2026-05-07 14:59:55] warmup ok pandas
+[2026-05-07 14:59:55] warmup ok numpy
+[2026-05-07 14:59:55] warmup ok openpyxl
+[2026-05-07 14:59:55] warmup ok fitz
+[2026-05-07 14:59:55] warmup ok pdfplumber
+[2026-05-07 14:59:55] warmup ok pdfminer
+[2026-05-07 14:59:55] warmup ok selenium
+[2026-05-07 14:59:55] warmup ok webdriver_manager
+[2026-05-07 14:59:55] warmup ok requests
+[2026-05-07 14:59:55] warmup ok PIL
+[2026-05-07 14:59:55] dependency warmup done
+[2026-05-07 15:01:10] dependency warmup start
+[2026-05-07 15:01:11] warmup ok pandas
+[2026-05-07 15:01:11] warmup ok numpy
+[2026-05-07 15:01:11] warmup ok openpyxl
+[2026-05-07 15:01:11] warmup ok fitz
+[2026-05-07 15:01:12] warmup ok pdfplumber
+[2026-05-07 15:01:12] warmup ok pdfminer
+[2026-05-07 15:01:12] warmup ok selenium
+[2026-05-07 15:01:12] warmup ok webdriver_manager
+[2026-05-07 15:01:12] warmup ok requests
+[2026-05-07 15:01:12] warmup ok PIL
+[2026-05-07 15:01:12] dependency warmup done
+[2026-05-07 15:01:14] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 15:01:14] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 15:01:14] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 15:01:15] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 15:01:17] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 15:01:17] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 15:01:17] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 15:01:18] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 15:01:43] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 15:01:43] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-07 15:01:43] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 15:01:44] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 15:01:44] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 15:01:45] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-07 15:01:45] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 15:01:45] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 15:01:57] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 15:01:57] main_import begin tab=📲  IMS uid=_suite_mod_4_IMS_Downloader
+[2026-05-07 15:01:57] main_import success tab=📲  IMS class=App
+[2026-05-07 15:01:57] instantiate success tab=📲  IMS instance=App
+[2026-05-07 15:02:08] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-07 15:02:08] main_import begin tab=📥  GSTR 2B uid=_suite_mod_5_GST_2B_Downloader
+[2026-05-07 15:02:08] main_import success tab=📥  GSTR 2B class=App
+[2026-05-07 15:02:09] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-07 15:02:18] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-07 15:02:18] main_import begin tab=📥  GSTR 3B uid=_suite_mod_6_GST_3B_Downloader
+[2026-05-07 15:02:18] main_import success tab=📥  GSTR 3B class=App
+[2026-05-07 15:02:18] instantiate success tab=📥  GSTR 3B instance=App
+[2026-05-07 15:02:25] activate_tab start cat=gst tab=📊  GSTR 3B to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B to Excel\main.py exists=True tk=False
+[2026-05-07 15:02:25] main_import begin tab=📊  GSTR 3B to Excel uid=_suite_mod_7_GST_3B_to_Excel
+[2026-05-07 15:02:25] main_import success tab=📊  GSTR 3B to Excel class=GSTR3BConverterPro
+[2026-05-07 15:02:25] instantiate success tab=📊  GSTR 3B to Excel instance=GSTR3BConverterPro
+[2026-05-07 15:02:27] activate_tab start cat=gst tab=🔄  GST Reco module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST_RECO\mainpy-reco-speqtra.py exists=True tk=False
+[2026-05-07 15:02:27] main_import begin tab=🔄  GST Reco uid=_suite_mod_8_GST_RECO
+[2026-05-07 15:02:27] main_import success tab=🔄  GST Reco class=App
+[2026-05-07 15:02:27] instantiate success tab=🔄  GST Reco instance=_Handle
+[2026-05-07 15:02:28] activate_tab start cat=gst tab=💰  GST Challan module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Challan Downloader\main.py exists=True tk=False
+[2026-05-07 15:02:28] main_import begin tab=💰  GST Challan uid=_suite_mod_9_GST_Challan_Downloader
+[2026-05-07 15:02:28] main_import success tab=💰  GST Challan class=App
+[2026-05-07 15:02:29] instantiate success tab=💰  GST Challan instance=App
+[2026-05-07 15:03:34] dependency warmup start
+[2026-05-07 15:03:35] warmup ok pandas
+[2026-05-07 15:03:35] warmup ok numpy
+[2026-05-07 15:03:35] warmup ok openpyxl
+[2026-05-07 15:03:35] warmup ok fitz
+[2026-05-07 15:03:36] warmup ok pdfplumber
+[2026-05-07 15:03:36] warmup ok pdfminer
+[2026-05-07 15:03:36] warmup ok selenium
+[2026-05-07 15:03:36] warmup ok webdriver_manager
+[2026-05-07 15:03:36] warmup ok requests
+[2026-05-07 15:03:36] warmup ok PIL
+[2026-05-07 15:03:36] dependency warmup done
+[2026-05-07 15:03:38] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 15:03:38] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 15:03:38] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 15:03:38] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 15:03:39] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 15:03:40] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 15:03:40] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 15:03:40] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 15:03:59] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 15:03:59] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-07 15:03:59] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 15:03:59] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 15:04:00] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 15:04:00] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-07 15:04:00] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 15:04:01] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 15:06:25] dependency warmup start
+[2026-05-07 15:06:26] warmup ok pandas
+[2026-05-07 15:06:26] warmup ok numpy
+[2026-05-07 15:06:26] warmup ok openpyxl
+[2026-05-07 15:06:26] warmup ok fitz
+[2026-05-07 15:06:26] warmup ok pdfplumber
+[2026-05-07 15:06:26] warmup ok pdfminer
+[2026-05-07 15:06:26] warmup ok selenium
+[2026-05-07 15:06:26] warmup ok webdriver_manager
+[2026-05-07 15:06:27] warmup ok requests
+[2026-05-07 15:06:27] warmup ok PIL
+[2026-05-07 15:06:27] dependency warmup done
+[2026-05-07 15:06:29] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 15:06:29] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 15:06:29] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 15:06:29] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 15:07:52] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 15:07:52] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_1_R1_PDF_Downloader
+[2026-05-07 15:07:52] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 15:07:53] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 15:12:51] dependency warmup start
+[2026-05-07 15:12:52] warmup ok pandas
+[2026-05-07 15:12:52] warmup ok numpy
+[2026-05-07 15:12:52] warmup ok openpyxl
+[2026-05-07 15:12:52] warmup ok fitz
+[2026-05-07 15:12:52] warmup ok pdfplumber
+[2026-05-07 15:12:52] warmup ok pdfminer
+[2026-05-07 15:12:52] warmup ok selenium
+[2026-05-07 15:12:52] warmup ok webdriver_manager
+[2026-05-07 15:12:52] warmup ok requests
+[2026-05-07 15:12:52] warmup ok PIL
+[2026-05-07 15:12:52] dependency warmup done
+[2026-05-07 15:12:55] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 15:12:55] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 15:12:56] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 15:12:56] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 15:12:58] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 15:12:58] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 15:12:58] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 15:12:59] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 15:15:45] dependency warmup start
+[2026-05-07 15:15:45] warmup ok pandas
+[2026-05-07 15:15:45] warmup ok numpy
+[2026-05-07 15:15:45] warmup ok openpyxl
+[2026-05-07 15:15:46] warmup ok fitz
+[2026-05-07 15:15:46] warmup ok pdfplumber
+[2026-05-07 15:15:46] warmup ok pdfminer
+[2026-05-07 15:15:46] warmup ok selenium
+[2026-05-07 15:15:46] warmup ok webdriver_manager
+[2026-05-07 15:15:46] warmup ok requests
+[2026-05-07 15:15:46] warmup ok PIL
+[2026-05-07 15:15:46] dependency warmup done
+[2026-05-07 15:15:55] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 15:15:55] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 15:15:55] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 15:15:55] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 15:16:24] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 15:16:24] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 15:16:24] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 15:16:25] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 15:16:26] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 15:16:26] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-07 15:16:26] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 15:16:26] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 15:16:28] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 15:16:28] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-07 15:16:28] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 15:16:29] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 15:16:29] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 15:16:29] main_import begin tab=📲  IMS uid=_suite_mod_4_IMS_Downloader
+[2026-05-07 15:16:29] main_import success tab=📲  IMS class=App
+[2026-05-07 15:16:29] load error tab=📲  IMS: AttributeError: 'App' object has no attribute 'btn_delete_id'
+[2026-05-07 15:16:32] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-07 15:16:33] main_import begin tab=📥  GSTR 2B uid=_suite_mod_5_GST_2B_Downloader
+[2026-05-07 15:16:33] main_import success tab=📥  GSTR 2B class=App
+[2026-05-07 15:16:33] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-07 15:16:34] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-07 15:16:34] main_import begin tab=📥  GSTR 3B uid=_suite_mod_6_GST_3B_Downloader
+[2026-05-07 15:16:34] main_import success tab=📥  GSTR 3B class=App
+[2026-05-07 15:16:35] instantiate success tab=📥  GSTR 3B instance=App
+[2026-05-07 15:19:11] activate_tab start cat=gst tab=📊  GSTR 3B to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B to Excel\main.py exists=True tk=False
+[2026-05-07 15:19:11] main_import begin tab=📊  GSTR 3B to Excel uid=_suite_mod_7_GST_3B_to_Excel
+[2026-05-07 15:19:11] main_import success tab=📊  GSTR 3B to Excel class=GSTR3BConverterPro
+[2026-05-07 15:19:11] instantiate success tab=📊  GSTR 3B to Excel instance=GSTR3BConverterPro
+[2026-05-07 15:19:12] activate_tab start cat=gst tab=🔄  GST Reco module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST_RECO\mainpy-reco-speqtra.py exists=True tk=False
+[2026-05-07 15:19:13] main_import begin tab=🔄  GST Reco uid=_suite_mod_8_GST_RECO
+[2026-05-07 15:19:13] main_import success tab=🔄  GST Reco class=App
+[2026-05-07 15:19:13] instantiate success tab=🔄  GST Reco instance=_Handle
+[2026-05-07 15:19:13] activate_tab start cat=gst tab=💰  GST Challan module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Challan Downloader\main.py exists=True tk=False
+[2026-05-07 15:19:14] main_import begin tab=💰  GST Challan uid=_suite_mod_9_GST_Challan_Downloader
+[2026-05-07 15:19:14] main_import success tab=💰  GST Challan class=App
+[2026-05-07 15:19:14] instantiate success tab=💰  GST Challan instance=App
+[2026-05-07 15:19:17] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 15:19:17] main_import cache_hit tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py
+[2026-05-07 15:19:17] load error tab=📲  IMS: AttributeError: 'App' object has no attribute 'btn_delete_id'
+[2026-05-07 15:21:11] dependency warmup start
+[2026-05-07 15:21:12] warmup ok pandas
+[2026-05-07 15:21:12] warmup ok numpy
+[2026-05-07 15:21:13] warmup ok openpyxl
+[2026-05-07 15:21:13] warmup ok fitz
+[2026-05-07 15:21:13] warmup ok pdfplumber
+[2026-05-07 15:21:13] warmup ok pdfminer
+[2026-05-07 15:21:13] warmup ok selenium
+[2026-05-07 15:21:13] warmup ok webdriver_manager
+[2026-05-07 15:21:13] warmup ok requests
+[2026-05-07 15:21:13] warmup ok PIL
+[2026-05-07 15:21:13] dependency warmup done
+[2026-05-07 15:21:17] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 15:21:17] main_import begin tab=📲  IMS uid=_suite_mod_0_IMS_Downloader
+[2026-05-07 15:21:18] main_import success tab=📲  IMS class=App
+[2026-05-07 15:21:18] instantiate success tab=📲  IMS instance=App
+[2026-05-07 15:22:21] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-07 15:22:21] main_import begin tab=📥  GSTR 2B uid=_suite_mod_1_GST_2B_Downloader
+[2026-05-07 15:22:21] main_import success tab=📥  GSTR 2B class=App
+[2026-05-07 15:22:22] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-07 15:22:28] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-07 15:22:28] main_import begin tab=📥  GSTR 3B uid=_suite_mod_2_GST_3B_Downloader
+[2026-05-07 15:22:28] main_import success tab=📥  GSTR 3B class=App
+[2026-05-07 15:22:28] instantiate success tab=📥  GSTR 3B instance=App
+[2026-05-07 15:22:31] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 15:22:31] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-07 15:22:31] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 15:22:32] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 15:22:34] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 15:22:34] main_import begin tab=🤖  GST Verifier uid=_suite_mod_4_GST_Bot
+[2026-05-07 15:22:34] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 15:22:34] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 15:29:08] dependency warmup start
+[2026-05-07 15:29:08] warmup ok pandas
+[2026-05-07 15:29:08] warmup ok numpy
+[2026-05-07 15:29:09] warmup ok openpyxl
+[2026-05-07 15:29:09] warmup ok fitz
+[2026-05-07 15:29:09] warmup ok pdfplumber
+[2026-05-07 15:29:09] warmup ok pdfminer
+[2026-05-07 15:29:09] warmup ok selenium
+[2026-05-07 15:29:09] warmup ok webdriver_manager
+[2026-05-07 15:29:09] warmup ok requests
+[2026-05-07 15:29:09] warmup ok PIL
+[2026-05-07 15:29:09] dependency warmup done
+[2026-05-07 15:29:13] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 15:29:13] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 15:29:14] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 15:29:14] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 15:31:56] dependency warmup start
+[2026-05-07 15:31:57] warmup ok pandas
+[2026-05-07 15:31:57] warmup ok numpy
+[2026-05-07 15:31:58] warmup ok openpyxl
+[2026-05-07 15:31:58] warmup ok fitz
+[2026-05-07 15:31:58] warmup ok pdfplumber
+[2026-05-07 15:31:58] warmup ok pdfminer
+[2026-05-07 15:31:58] warmup ok selenium
+[2026-05-07 15:31:58] warmup ok webdriver_manager
+[2026-05-07 15:31:58] warmup ok requests
+[2026-05-07 15:31:58] warmup ok PIL
+[2026-05-07 15:31:58] dependency warmup done
+[2026-05-07 15:32:00] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 15:32:00] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 15:32:00] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 15:32:00] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 15:32:46] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 15:32:47] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_1_JSON_to_Excel
+[2026-05-07 15:32:47] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 15:32:47] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 15:32:47] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 15:32:48] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_2_R1_PDF_Downloader
+[2026-05-07 15:32:48] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 15:32:48] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 15:32:50] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 15:32:50] main_import begin tab=📲  IMS uid=_suite_mod_3_IMS_Downloader
+[2026-05-07 15:32:50] main_import success tab=📲  IMS class=App
+[2026-05-07 15:32:50] instantiate success tab=📲  IMS instance=App
+[2026-05-07 15:38:22] dependency warmup start
+[2026-05-07 15:38:23] warmup ok pandas
+[2026-05-07 15:38:23] warmup ok numpy
+[2026-05-07 15:38:23] warmup ok openpyxl
+[2026-05-07 15:38:23] warmup ok fitz
+[2026-05-07 15:38:23] warmup ok pdfplumber
+[2026-05-07 15:38:23] warmup ok pdfminer
+[2026-05-07 15:38:23] warmup ok selenium
+[2026-05-07 15:38:23] warmup ok webdriver_manager
+[2026-05-07 15:38:23] warmup ok requests
+[2026-05-07 15:38:23] warmup ok PIL
+[2026-05-07 15:38:23] dependency warmup done
+[2026-05-07 15:38:27] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 15:38:27] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_0_JSON_to_Excel
+[2026-05-07 15:38:27] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 15:38:27] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 15:38:28] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 15:38:28] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 15:38:29] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 15:38:29] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 15:39:01] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 15:39:01] main_import begin tab=🤖  GST Verifier uid=_suite_mod_2_GST_Bot
+[2026-05-07 15:39:01] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 15:39:01] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 15:44:52] dependency warmup start
+[2026-05-07 15:44:53] warmup ok pandas
+[2026-05-07 15:44:53] warmup ok numpy
+[2026-05-07 15:44:53] warmup ok openpyxl
+[2026-05-07 15:44:53] warmup ok fitz
+[2026-05-07 15:44:53] warmup ok pdfplumber
+[2026-05-07 15:44:53] warmup ok pdfminer
+[2026-05-07 15:44:53] warmup ok selenium
+[2026-05-07 15:44:53] warmup ok webdriver_manager
+[2026-05-07 15:44:53] warmup ok requests
+[2026-05-07 15:44:53] warmup ok PIL
+[2026-05-07 15:44:53] dependency warmup done
+[2026-05-07 15:44:56] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 15:44:56] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 15:44:56] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 15:44:56] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 15:45:11] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-07 15:45:11] main_import begin tab=📥  GSTR 2B uid=_suite_mod_1_GST_2B_Downloader
+[2026-05-07 15:45:11] main_import success tab=📥  GSTR 2B class=App
+[2026-05-07 15:45:12] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-07 15:48:57] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 15:48:57] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_2_JSON_to_Excel
+[2026-05-07 15:48:57] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 15:48:57] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 15:48:58] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 15:48:58] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_3_R1_PDF_Downloader
+[2026-05-07 15:48:58] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 15:48:59] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 15:49:01] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-07 15:49:01] main_import begin tab=📥  GSTR 3B uid=_suite_mod_4_GST_3B_Downloader
+[2026-05-07 15:49:01] main_import success tab=📥  GSTR 3B class=App
+[2026-05-07 15:49:02] instantiate success tab=📥  GSTR 3B instance=App
+[2026-05-07 15:49:03] activate_tab start cat=gst tab=📊  GSTR 3B to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B to Excel\main.py exists=True tk=False
+[2026-05-07 15:49:03] main_import begin tab=📊  GSTR 3B to Excel uid=_suite_mod_5_GST_3B_to_Excel
+[2026-05-07 15:49:03] main_import success tab=📊  GSTR 3B to Excel class=GSTR3BConverterPro
+[2026-05-07 15:49:03] instantiate success tab=📊  GSTR 3B to Excel instance=GSTR3BConverterPro
+[2026-05-07 15:49:04] activate_tab start cat=gst tab=🔄  GST Reco module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST_RECO\mainpy-reco-speqtra.py exists=True tk=False
+[2026-05-07 15:49:04] main_import begin tab=🔄  GST Reco uid=_suite_mod_6_GST_RECO
+[2026-05-07 15:49:04] main_import success tab=🔄  GST Reco class=App
+[2026-05-07 15:49:04] instantiate success tab=🔄  GST Reco instance=_Handle
+[2026-05-07 15:49:04] activate_tab start cat=gst tab=💰  GST Challan module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Challan Downloader\main.py exists=True tk=False
+[2026-05-07 15:49:05] main_import begin tab=💰  GST Challan uid=_suite_mod_7_GST_Challan_Downloader
+[2026-05-07 15:49:05] main_import success tab=💰  GST Challan class=App
+[2026-05-07 15:49:05] instantiate success tab=💰  GST Challan instance=App
+[2026-05-07 15:49:09] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 15:49:09] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_8_GST_R1_Downloader
+[2026-05-07 15:49:09] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 15:49:09] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 15:57:21] dependency warmup start
+[2026-05-07 15:57:21] warmup ok pandas
+[2026-05-07 15:57:21] warmup ok numpy
+[2026-05-07 15:57:22] warmup ok openpyxl
+[2026-05-07 15:57:22] warmup ok fitz
+[2026-05-07 15:57:22] warmup ok pdfplumber
+[2026-05-07 15:57:22] warmup ok pdfminer
+[2026-05-07 15:57:22] warmup ok selenium
+[2026-05-07 15:57:22] warmup ok webdriver_manager
+[2026-05-07 15:57:22] warmup ok requests
+[2026-05-07 15:57:22] warmup ok PIL
+[2026-05-07 15:57:22] dependency warmup done
+[2026-05-07 16:02:05] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 16:02:05] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_0_GST_R1_Downloader
+[2026-05-07 16:02:05] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 16:02:06] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 16:07:09] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 16:07:10] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_1_R1_PDF_Downloader
+[2026-05-07 16:07:10] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 16:07:11] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 16:07:38] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 16:07:38] main_import begin tab=📲  IMS uid=_suite_mod_2_IMS_Downloader
+[2026-05-07 16:07:38] main_import success tab=📲  IMS class=App
+[2026-05-07 16:07:38] instantiate success tab=📲  IMS instance=App
+[2026-05-07 16:11:18] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-07 16:11:18] main_import begin tab=📥  GSTR 2B uid=_suite_mod_3_GST_2B_Downloader
+[2026-05-07 16:11:18] main_import success tab=📥  GSTR 2B class=App
+[2026-05-07 16:11:19] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-07 16:14:54] activate_tab start cat=gst tab=📥  GSTR 3B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B Downloader\main.py exists=True tk=False
+[2026-05-07 16:14:54] main_import begin tab=📥  GSTR 3B uid=_suite_mod_4_GST_3B_Downloader
+[2026-05-07 16:14:54] main_import success tab=📥  GSTR 3B class=App
+[2026-05-07 16:14:55] instantiate success tab=📥  GSTR 3B instance=App
+[2026-05-07 16:24:42] activate_tab start cat=gst tab=📊  GSTR 3B to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 3B to Excel\main.py exists=True tk=False
+[2026-05-07 16:24:42] main_import begin tab=📊  GSTR 3B to Excel uid=_suite_mod_5_GST_3B_to_Excel
+[2026-05-07 16:24:42] main_import success tab=📊  GSTR 3B to Excel class=GSTR3BConverterPro
+[2026-05-07 16:24:42] instantiate success tab=📊  GSTR 3B to Excel instance=GSTR3BConverterPro
+[2026-05-07 16:25:30] activate_tab start cat=gst tab=🔄  GST Reco module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST_RECO\mainpy-reco-speqtra.py exists=True tk=False
+[2026-05-07 16:25:30] main_import begin tab=🔄  GST Reco uid=_suite_mod_6_GST_RECO
+[2026-05-07 16:25:30] main_import success tab=🔄  GST Reco class=App
+[2026-05-07 16:25:30] instantiate success tab=🔄  GST Reco instance=_Handle
+[2026-05-07 16:37:03] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 16:37:04] main_import begin tab=🤖  GST Verifier uid=_suite_mod_7_GST_Bot
+[2026-05-07 16:37:04] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 16:37:04] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 17:05:56] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 17:05:56] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_8_JSON_to_Excel
+[2026-05-07 17:05:56] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 17:05:57] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 17:11:31] dependency warmup start
+[2026-05-07 17:11:32] warmup ok pandas
+[2026-05-07 17:11:32] warmup ok numpy
+[2026-05-07 17:11:32] warmup ok openpyxl
+[2026-05-07 17:11:32] warmup ok fitz
+[2026-05-07 17:11:33] warmup ok pdfplumber
+[2026-05-07 17:11:33] warmup ok pdfminer
+[2026-05-07 17:11:33] warmup ok selenium
+[2026-05-07 17:11:33] warmup ok webdriver_manager
+[2026-05-07 17:11:33] warmup ok requests
+[2026-05-07 17:11:33] warmup ok PIL
+[2026-05-07 17:11:33] dependency warmup done
+[2026-05-07 17:11:38] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 17:11:38] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_0_R1_PDF_Downloader
+[2026-05-07 17:11:38] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 17:11:39] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 17:12:38] dependency warmup start
+[2026-05-07 17:12:39] warmup ok pandas
+[2026-05-07 17:12:39] warmup ok numpy
+[2026-05-07 17:12:39] warmup ok openpyxl
+[2026-05-07 17:12:40] warmup ok fitz
+[2026-05-07 17:12:40] warmup ok pdfplumber
+[2026-05-07 17:12:40] warmup ok pdfminer
+[2026-05-07 17:12:40] warmup ok selenium
+[2026-05-07 17:12:40] warmup ok webdriver_manager
+[2026-05-07 17:12:40] warmup ok requests
+[2026-05-07 17:12:40] warmup ok PIL
+[2026-05-07 17:12:40] dependency warmup done
+[2026-05-07 17:12:47] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-07 17:12:47] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_0_JSON_to_Excel
+[2026-05-07 17:12:47] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-07 17:12:47] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-07 17:12:49] activate_tab start cat=gst tab=📄  GSTR1 PDF module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\R1 PDF Downloader\main.py exists=True tk=False
+[2026-05-07 17:12:49] main_import begin tab=📄  GSTR1 PDF uid=_suite_mod_1_R1_PDF_Downloader
+[2026-05-07 17:12:49] main_import success tab=📄  GSTR1 PDF class=App
+[2026-05-07 17:12:50] instantiate success tab=📄  GSTR1 PDF instance=App
+[2026-05-07 17:18:44] dependency warmup start
+[2026-05-07 17:18:45] warmup ok pandas
+[2026-05-07 17:18:45] warmup ok numpy
+[2026-05-07 17:18:45] warmup ok openpyxl
+[2026-05-07 17:18:45] warmup ok fitz
+[2026-05-07 17:18:45] warmup ok pdfplumber
+[2026-05-07 17:18:45] warmup ok pdfminer
+[2026-05-07 17:18:45] warmup ok selenium
+[2026-05-07 17:18:45] warmup ok webdriver_manager
+[2026-05-07 17:18:45] warmup ok requests
+[2026-05-07 17:18:46] warmup ok PIL
+[2026-05-07 17:18:46] dependency warmup done
+[2026-05-07 17:18:57] activate_tab start cat=gst tab=📲  IMS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\IMS Downloader\main.py exists=True tk=False
+[2026-05-07 17:18:57] main_import begin tab=📲  IMS uid=_suite_mod_0_IMS_Downloader
+[2026-05-07 17:18:57] main_import success tab=📲  IMS class=App
+[2026-05-07 17:18:57] instantiate success tab=📲  IMS instance=App
+[2026-05-07 17:31:56] dependency warmup start
+[2026-05-07 17:31:57] warmup ok pandas
+[2026-05-07 17:31:57] warmup ok numpy
+[2026-05-07 17:31:57] warmup ok openpyxl
+[2026-05-07 17:31:57] warmup ok fitz
+[2026-05-07 17:31:57] warmup ok pdfplumber
+[2026-05-07 17:31:57] warmup ok pdfminer
+[2026-05-07 17:31:57] warmup ok selenium
+[2026-05-07 17:31:57] warmup ok webdriver_manager
+[2026-05-07 17:31:57] warmup ok requests
+[2026-05-07 17:31:57] warmup ok PIL
+[2026-05-07 17:31:57] dependency warmup done
+[2026-05-07 17:37:34] dependency warmup start
+[2026-05-07 17:37:35] warmup ok pandas
+[2026-05-07 17:37:35] warmup ok numpy
+[2026-05-07 17:37:36] warmup ok openpyxl
+[2026-05-07 17:37:36] warmup ok fitz
+[2026-05-07 17:37:36] warmup ok pdfplumber
+[2026-05-07 17:37:36] warmup ok pdfminer
+[2026-05-07 17:37:36] warmup ok selenium
+[2026-05-07 17:37:36] warmup ok webdriver_manager
+[2026-05-07 17:37:36] warmup ok requests
+[2026-05-07 17:37:36] warmup ok PIL
+[2026-05-07 17:37:36] dependency warmup done
+[2026-05-07 17:37:39] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-07 17:37:39] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-07 17:37:40] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-07 17:37:40] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-07 17:37:45] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-07 17:37:45] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-07 17:37:45] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-07 17:37:46] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-07 17:37:53] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-07 17:37:53] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_2_26_AS_Downlaoder
+[2026-05-07 17:37:53] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-07 17:37:54] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-07 17:38:24] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-07 17:38:24] main_import begin tab=💰  Challan Downloader uid=_suite_mod_3_Challan_Downloader
+[2026-05-07 17:38:26] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-07 17:38:26] main_import begin tab=🤖  ITR Bot uid=_suite_mod_3_ITR_-_Bot
+[2026-05-07 17:38:28] activate_tab start cat=it tab=🔍  Demand Checker module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\demand_checker_app.py exists=True tk=False
+[2026-05-07 17:38:28] main_import begin tab=🔍  Demand Checker uid=_suite_mod_3_Challan_Downloader
+[2026-05-07 17:38:28] main_import success tab=🔍  Demand Checker class=DemandCheckerApp
+[2026-05-07 17:38:28] instantiate success tab=🔍  Demand Checker instance=DemandCheckerApp
+[2026-05-07 17:38:31] activate_tab start cat=it tab=📊  Refund Checker module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\refund_checker_app.py exists=True tk=False
+[2026-05-07 17:38:31] main_import begin tab=📊  Refund Checker uid=_suite_mod_4_26_AS_Downlaoder
+[2026-05-07 17:38:31] main_import success tab=📊  Refund Checker class=RefundCheckerApp
+[2026-05-07 17:38:32] instantiate success tab=📊  Refund Checker instance=RefundCheckerApp
+[2026-05-07 17:38:39] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-07 17:38:39] main_import begin tab=🤖  ITR Bot uid=_suite_mod_5_ITR_-_Bot
+[2026-05-07 17:38:40] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-07 17:38:40] main_import begin tab=💰  Challan Downloader uid=_suite_mod_5_Challan_Downloader
+[2026-05-07 17:38:54] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-07 17:38:54] main_import begin tab=💰  Challan Downloader uid=_suite_mod_5_Challan_Downloader
+[2026-05-07 17:38:56] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-07 17:38:56] main_import begin tab=🤖  ITR Bot uid=_suite_mod_5_ITR_-_Bot
+[2026-05-07 17:50:28] dependency warmup start
+[2026-05-07 17:50:32] warmup ok pandas
+[2026-05-07 17:50:32] warmup ok numpy
+[2026-05-07 17:50:33] warmup ok openpyxl
+[2026-05-07 17:50:33] warmup ok fitz
+[2026-05-07 17:50:34] warmup ok pdfplumber
+[2026-05-07 17:50:34] warmup ok pdfminer
+[2026-05-07 17:50:34] warmup ok selenium
+[2026-05-07 17:50:34] warmup ok webdriver_manager
+[2026-05-07 17:50:34] warmup ok requests
+[2026-05-07 17:50:34] warmup ok PIL
+[2026-05-07 17:50:34] dependency warmup done
+[2026-05-07 18:05:10] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-07 18:05:10] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_0_26_AS_Downlaoder
+[2026-05-07 18:05:10] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-07 18:05:11] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-07 18:05:48] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-07 18:05:48] main_import begin tab=💰  Challan Downloader uid=_suite_mod_1_Challan_Downloader
+[2026-05-07 18:05:48] main_import success tab=💰  Challan Downloader class=App
+[2026-05-07 18:05:49] instantiate success tab=💰  Challan Downloader instance=App
+[2026-05-07 18:06:05] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-07 18:06:05] main_import begin tab=🤖  ITR Bot uid=_suite_mod_2_ITR_-_Bot
+[2026-05-07 18:06:05] main_import success tab=🤖  ITR Bot class=App
+[2026-05-07 18:06:05] instantiate success tab=🤖  ITR Bot instance=App
+[2026-05-07 18:06:09] activate_tab start cat=it tab=🔍  Demand Checker module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\demand_checker_app.py exists=True tk=False
+[2026-05-07 18:06:09] main_import begin tab=🔍  Demand Checker uid=_suite_mod_3_Challan_Downloader
+[2026-05-07 18:06:09] main_import success tab=🔍  Demand Checker class=DemandCheckerApp
+[2026-05-07 18:06:09] instantiate success tab=🔍  Demand Checker instance=DemandCheckerApp
+[2026-05-07 18:06:11] activate_tab start cat=it tab=📊  Refund Checker module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\refund_checker_app.py exists=True tk=False
+[2026-05-07 18:06:11] main_import begin tab=📊  Refund Checker uid=_suite_mod_4_26_AS_Downlaoder
+[2026-05-07 18:06:11] main_import success tab=📊  Refund Checker class=RefundCheckerApp
+[2026-05-07 18:06:11] instantiate success tab=📊  Refund Checker instance=RefundCheckerApp
+[2026-05-07 18:14:41] dependency warmup start
+[2026-05-07 18:14:42] warmup ok pandas
+[2026-05-07 18:14:42] warmup ok numpy
+[2026-05-07 18:14:42] warmup ok openpyxl
+[2026-05-07 18:14:42] warmup ok fitz
+[2026-05-07 18:14:42] warmup ok pdfplumber
+[2026-05-07 18:14:42] warmup ok pdfminer
+[2026-05-07 18:14:43] warmup ok selenium
+[2026-05-07 18:14:43] warmup ok webdriver_manager
+[2026-05-07 18:14:43] warmup ok requests
+[2026-05-07 18:14:43] warmup ok PIL
+[2026-05-07 18:14:43] dependency warmup done
+[2026-05-07 18:14:49] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-07 18:14:49] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_0_26_AS_Downlaoder
+[2026-05-07 18:14:49] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-07 18:14:50] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-07 18:14:53] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-07 18:14:53] main_import begin tab=💰  Challan Downloader uid=_suite_mod_1_Challan_Downloader
+[2026-05-07 18:14:53] main_import success tab=💰  Challan Downloader class=App
+[2026-05-07 18:14:54] instantiate success tab=💰  Challan Downloader instance=App
+[2026-05-07 18:14:56] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-07 18:14:56] main_import begin tab=🤖  ITR Bot uid=_suite_mod_2_ITR_-_Bot
+[2026-05-07 18:14:56] main_import success tab=🤖  ITR Bot class=App
+[2026-05-07 18:14:57] instantiate success tab=🤖  ITR Bot instance=App
+[2026-05-07 18:14:59] activate_tab start cat=it tab=🔍  Demand Checker module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\demand_checker_app.py exists=True tk=False
+[2026-05-07 18:14:59] main_import begin tab=🔍  Demand Checker uid=_suite_mod_3_Challan_Downloader
+[2026-05-07 18:14:59] main_import success tab=🔍  Demand Checker class=DemandCheckerApp
+[2026-05-07 18:15:00] instantiate success tab=🔍  Demand Checker instance=DemandCheckerApp
+[2026-05-07 18:15:01] activate_tab start cat=it tab=📊  Refund Checker module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\refund_checker_app.py exists=True tk=False
+[2026-05-07 18:15:01] main_import begin tab=📊  Refund Checker uid=_suite_mod_4_26_AS_Downlaoder
+[2026-05-07 18:15:02] main_import success tab=📊  Refund Checker class=RefundCheckerApp
+[2026-05-07 18:15:02] instantiate success tab=📊  Refund Checker instance=RefundCheckerApp
+[2026-05-07 18:17:38] dependency warmup start
+[2026-05-07 18:17:39] warmup ok pandas
+[2026-05-07 18:17:39] warmup ok numpy
+[2026-05-07 18:17:39] warmup ok openpyxl
+[2026-05-07 18:17:40] warmup ok fitz
+[2026-05-07 18:17:40] warmup ok pdfplumber
+[2026-05-07 18:17:40] warmup ok pdfminer
+[2026-05-07 18:17:40] warmup ok selenium
+[2026-05-07 18:17:40] warmup ok webdriver_manager
+[2026-05-07 18:17:40] warmup ok requests
+[2026-05-07 18:17:40] warmup ok PIL
+[2026-05-07 18:17:40] dependency warmup done
+[2026-05-07 18:19:37] dependency warmup start
+[2026-05-07 18:19:38] warmup ok pandas
+[2026-05-07 18:19:38] warmup ok numpy
+[2026-05-07 18:19:38] warmup ok openpyxl
+[2026-05-07 18:19:38] warmup ok fitz
+[2026-05-07 18:19:39] warmup ok pdfplumber
+[2026-05-07 18:19:39] warmup ok pdfminer
+[2026-05-07 18:19:39] warmup ok selenium
+[2026-05-07 18:19:39] warmup ok webdriver_manager
+[2026-05-07 18:19:39] warmup ok requests
+[2026-05-07 18:19:39] warmup ok PIL
+[2026-05-07 18:19:39] dependency warmup done
+[2026-05-07 18:24:22] dependency warmup start
+[2026-05-07 18:24:22] warmup ok pandas
+[2026-05-07 18:24:22] warmup ok numpy
+[2026-05-07 18:24:23] warmup ok openpyxl
+[2026-05-07 18:24:23] warmup ok fitz
+[2026-05-07 18:24:23] warmup ok pdfplumber
+[2026-05-07 18:24:23] warmup ok pdfminer
+[2026-05-07 18:24:23] warmup ok selenium
+[2026-05-07 18:24:23] warmup ok webdriver_manager
+[2026-05-07 18:24:23] warmup ok requests
+[2026-05-07 18:24:23] warmup ok PIL
+[2026-05-07 18:24:23] dependency warmup done
+[2026-05-07 18:26:48] dependency warmup start
+[2026-05-07 18:26:49] warmup ok pandas
+[2026-05-07 18:26:49] warmup ok numpy
+[2026-05-07 18:26:49] warmup ok openpyxl
+[2026-05-07 18:26:50] warmup ok fitz
+[2026-05-07 18:26:50] warmup ok pdfplumber
+[2026-05-07 18:26:50] warmup ok pdfminer
+[2026-05-07 18:26:50] warmup ok selenium
+[2026-05-07 18:26:50] warmup ok webdriver_manager
+[2026-05-07 18:26:50] warmup ok requests
+[2026-05-07 18:26:50] warmup ok PIL
+[2026-05-07 18:26:50] dependency warmup done
+[2026-05-07 18:27:16] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-07 18:27:17] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_0_26_AS_Downlaoder
+[2026-05-07 18:27:17] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-07 18:27:18] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-07 18:33:59] dependency warmup start
+[2026-05-07 18:34:00] warmup ok pandas
+[2026-05-07 18:34:00] warmup ok numpy
+[2026-05-07 18:34:00] warmup ok openpyxl
+[2026-05-07 18:34:01] warmup ok fitz
+[2026-05-07 18:34:01] warmup ok pdfplumber
+[2026-05-07 18:34:01] warmup ok pdfminer
+[2026-05-07 18:34:01] warmup ok selenium
+[2026-05-07 18:34:01] warmup ok webdriver_manager
+[2026-05-07 18:34:01] warmup ok requests
+[2026-05-07 18:34:01] warmup ok PIL
+[2026-05-07 18:34:01] dependency warmup done
+[2026-05-07 18:34:16] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-07 18:34:16] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_0_26_AS_Downlaoder
+[2026-05-07 18:34:18] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-07 18:34:18] main_import begin tab=💰  Challan Downloader uid=_suite_mod_0_Challan_Downloader
+[2026-05-07 18:34:18] main_import success tab=💰  Challan Downloader class=App
+[2026-05-07 18:34:19] instantiate success tab=💰  Challan Downloader instance=App
+[2026-05-07 18:34:25] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-07 18:34:25] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_1_26_AS_Downlaoder
+[2026-05-07 18:34:47] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-07 18:34:47] main_import begin tab=🤖  ITR Bot uid=_suite_mod_1_ITR_-_Bot
+[2026-05-07 18:34:47] main_import success tab=🤖  ITR Bot class=App
+[2026-05-07 18:34:47] instantiate success tab=🤖  ITR Bot instance=App
+[2026-05-07 18:34:48] activate_tab start cat=it tab=🔍  Demand Checker module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\demand_checker_app.py exists=True tk=False
+[2026-05-07 18:34:48] main_import begin tab=🔍  Demand Checker uid=_suite_mod_2_Challan_Downloader
+[2026-05-07 18:34:48] main_import success tab=🔍  Demand Checker class=DemandCheckerApp
+[2026-05-07 18:34:48] instantiate success tab=🔍  Demand Checker instance=DemandCheckerApp
+[2026-05-07 18:34:49] activate_tab start cat=it tab=📊  Refund Checker module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\refund_checker_app.py exists=True tk=False
+[2026-05-07 18:34:49] main_import begin tab=📊  Refund Checker uid=_suite_mod_3_26_AS_Downlaoder
+[2026-05-07 18:34:49] main_import success tab=📊  Refund Checker class=RefundCheckerApp
+[2026-05-07 18:34:50] instantiate success tab=📊  Refund Checker instance=RefundCheckerApp
+[2026-05-07 18:34:51] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-07 18:34:51] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_4_26_AS_Downlaoder
+[2026-05-07 18:35:04] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-07 18:35:05] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_4_26_AS_Downlaoder
+[2026-05-07 18:35:33] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-07 18:35:33] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_4_26_AS_Downlaoder
+[2026-05-07 18:35:33] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-07 18:35:34] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-08 11:12:50] dependency warmup start
+[2026-05-08 11:12:51] warmup ok pandas
+[2026-05-08 11:12:51] warmup ok numpy
+[2026-05-08 11:12:51] warmup ok openpyxl
+[2026-05-08 11:12:52] warmup ok fitz
+[2026-05-08 11:12:52] warmup ok pdfplumber
+[2026-05-08 11:12:52] warmup ok pdfminer
+[2026-05-08 11:12:52] warmup ok selenium
+[2026-05-08 11:12:52] warmup ok webdriver_manager
+[2026-05-08 11:12:52] warmup ok requests
+[2026-05-08 11:12:52] warmup ok PIL
+[2026-05-08 11:12:52] dependency warmup done
+[2026-05-08 11:16:29] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-08 11:16:29] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_0_26_AS_Downlaoder
+[2026-05-08 11:16:29] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-08 11:16:30] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-08 11:17:20] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-08 11:17:20] main_import begin tab=💰  Challan Downloader uid=_suite_mod_1_Challan_Downloader
+[2026-05-08 11:17:20] main_import success tab=💰  Challan Downloader class=App
+[2026-05-08 11:17:20] instantiate success tab=💰  Challan Downloader instance=App
+[2026-05-08 11:36:42] dependency warmup start
+[2026-05-08 11:36:45] warmup ok pandas
+[2026-05-08 11:36:45] warmup ok numpy
+[2026-05-08 11:36:46] warmup ok openpyxl
+[2026-05-08 11:36:46] warmup ok fitz
+[2026-05-08 11:36:46] warmup ok pdfplumber
+[2026-05-08 11:36:46] warmup ok pdfminer
+[2026-05-08 11:36:46] warmup ok selenium
+[2026-05-08 11:36:46] warmup ok webdriver_manager
+[2026-05-08 11:36:47] warmup ok requests
+[2026-05-08 11:36:47] warmup ok PIL
+[2026-05-08 11:36:47] dependency warmup done
+[2026-05-08 11:36:54] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-08 11:36:55] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_0_26_AS_Downlaoder
+[2026-05-08 11:36:55] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-08 11:36:56] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-08 11:42:04] dependency warmup start
+[2026-05-08 11:42:05] warmup ok pandas
+[2026-05-08 11:42:05] warmup ok numpy
+[2026-05-08 11:42:05] warmup ok openpyxl
+[2026-05-08 11:42:05] warmup ok fitz
+[2026-05-08 11:42:05] warmup ok pdfplumber
+[2026-05-08 11:42:05] warmup ok pdfminer
+[2026-05-08 11:42:05] warmup ok selenium
+[2026-05-08 11:42:05] warmup ok webdriver_manager
+[2026-05-08 11:42:05] warmup ok requests
+[2026-05-08 11:42:05] warmup ok PIL
+[2026-05-08 11:42:05] dependency warmup done
+[2026-05-08 11:42:25] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-08 11:42:26] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_0_26_AS_Downlaoder
+[2026-05-08 11:42:26] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-08 11:42:27] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-08 11:42:43] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-08 11:42:43] main_import begin tab=💰  Challan Downloader uid=_suite_mod_1_Challan_Downloader
+[2026-05-08 11:42:43] main_import success tab=💰  Challan Downloader class=App
+[2026-05-08 11:42:44] instantiate success tab=💰  Challan Downloader instance=App
+[2026-05-08 11:42:55] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-08 11:42:55] main_import begin tab=🤖  ITR Bot uid=_suite_mod_2_ITR_-_Bot
+[2026-05-08 11:42:55] main_import success tab=🤖  ITR Bot class=App
+[2026-05-08 11:42:56] instantiate success tab=🤖  ITR Bot instance=App
+[2026-05-08 11:44:02] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-08 11:44:02] main_import begin tab=📥  GSTR 2B uid=_suite_mod_3_GST_2B_Downloader
+[2026-05-08 11:44:02] main_import success tab=📥  GSTR 2B class=App
+[2026-05-08 11:44:03] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-08 11:44:33] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-08 11:44:33] main_import begin tab=🤖  GST Verifier uid=_suite_mod_4_GST_Bot
+[2026-05-08 11:44:33] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-08 11:44:34] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-08 11:45:05] activate_tab start cat=gst tab=📊  GSTR1 Json to Excel module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\JSON to Excel\main.py exists=True tk=False
+[2026-05-08 11:45:05] main_import begin tab=📊  GSTR1 Json to Excel uid=_suite_mod_5_JSON_to_Excel
+[2026-05-08 11:45:05] main_import success tab=📊  GSTR1 Json to Excel class=App
+[2026-05-08 11:45:05] instantiate success tab=📊  GSTR1 Json to Excel instance=App
+[2026-05-08 11:45:07] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-08 11:45:07] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_6_GST_R1_Downloader
+[2026-05-08 11:45:07] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-08 11:45:09] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-08 11:46:56] dependency warmup start
+[2026-05-08 11:46:57] warmup ok pandas
+[2026-05-08 11:46:57] warmup ok numpy
+[2026-05-08 11:46:57] warmup ok openpyxl
+[2026-05-08 11:46:57] warmup ok fitz
+[2026-05-08 11:46:58] warmup ok pdfplumber
+[2026-05-08 11:46:58] warmup ok pdfminer
+[2026-05-08 11:46:58] warmup ok selenium
+[2026-05-08 11:46:58] warmup ok webdriver_manager
+[2026-05-08 11:46:58] warmup ok requests
+[2026-05-08 11:46:58] warmup ok PIL
+[2026-05-08 11:46:58] dependency warmup done
+[2026-05-08 11:50:20] dependency warmup start
+[2026-05-08 11:50:21] warmup ok pandas
+[2026-05-08 11:50:21] warmup ok numpy
+[2026-05-08 11:50:21] warmup ok openpyxl
+[2026-05-08 11:50:21] warmup ok fitz
+[2026-05-08 11:50:21] warmup ok pdfplumber
+[2026-05-08 11:50:21] warmup ok pdfminer
+[2026-05-08 11:50:21] warmup ok selenium
+[2026-05-08 11:50:21] warmup ok webdriver_manager
+[2026-05-08 11:50:21] warmup ok requests
+[2026-05-08 11:50:21] warmup ok PIL
+[2026-05-08 11:50:21] dependency warmup done
+[2026-05-08 11:50:26] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-08 11:50:26] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_0_26_AS_Downlaoder
+[2026-05-08 11:50:26] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-08 11:50:28] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-08 11:52:03] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-08 11:52:04] main_import begin tab=💰  Challan Downloader uid=_suite_mod_1_Challan_Downloader
+[2026-05-08 11:52:04] main_import success tab=💰  Challan Downloader class=App
+[2026-05-08 11:52:04] instantiate success tab=💰  Challan Downloader instance=App
+[2026-05-08 11:52:14] activate_tab start cat=it tab=🤖  ITR Bot module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\ITR - Bot\GUI_based_app.py exists=True tk=False
+[2026-05-08 11:52:14] main_import begin tab=🤖  ITR Bot uid=_suite_mod_2_ITR_-_Bot
+[2026-05-08 11:52:14] main_import success tab=🤖  ITR Bot class=App
+[2026-05-08 11:52:15] instantiate success tab=🤖  ITR Bot instance=App
+[2026-05-08 20:39:52] dependency warmup start
+[2026-05-08 20:40:00] warmup ok pandas
+[2026-05-08 20:40:00] warmup ok numpy
+[2026-05-08 20:40:00] warmup ok openpyxl
+[2026-05-08 20:40:01] warmup ok fitz
+[2026-05-08 20:40:02] warmup ok pdfplumber
+[2026-05-08 20:40:02] warmup ok pdfminer
+[2026-05-08 20:40:02] warmup ok selenium
+[2026-05-08 20:40:02] warmup ok webdriver_manager
+[2026-05-08 20:40:02] warmup ok requests
+[2026-05-08 20:40:02] warmup ok PIL
+[2026-05-08 20:40:02] dependency warmup done
+[2026-05-08 20:40:23] activate_tab start cat=gst tab=🤖  GST Verifier module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST Bot\gst_pro_app.py exists=True tk=False
+[2026-05-08 20:40:24] main_import begin tab=🤖  GST Verifier uid=_suite_mod_0_GST_Bot
+[2026-05-08 20:40:24] main_import success tab=🤖  GST Verifier class=GSTApp
+[2026-05-08 20:40:24] instantiate success tab=🤖  GST Verifier instance=GSTApp
+[2026-05-08 20:40:36] activate_tab start cat=gst tab=📑  GSTR1 JSON module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST R1 Downloader\mai.py exists=True tk=False
+[2026-05-08 20:40:36] main_import begin tab=📑  GSTR1 JSON uid=_suite_mod_1_GST_R1_Downloader
+[2026-05-08 20:40:36] main_import success tab=📑  GSTR1 JSON class=App
+[2026-05-08 20:40:39] instantiate success tab=📑  GSTR1 JSON instance=App
+[2026-05-08 20:40:42] activate_tab start cat=gst tab=📥  GSTR 2B module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST\GST 2B Downloader\main.py exists=True tk=False
+[2026-05-08 20:40:43] main_import begin tab=📥  GSTR 2B uid=_suite_mod_2_GST_2B_Downloader
+[2026-05-08 20:40:43] main_import success tab=📥  GSTR 2B class=App
+[2026-05-08 20:40:45] instantiate success tab=📥  GSTR 2B instance=App
+[2026-05-08 20:46:54] activate_tab start cat=gst tab=🔄  GST Reco module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\GST_RECO\mainpy-reco-speqtra.py exists=True tk=False
+[2026-05-08 20:46:54] main_import begin tab=🔄  GST Reco uid=_suite_mod_3_GST_RECO
+[2026-05-08 20:46:54] main_import success tab=🔄  GST Reco class=App
+[2026-05-08 20:46:55] instantiate success tab=🔄  GST Reco instance=_Handle
+[2026-05-08 20:47:17] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-08 20:47:18] main_import begin tab=💰  Challan Downloader uid=_suite_mod_4_Challan_Downloader
+[2026-05-08 20:47:18] main_import success tab=💰  Challan Downloader class=App
+[2026-05-08 20:47:20] instantiate success tab=💰  Challan Downloader instance=App
+[2026-05-08 20:47:26] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-08 20:47:26] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_5_26_AS_Downlaoder
+[2026-05-08 20:47:26] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-08 20:47:30] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-09 11:54:54] dependency warmup start
+[2026-05-09 11:54:56] warmup ok pandas
+[2026-05-09 11:54:56] warmup ok numpy
+[2026-05-09 11:54:56] warmup ok openpyxl
+[2026-05-09 11:54:56] warmup ok fitz
+[2026-05-15 13:09:44] dependency warmup start
+[2026-05-15 13:09:47] warmup ok pandas
+[2026-05-15 13:09:47] warmup ok numpy
+[2026-05-15 13:09:47] warmup ok openpyxl
+[2026-05-15 13:09:48] warmup ok fitz
+[2026-05-15 13:09:48] warmup ok pdfplumber
+[2026-05-15 13:09:48] warmup ok pdfminer
+[2026-05-15 13:09:48] warmup ok selenium
+[2026-05-15 13:09:48] warmup ok webdriver_manager
+[2026-05-15 13:09:48] warmup ok requests
+[2026-05-15 13:09:48] warmup ok PIL
+[2026-05-15 13:09:48] dependency warmup done
+[2026-05-15 13:09:55] activate_tab start cat=tally tab=🧾  GSTR-2B → Tally module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\tally tool\main.py exists=True tk=False
+[2026-05-15 13:09:55] main_import begin tab=🧾  GSTR-2B → Tally uid=_suite_mod_0_tally_tool
+[2026-05-15 13:09:56] main_import success tab=🧾  GSTR-2B → Tally class=GSTR2BTallyApp
+[2026-05-15 13:09:58] instantiate success tab=🧾  GSTR-2B → Tally instance=GSTR2BTallyApp

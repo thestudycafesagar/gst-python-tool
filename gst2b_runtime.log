@@ -1,1 +1,39 @@
-[2026-04-28 11:00:56] GST 2B runtime log started
+[2026-05-08 20:40:43] GST 2B runtime log started
+[2026-05-08 20:40:54] 📄 Runtime log file: c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\gst2b_runtime.log
+[2026-05-08 20:40:54] 🚀 INITIALIZING GST ENGINE V17 (Hybrid Selection)...
+[2026-05-08 20:40:54] 📊 Loaded 2 users from Add ID Password.
+[2026-05-08 20:40:54] 
+🔹 Processing: PD****ta
+[2026-05-08 20:40:58]    🔐 Attempting login (auto-fill if credentials provided)...
+[2026-05-08 20:41:06]    🟨 Captcha detected — please complete it in the browser.
+[2026-05-08 20:41:21] 🛑 Chrome browser closed.
+[2026-05-08 20:41:21] 🛑 Process stopped by user. Resetting state.
+[2026-05-08 20:41:28] 📄 Runtime log file: c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\gst2b_runtime.log
+[2026-05-08 20:41:28] 🚀 INITIALIZING GST ENGINE V17 (Hybrid Selection)...
+[2026-05-08 20:41:28] 📊 Loaded 2 users from Add ID Password.
+[2026-05-08 20:41:28] 
+🔹 Processing: PD****ta
+[2026-05-08 20:41:30]    🔐 Attempting login (auto-fill if credentials provided)...
+[2026-05-08 20:41:37] 📄 Summary Report saved: GST_Report_20260508_204137.xlsx
+[2026-05-08 20:41:37] 🛑 Process stopped by user. Partial report saved.
+[2026-05-08 20:41:38]    🟨 Captcha detected — please complete it in the browser.
+[2026-05-08 20:41:49]    ✅ Login detected!
+[2026-05-08 20:41:58]    📅 Mode: Monthly (April)
+[2026-05-08 20:42:04]    ⚙️ Processing: April (Attempt 1)
+[2026-05-08 20:42:05]    ⏳ Checking dashboard readiness...
+[2026-05-08 20:42:17]    🔍 Searching for GSTR-2B tile view button...
+[2026-05-08 20:42:19]    ✅ View clicked. Opening GSTR-2B summary page...
+[2026-05-08 20:42:22]    🧭 [after-view] URL: https://gstr2b.gst.gov.in/gstr2b/auth/gstr2b/summary
+[2026-05-08 20:42:22]    🧭 [after-view] Session: ok
+[2026-05-08 20:42:24]    ⬇️ Downloading GSTR-2B Summary (PDF)...
+[2026-05-08 20:42:27]    ✅ Saved: GSTR2B_07AAYFP2647N1ZB_042022_08052026.pdf
+[2026-05-08 20:42:27]    ⬇️ Downloading GSTR-2B Details (Excel)...
+[2026-05-08 20:42:30]    ✅ Saved: 042022_07AAYFP2647N1ZB_GSTR2B_08052026.xlsx
+[2026-05-08 20:42:30]       🔄 Lost Dashboard. Recovering via URL...
+[2026-05-08 20:42:34]    🧭 [after-dashboard-nav] URL: https://return.gst.gov.in/returns/auth/dashboard
+[2026-05-08 20:42:34]    🧭 [after-dashboard-nav] Session: ok
+[2026-05-08 20:42:38] ----------------------------------------
+[2026-05-08 20:42:38] 
+🔹 Processing: St******ep
+[2026-05-08 20:42:41]    🔐 Attempting login (auto-fill if credentials provided)...
+[2026-05-08 20:42:50]    🟨 Captcha detected — please complete it in the browser.

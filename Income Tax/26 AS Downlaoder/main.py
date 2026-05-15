@@ -868,7 +868,7 @@ class FiledReturnWorker:
         self.current_user_selected_years = None
 
     def log(self, message):
-        self.app.update_log_safe_filed(message)
+        self.app.update_log_safe_aistis(message)
 
     def set_years_and_resume(self, selected_list):
         self.current_user_selected_years = selected_list
@@ -885,7 +885,7 @@ class FiledReturnWorker:
             
             if not user_col or not pass_col:
                 self.log("❌ ERROR: Headers missing. Need 'PAN' and 'Password'.")
-                self.app.process_finished_safe_filed("Failed: Column Header Error")
+                self.app.process_finished_safe_aistis("Failed: Column Header Error")
                 return
             
             self.log(f"✅ Mapped Columns -> ID: '{user_col}', Pass: '{pass_col}', DOB: '{dob_col}'")
@@ -901,7 +901,7 @@ class FiledReturnWorker:
                 password = str(row[pass_col]).strip()
                 dob = row[dob_col] if dob_col and pd.notna(row[dob_col]) else None
                 
-                self.app.update_progress_safe_filed((index) / total_users)
+                self.app.update_progress_safe_aistis((index) / total_users)
                 self.log(f"🔹 [{index+1}/{total_users}] PROCESSING USER: {user_id}")
 
                 status, reason = self.process_single_user(user_id, password, dob)
@@ -912,13 +912,13 @@ class FiledReturnWorker:
             # Generate the report
             self.generate_report()
             
-            self.app.update_progress_safe_filed(1.0)
+            self.app.update_progress_safe_aistis(1.0)
             self.log("\n✅ BATCH COMPLETED!")
-            self.app.process_finished_safe_filed("All Tasks Completed.")
+            self.app.process_finished_safe_aistis("All Tasks Completed.")
 
         except Exception as e:
             self.log(f"❌ CRITICAL ERROR: {str(e)}")
-            self.app.process_finished_safe_filed("Critical Error Occurred")
+            self.app.process_finished_safe_aistis("Critical Error Occurred")
 
     def process_single_user(self, user_id, password, dob):
         driver = None
@@ -1807,6 +1807,8 @@ class App(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         self.worker = None
+        self.excel_file_path_26as = ""
+        self.excel_file_path_aistis = ""
 
         # --- Header ---
         self.header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
@@ -1845,26 +1847,16 @@ class App(ctk.CTk):
         ctk.CTkLabel(self.config_26as, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
         f_frame = ctk.CTkFrame(self.config_26as, fg_color="transparent")
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
-        self.entry_file_26as = ctk.CTkEntry(f_frame, placeholder_text="Add PAN, Password, DOB manually...")
+        self.entry_file_26as = ctk.CTkEntry(f_frame, placeholder_text="Select IT profiles via 'Load ID Pass' button...", height=35)
         self.entry_file_26as.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        # Add ID first
-        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("26as"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
         
-        # Bulk Options
-        ctk.CTkButton(btn_actions, text="📂 Browse Excel", command=lambda: self.browse_file("26as"), width=130, fg_color="#2563EB", hover_color="#1D4ED8", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
-        ctk.CTkButton(btn_actions, text="📥 Sample", command=lambda: self.download_sample("26as"), width=100, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+        # Load from Suite Database
+        ctk.CTkButton(btn_actions, text="📥 Load ID Pass", command=lambda: self.load_id_pass("26as"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
 
-        # View and Delete next
-        self.btn_view_26as = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("26as"), width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
-        self.btn_view_26as.pack(side="left", padx=(5, 0))
-        self.btn_delete_26as = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("26as"), width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
-        self.btn_delete_26as.pack(side="left", padx=(5, 0))
         # Demo last
-        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
-        self.btn_view_26as.configure(state="disabled")
-        self.btn_delete_26as.configure(state="disabled")
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=100, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(10, 0))
 
         pref_frame = ctk.CTkFrame(self.config_26as, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
@@ -1900,13 +1892,12 @@ class App(ctk.CTk):
     def _build_aistis_ui(self):
         self.tab_aistis.grid_columnconfigure(0, weight=1)
         self.tab_aistis.grid_rowconfigure(0, weight=1)
+        self.tab_aistis.grid_rowconfigure(1, weight=0)
 
         # SCROLLABLE CONTAINER FOR AIS/TIS
         self.scroll_aistis = ctk.CTkScrollableFrame(self.tab_aistis, fg_color="transparent")
         self.scroll_aistis.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         self.scroll_aistis.grid_columnconfigure(0, weight=1)
-        self.tab_aistis.grid_rowconfigure(0, weight=1)
-        self.tab_aistis.grid_rowconfigure(1, weight=0)
 
         self.config_aistis = ctk.CTkFrame(self.scroll_aistis)
         self.config_aistis.grid(row=0, column=0, sticky="ew", padx=10, pady=(2, 5))
@@ -1914,24 +1905,16 @@ class App(ctk.CTk):
         ctk.CTkLabel(self.config_aistis, text="1. CREDENTIALS SOURCE", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=15, pady=(15, 5))
         f_frame = ctk.CTkFrame(self.config_aistis, fg_color="transparent")
         f_frame.pack(fill="x", padx=15, pady=(0, 5))
-        self.entry_file_aistis = ctk.CTkEntry(f_frame, placeholder_text="Add PAN, Password, DOB manually...")
+        
+        self.entry_file_aistis = ctk.CTkEntry(f_frame, placeholder_text="Select IT profiles via 'Load ID Pass' button...", height=35)
         self.entry_file_aistis.pack(side="left", fill="x", expand=True, padx=(0, 10))
         btn_actions = ctk.CTkFrame(f_frame, fg_color="transparent")
         btn_actions.pack(side="right")
-        ctk.CTkButton(btn_actions, text="➕ Add ID Password", command=lambda: self.add_id_password("aistis"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
         
-        # Bulk Options
-        ctk.CTkButton(btn_actions, text="📂 Browse Excel", command=lambda: self.browse_file("aistis"), width=130, fg_color="#2563EB", hover_color="#1D4ED8", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
-        ctk.CTkButton(btn_actions, text="📥 Sample", command=lambda: self.download_sample("aistis"), width=100, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
+        # Load from Suite Database
+        ctk.CTkButton(btn_actions, text="📥 Load ID Pass", command=lambda: self.load_id_pass("aistis"), width=150, fg_color="#059669", hover_color="#047857", font=("Segoe UI", 12, "bold")).pack(side="left")
 
-        self.btn_view_aistis = ctk.CTkButton(btn_actions, text="👁 View ID", command=lambda: self.view_saved_user("aistis"), width=95, fg_color="#475569", hover_color="#334155", font=("Segoe UI", 11, "bold"))
-        self.btn_view_aistis.pack(side="left", padx=(5, 0))
-        self.btn_delete_aistis = ctk.CTkButton(btn_actions, text="🗑 Delete ID", command=lambda: self.delete_saved_user("aistis"), width=105, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 11, "bold"))
-        self.btn_delete_aistis.pack(side="left", padx=(5, 0))
-        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=80, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(5, 0))
-        self.btn_view_aistis.configure(state="disabled")
-        self.btn_delete_aistis.configure(state="disabled")
-
+        ctk.CTkButton(btn_actions, text="▶ Demo", command=self.open_demo_link, width=100, fg_color="#DC2626", hover_color="#B91C1C", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(10, 0))
         pref_frame = ctk.CTkFrame(self.config_aistis, fg_color="transparent")
         pref_frame.pack(fill="x", padx=15, pady=(5, 10))
         ctk.CTkLabel(pref_frame, text="Assessment Year:", text_color="gray").pack(side="left", padx=(0, 10))
@@ -1995,6 +1978,80 @@ class App(ctk.CTk):
     def open_demo_link(self):
         import webbrowser
         webbrowser.open_new_tab("https://youtu.be/byMvFynIJuo")
+
+    def load_id_pass(self, mode):
+        import sqlite3 as _sq, os as _os
+        db_path = _os.path.join(_os.environ.get("APPDATA", _os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
+        if not _os.path.exists(db_path):
+             # Try local if appdata doesn't exist
+             db_path = "suite_profiles.db"
+        try:
+            conn = _sq.connect(db_path)
+            # Check if dob column exists (it might not if it's an old DB)
+            try:
+                rows = conn.execute("SELECT username, password, dob FROM it_profiles ORDER BY username").fetchall()
+            except:
+                rows = conn.execute("SELECT username, password FROM it_profiles ORDER BY username").fetchall()
+                rows = [(r[0], r[1], "") for r in rows] # Add empty DOB for compatibility
+            conn.close()
+        except Exception:
+            rows = []
+        
+        if not rows:
+            messagebox.showinfo("No Profiles", "No saved Income Tax profiles found. Add via GST Suite -> Manage ID/Pass.", parent=self)
+            return
+            
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Load IT ID Password")
+        dialog.geometry("400x460")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.attributes("-topmost", True)
+        
+        ctk.CTkLabel(dialog, text="Select IT Profiles to Load", font=("Segoe UI", 14, "bold")).pack(pady=(16, 8))
+        
+        sel_all_var = ctk.BooleanVar()
+        vars_ = {}
+        
+        def _toggle_all():
+            state = sel_all_var.get()
+            for v in vars_.values():
+                v.set(state)
+        
+        ctk.CTkCheckBox(dialog, text="Select All", variable=sel_all_var, command=_toggle_all,
+                        font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20, pady=(0, 4))
+                        
+        scroll = ctk.CTkScrollableFrame(dialog, height=300)
+        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        
+        for u, p, d in rows:
+            v = ctk.BooleanVar()
+            vars_[(u, p, d)] = v
+            ctk.CTkCheckBox(scroll, text=u, variable=v).pack(anchor="w", padx=10, pady=3)
+            
+        def _load():
+            selected = [{"PAN": u, "Password": p, "DOB": d} for (u, p, d), v in vars_.items() if v.get()]
+            if not selected:
+                return
+            
+            self.manual_credentials = selected
+            if mode == "26as":
+                self.entry_file_26as.delete(0, "end")
+                n = len(selected)
+                label = selected[0]["PAN"] if n == 1 else f"Loaded {n} profiles"
+                self.entry_file_26as.insert(0, label)
+                self.update_log_safe_26as(f"Loaded {n} Profiles from database")
+            else:
+                self.entry_file_aistis.delete(0, "end")
+                n = len(selected)
+                label = selected[0]["PAN"] if n == 1 else f"Loaded {n} profiles"
+                self.entry_file_aistis.insert(0, label)
+                self.update_log_safe_aistis(f"Loaded {n} Profiles from database")
+            
+            dialog.destroy()
+            
+        ctk.CTkButton(dialog, text="✅ Load Selected", command=_load, height=35).pack(pady=10)
 
     def browse_file(self, mode):
         filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
