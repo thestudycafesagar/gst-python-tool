@@ -8695,7 +8695,7 @@ class GSTR2BTallyApp(ctk.CTk):
                      text_color=COLORS["tally_gold"], anchor="center").pack(side="left", padx=(8, 0))
         ctk.CTkLabel(col_hdr, text="Party Name", width=280, font=("Segoe UI", 10, "bold"),
                      text_color=COLORS["tally_gold"], anchor="w").pack(side="left", padx=8)
-        ctk.CTkLabel(col_hdr, text="Purchase Ledger", font=("Segoe UI", 10, "bold"),
+        ctk.CTkLabel(col_hdr, text="Mapping Ledger", font=("Segoe UI", 10, "bold"),
                      text_color=COLORS["tally_gold"], anchor="w").pack(side="left", padx=8, fill="x", expand=True)
 
         # Scrollable list with editable entries + search buttons
