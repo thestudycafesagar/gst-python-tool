@@ -2157,7 +2157,8 @@ def generate_accounting_xml(
         _ro_amt   = round(round(grand_total, 0) - grand_total, 2) if round_off_ledger else 0.0
         _ro_total = round(grand_total + _ro_amt, 2)
 
-        effective_vch_type = str(voucher_type or "Sales").strip() or "Sales"
+        _row_vtype = str(_row_get(r, "VoucherType", "") or "").strip()
+        effective_vch_type = _row_vtype or str(voucher_type or "Sales").strip() or "Sales"
         _vch_type_esc = xml_escape(effective_vch_type)
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
         a(f'    <VOUCHER VCHTYPE="{_vch_type_esc}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
@@ -2454,7 +2455,8 @@ def generate_item_xml(
         _ro_amt_i   = round(round(total, 0) - total, 2) if round_off_ledger else 0.0
         _ro_total_i = round(total + _ro_amt_i, 2)
 
-        _vch_type_esc = xml_escape(str(voucher_type or "Sales").strip() or "Sales")
+        _row_vtype_i = str(_row_get(r, "VoucherType", "") or "").strip()
+        _vch_type_esc = xml_escape(_row_vtype_i or str(voucher_type or "Sales").strip() or "Sales")
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
         a(f'    <VOUCHER VCHTYPE="{_vch_type_esc}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
         a(f'     <DATE>{dt}</DATE>')
@@ -6121,57 +6123,61 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkLabel(xml_row, text="Browse an existing XML to preview & push it directly to Tally",
                      font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left")
 
-        # Row 3: Voucher Type selector
-        vtype_row = ctk.CTkFrame(parent, fg_color="transparent")
-        vtype_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(6, 0))
-        ctk.CTkLabel(vtype_row, text="Voucher Type:", font=("Segoe UI", 12)).pack(side="left", padx=(0, 8))
+        # Row 3: Voucher Type selector (purchase modes only)
+        # Sales modes (accounting / item) use per-row VoucherType column from the Excel file.
         _default_vtype = "Sales" if mode in {"accounting", "item"} else "Purchase"
         vtype_var = ctk.StringVar(value=_default_vtype)
         self._voucher_type_vars[mode] = vtype_var
-        vtype_cb = ctk.CTkComboBox(vtype_row, variable=vtype_var, values=[_default_vtype],
-                                    width=230, state="readonly")
-        vtype_cb.pack(side="left", padx=(0, 8))
-        self._voucher_type_cbs[mode] = vtype_cb
-        _vtype_prefix = "Sales" if mode in {"accounting", "item"} else "Purchase"
 
-        def _do_fetch_vtypes(_m=mode, _cb=vtype_cb, _var=vtype_var, _pfx=_vtype_prefix):
-            _btn = self._voucher_type_fetch_buttons.get(_m)
-            if _btn:
-                _btn.configure(state="disabled", text="Fetching...")
-            _url = self._get_tally_url()
-            _co = self._get_selected_company()
+        if mode not in {"accounting", "item"}:
+            vtype_row = ctk.CTkFrame(parent, fg_color="transparent")
+            vtype_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(6, 0))
+            ctk.CTkLabel(vtype_row, text="Voucher Type:", font=("Segoe UI", 12)).pack(side="left", padx=(0, 8))
+            vtype_cb = ctk.CTkComboBox(vtype_row, variable=vtype_var, values=[_default_vtype],
+                                        width=230, state="readonly")
+            vtype_cb.pack(side="left", padx=(0, 8))
+            self._voucher_type_cbs[mode] = vtype_cb
+            _vtype_prefix = "Purchase"
 
-            def _worker():
-                types = _fetch_voucher_types_from_tally(_url, company=_co, prefix=_pfx)
+            def _do_fetch_vtypes(_m=mode, _cb=vtype_cb, _var=vtype_var, _pfx=_vtype_prefix):
+                _btn = self._voucher_type_fetch_buttons.get(_m)
+                if _btn:
+                    _btn.configure(state="disabled", text="Fetching...")
+                _url = self._get_tally_url()
+                _co = self._get_selected_company()
 
-                def _update():
-                    if types:
-                        _cb.configure(values=types)
-                        if _var.get() not in types:
-                            _var.set(types[0])
-                    else:
-                        self.status_var.set("No voucher types found — is Tally running?")
-                    if _btn:
-                        _btn.configure(state="normal", text="Fetch")
+                def _worker():
+                    types = _fetch_voucher_types_from_tally(_url, company=_co, prefix=_pfx)
 
-                self.after(0, _update)
+                    def _update():
+                        if types:
+                            _cb.configure(values=types)
+                            if _var.get() not in types:
+                                _var.set(types[0])
+                        else:
+                            self.status_var.set("No voucher types found — is Tally running?")
+                        if _btn:
+                            _btn.configure(state="normal", text="Fetch")
 
-            threading.Thread(target=_worker, daemon=True).start()
+                    self.after(0, _update)
 
-        fetch_vtype_btn = ctk.CTkButton(
-            vtype_row, text="Fetch", width=70,
-            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
-            text_color=COLORS["text_secondary"],
-            command=_do_fetch_vtypes,
-        )
-        fetch_vtype_btn.pack(side="left")
-        self._voucher_type_fetch_buttons[mode] = fetch_vtype_btn
-        ctk.CTkLabel(vtype_row, text="Fetch voucher types from Tally",
-                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=8)
+                threading.Thread(target=_worker, daemon=True).start()
 
-        # Row 4: Auto Round Off
+            fetch_vtype_btn = ctk.CTkButton(
+                vtype_row, text="Fetch", width=70,
+                fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                text_color=COLORS["text_secondary"],
+                command=_do_fetch_vtypes,
+            )
+            fetch_vtype_btn.pack(side="left")
+            self._voucher_type_fetch_buttons[mode] = fetch_vtype_btn
+            ctk.CTkLabel(vtype_row, text="Fetch voucher types from Tally",
+                         font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=8)
+
+        # Row 4 (or 3 for sales modes): Auto Round Off
+        _roundoff_grid_row = 3 if mode in {"accounting", "item"} else 4
         roundoff_row = ctk.CTkFrame(parent, fg_color="transparent")
-        roundoff_row.grid(row=4, column=0, sticky="ew", padx=10, pady=(4, 0))
+        roundoff_row.grid(row=_roundoff_grid_row, column=0, sticky="ew", padx=10, pady=(4, 0))
 
         ro_enabled_var = ctk.BooleanVar(value=False)
         self._roundoff_enabled_vars[mode] = ro_enabled_var
@@ -6521,6 +6527,7 @@ class TallySalesApp(ctk.CTk):
             "accounting": {
                 "sheet_name": "Sheet1",
                 "headers": [
+                    "VoucherType",
                     "Date",
                     "InvoiceNo",
                     "VoucherNo",
@@ -6538,7 +6545,7 @@ class TallySalesApp(ctk.CTk):
                     "Narration",
                 ],
                 "sample_rows": [
-                    ["20-04-2026", "SPL/25-26/024", "155", "Interactive Media Pvt Ltd", "Assam",
+                    ["Sales", "20-04-2026", "SPL/25-26/024", "155", "Interactive Media Pvt Ltd", "Assam",
                      "18AABCI8307G1ZM", "Lecture Income", 10000, "CGST", 0,
                      "SGST", 0, "IGST Outward", 1800, "Testing"],
                 ],
@@ -6546,6 +6553,7 @@ class TallySalesApp(ctk.CTk):
             "item": {
                 "sheet_name": "Sheet1",
                 "headers": [
+                    "VoucherType",
                     "Date",
                     "InvoiceNo",
                     "VoucherNo",
@@ -6565,7 +6573,11 @@ class TallySalesApp(ctk.CTk):
                     "IGST Amount",
                     "Narration",
                 ],
-                "sample_rows": [],
+                "sample_rows": [
+                    ["Sales", "20-04-2026", "SINV-001", "1", "27AAAPQ1234B1Z3", "Party Ledger Name",
+                     "Sales Account", "Item Name", "Nos", 10, 1000, 10000,
+                     "CGST", 900, "SGST", 900, "IGST", 0, "Testing"],
+                ],
             },
             "purchase_accounting": {
                 "sheet_name": "Sheet1",
@@ -6748,6 +6760,183 @@ class TallySalesApp(ctk.CTk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _check_voucher_types_and_remap(self, rows, unique_vtypes, default_vtype):
+        """
+        1. Fetch voucher types from Tally (synchronously via background thread + event).
+        2. If every VoucherType in Excel is found in Tally → proceed silently, no popup.
+        3. If any are NOT found → show popup only for the mismatched ones.
+        Returns True to proceed (rows mutated in-place for remapped types), False to cancel.
+        """
+        # ── Step 1: fetch Tally voucher types in background, wait up to 6 s ──
+        url = self._get_tally_url()
+        co  = self._get_selected_company()
+        fetch_result = {"types": []}
+        fetch_done   = threading.Event()
+
+        def _fetch_worker():
+            try:
+                fetch_result["types"] = _fetch_voucher_types_from_tally(
+                    url, company=co, prefix=default_vtype, timeout=6.0) or []
+            except Exception:
+                fetch_result["types"] = []
+            finally:
+                fetch_done.set()
+
+        threading.Thread(target=_fetch_worker, daemon=True).start()
+        fetch_done.wait(timeout=7)
+
+        tally_types = fetch_result["types"]
+
+        # If Tally is unreachable (empty list) → skip validation, proceed silently
+        if not tally_types:
+            return True
+
+        tally_set   = {t.strip().lower() for t in tally_types}
+
+        # ── Step 2: find mismatches ──
+        mismatched = [
+            vt for vt in unique_vtypes
+            if vt.strip().lower() not in tally_set
+        ]
+
+        # All types matched → proceed without popup
+        if not mismatched:
+            return True
+
+        # ── Step 3: show popup ONLY for mismatched types ──
+        result  = {"proceed": False, "remap": {}}
+        bg      = self._resolve_theme_color("bg_dark")
+        card    = self._resolve_theme_color("bg_card")
+        fg      = self._resolve_theme_color("text_primary")
+        muted   = self._resolve_theme_color("text_muted")
+        error   = self._resolve_theme_color("error")
+        accent  = self._resolve_theme_color("accent")
+        inp_bg  = self._resolve_theme_color("bg_input")
+        border  = self._resolve_theme_color("border")
+        gold    = self._resolve_theme_color("tally_gold")
+        hdr_bg  = self._resolve_theme_color("table_header")
+
+        choices = tally_types or unique_vtypes
+
+        popup = ctk.CTkToplevel(self)
+        popup.title("Voucher Type Not Found in Tally")
+        popup.geometry("600x380")
+        popup.transient(self)
+        popup.grab_set()
+        popup.resizable(False, False)
+        popup.configure(fg_color=bg)
+
+        ctk.CTkLabel(popup, text="Voucher Type Not Found",
+                     font=("Segoe UI", 13, "bold"),
+                     text_color=error).pack(anchor="w", padx=16, pady=(14, 2))
+        ctk.CTkLabel(popup,
+                     text=f"The following voucher type(s) from your Excel were not found in Tally. "
+                          f"Please map each to the correct Tally voucher type.",
+                     font=("Segoe UI", 10), text_color=muted,
+                     wraplength=560).pack(anchor="w", padx=16, pady=(0, 8))
+
+        remap_vars = {}   # {excel_vtype: ctk.StringVar}
+
+        table_frame = ctk.CTkFrame(popup, fg_color=card, corner_radius=8)
+        table_frame.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+
+        hdr = ctk.CTkFrame(table_frame, fg_color=hdr_bg, corner_radius=0, height=30)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="Not Found in Tally", font=("Segoe UI", 10, "bold"),
+                     text_color=gold, width=200, anchor="w").pack(side="left", padx=12)
+        ctk.CTkLabel(hdr, text="Map To (Tally Voucher Type)", font=("Segoe UI", 10, "bold"),
+                     text_color=gold).pack(side="left", padx=8)
+
+        scroll = ctk.CTkScrollableFrame(table_frame, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=4, pady=4)
+
+        for vt in mismatched:
+            var = ctk.StringVar(value=choices[0] if choices else vt)
+            remap_vars[vt] = var
+            row_f = ctk.CTkFrame(scroll, fg_color="transparent")
+            row_f.pack(fill="x", pady=3)
+            ctk.CTkLabel(row_f, text=vt, font=("Segoe UI", 11),
+                         text_color=error, width=200, anchor="w").pack(side="left", padx=12)
+            ctk.CTkComboBox(row_f, variable=var,
+                            values=choices if choices else [vt],
+                            width=280, font=("Segoe UI", 10),
+                            fg_color=inp_bg, border_color=border,
+                            button_color=accent).pack(side="left", padx=4)
+
+        btn_row = ctk.CTkFrame(popup, fg_color="transparent")
+        btn_row.pack(fill="x", padx=16, pady=(0, 14))
+
+        def _re_fetch():
+            re_fetch_btn.configure(state="disabled", text="Fetching...")
+            def _w():
+                new_types = _fetch_voucher_types_from_tally(
+                    url, company=co, prefix=default_vtype, timeout=6.0) or []
+                def _done():
+                    nonlocal choices
+                    choices = new_types or choices
+                    for vt, var in remap_vars.items():
+                        cb_widget = var._widget if hasattr(var, "_widget") else None
+                    # Rebuild comboboxes with fresh list
+                    for w in scroll.winfo_children():
+                        w.destroy()
+                    for vt in mismatched:
+                        var = remap_vars[vt]
+                        row_f = ctk.CTkFrame(scroll, fg_color="transparent")
+                        row_f.pack(fill="x", pady=3)
+                        ctk.CTkLabel(row_f, text=vt, font=("Segoe UI", 11),
+                                     text_color=error, width=200, anchor="w").pack(side="left", padx=12)
+                        ctk.CTkComboBox(row_f, variable=var,
+                                        values=choices,
+                                        width=280, font=("Segoe UI", 10),
+                                        fg_color=inp_bg, border_color=border,
+                                        button_color=accent).pack(side="left", padx=4)
+                    re_fetch_btn.configure(state="normal", text="Re-Fetch Tally Types")
+                self.after(0, _done)
+            threading.Thread(target=_w, daemon=True).start()
+
+        re_fetch_btn = ctk.CTkButton(btn_row, text="Re-Fetch Tally Types", width=160,
+                                     fg_color=inp_bg,
+                                     hover_color=self._resolve_theme_color("bg_card_hover"),
+                                     text_color=self._resolve_theme_color("text_secondary"),
+                                     command=_re_fetch)
+        re_fetch_btn.pack(side="left", padx=(0, 8))
+
+        def _apply():
+            result["remap"]   = {vt: var.get() for vt, var in remap_vars.items()}
+            result["proceed"] = True
+            popup.destroy()
+
+        def _cancel():
+            result["proceed"] = False
+            popup.destroy()
+
+        ctk.CTkButton(btn_row, text="Apply & Push", width=130,
+                      fg_color=accent,
+                      hover_color=self._resolve_theme_color("accent_hover"),
+                      text_color="#FFFFFF",
+                      command=_apply).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(btn_row, text="Cancel", width=100,
+                      fg_color=inp_bg,
+                      hover_color=self._resolve_theme_color("bg_card_hover"),
+                      text_color=self._resolve_theme_color("text_secondary"),
+                      command=_cancel).pack(side="right")
+
+        popup.protocol("WM_DELETE_WINDOW", _cancel)
+        popup.wait_window()
+
+        if not result["proceed"]:
+            return False
+
+        # Apply remapping only for the mismatched rows
+        remap = result["remap"]
+        for r in rows:
+            cur = str(_row_get(r, "VoucherType", "") or "").strip()
+            if cur in remap:
+                r["VoucherType"] = remap[cur]
+
+        return True
+
     def _generate(self, mode, action, filepath):
         _ = filepath
         if self._voucher_load_running.get(mode):
@@ -6777,6 +6966,22 @@ class TallySalesApp(ctk.CTk):
 
         _default_vtype = "Sales" if mode in {"accounting", "item"} else "Purchase"
         voucher_type = (self._voucher_type_vars.get(mode) or ctk.StringVar(value=_default_vtype)).get() or _default_vtype
+
+        # For sales modes pushing to Tally: validate per-row VoucherType against live Tally types.
+        # Only show mismatch popup if a type is not found in Tally — never popup when all match.
+        if mode in {"accounting", "item"} and action == "push":
+            unique_vtypes = sorted({
+                str(_row_get(r, "VoucherType", "") or "").strip()
+                for r in rows_to_use
+                if str(_row_get(r, "VoucherType", "") or "").strip()
+            })
+            if unique_vtypes:
+                proceed = self._check_voucher_types_and_remap(
+                    rows_to_use, unique_vtypes, _default_vtype
+                )
+                if not proceed:
+                    return
+
         _ro_en = self._roundoff_enabled_vars.get(mode)
         _ro_lv = self._roundoff_ledger_vars.get(mode)
         round_off_ledger = (_ro_lv.get() or "").strip() if (_ro_en and _ro_en.get() and _ro_lv) else ""
