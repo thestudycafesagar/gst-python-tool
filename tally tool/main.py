@@ -2277,6 +2277,12 @@ def _state_name_from_gstin(gstin):
     return _GST_STATE_CODE_MAP.get(code, "")
 
 
+def _pan_from_gstin(gstin: str) -> str:
+    """Extract 10-character PAN from a 15-character GSTIN (chars 2–11 inclusive)."""
+    g = _normalize_ledger_name(gstin).upper()
+    return g[2:12] if len(g) == 15 else ""
+
+
 def _set_svcurrentcompany(xml_content, company_name):
     target = _normalize_company_name(company_name)
     if not target:
@@ -2897,6 +2903,10 @@ def _create_tally_ledger(tally_url, ledger_name, parent_name, timeout=30, is_par
     mailing_name = _normalize_ledger_name(extra_info.get("mailing_name") or "") or name
     address1 = _normalize_ledger_name(extra_info.get("address1") or "")
     address2 = _normalize_ledger_name(extra_info.get("address2") or "")
+    pan = (
+        _normalize_ledger_name(extra_info.get("pan") or "").upper()
+        or _pan_from_gstin(gstin)
+    )
 
     parent_key = _ledger_key(parent)
     is_party_ledger = bool(is_party) or parent_key in {"SUNDRY DEBTORS", "SUNDRY CREDITORS"}
@@ -3004,7 +3014,7 @@ def _create_tally_ledger(tally_url, ledger_name, parent_name, timeout=30, is_par
         ET.SubElement(gst_list, "ISTRANSPORTER").text = "No"
         ET.SubElement(gst_list, "ISCOMMONPARTY").text = "No"
 
-    if is_party_ledger and (address1 or address2 or state_name or country_name or pincode):
+    if is_party_ledger and (address1 or address2 or state_name or country_name or pincode or pan):
         mailing_list = ET.SubElement(ledger, "LEDMAILINGDETAILS.LIST")
         if address1 or address2:
             addr_list = ET.SubElement(mailing_list, "ADDRESS.LIST")
@@ -3017,6 +3027,8 @@ def _create_tally_ledger(tally_url, ledger_name, parent_name, timeout=30, is_par
         if pincode:
             ET.SubElement(mailing_list, "PINCODE").text = pincode
         ET.SubElement(mailing_list, "MAILINGNAME").text = mailing_name
+        if pan:
+            ET.SubElement(mailing_list, "INCOMETAXNUMBER").text = pan
         if state_name:
             ET.SubElement(mailing_list, "STATE").text = state_name
         ET.SubElement(mailing_list, "COUNTRY").text = country_name
@@ -5066,6 +5078,36 @@ class GSTR2BTallyApp(ctk.CTk):
         )
         self.create_ledger_pincode_entry.pack(side="left", padx=(4, 0))
 
+        pan_row = ctk.CTkFrame(self.create_ledger_card, fg_color="transparent")
+        pan_row.pack(fill="x", padx=16, pady=(0, 6))
+        ctk.CTkLabel(pan_row, text="PAN / IT No.", font=("Segoe UI", 10),
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        self.create_ledger_pan_entry = ctk.CTkEntry(
+            pan_row,
+            height=34,
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text="Auto-filled from GSTIN",
+            font=("Segoe UI", 10),
+            corner_radius=8,
+        )
+        self.create_ledger_pan_entry.pack(side="left", fill="x", expand=True, padx=(8, 0))
+
+        def _on_create_ledger_gstin_change(_event=None):
+            gstin_val = self.create_ledger_gstin_entry.get().strip().upper()
+            pan_auto = _pan_from_gstin(gstin_val)
+            if pan_auto and not self.create_ledger_pan_entry.get().strip():
+                self.create_ledger_pan_entry.delete(0, "end")
+                self.create_ledger_pan_entry.insert(0, pan_auto)
+            if gstin_val and not self.create_ledger_state_entry.get().strip():
+                inferred = _state_name_from_gstin(gstin_val)
+                if inferred:
+                    self.create_ledger_state_entry.set(inferred)
+
+        self.create_ledger_gstin_entry.bind("<KeyRelease>", _on_create_ledger_gstin_change)
+        self.create_ledger_gstin_entry.bind("<FocusOut>", _on_create_ledger_gstin_change)
+
         type_row = ctk.CTkFrame(self.create_ledger_card, fg_color="transparent")
         type_row.pack(fill="x", padx=16, pady=(0, 10))
         self.create_ledger_gst_app_cb = ctk.CTkComboBox(
@@ -6010,6 +6052,7 @@ class GSTR2BTallyApp(ctk.CTk):
             "country": _normalize_ledger_name(self.create_ledger_country_entry.get() or "") or "India",
             "pincode": _normalize_ledger_name(self.create_ledger_pincode_entry.get() or ""),
             "gstin": gstin,
+            "pan": _normalize_ledger_name(self.create_ledger_pan_entry.get() or "").upper() or _pan_from_gstin(gstin),
             "gst_applicable": _normalize_ledger_name(self.create_ledger_gst_app_cb.get() or "") or ("Applicable" if gstin else "Not Applicable"),
             "reg_type": _normalize_ledger_name(self.create_ledger_reg_type_cb.get() or "") or ("Regular" if gstin else "Unknown"),
             "billwise": _normalize_ledger_name(self.create_ledger_billwise_cb.get() or "") or ("Yes" if self.create_ledger_is_party_var.get() else "No"),
@@ -6852,9 +6895,10 @@ class GSTR2BTallyApp(ctk.CTk):
             add_field("Country", "country", 4, values=LEDGER_COUNTRY_OPTIONS)
             add_field("Pincode", "pincode", 5)
             add_field("GSTIN", "gstin", 6)
-            add_field("GST Applicable", "gst_applicable", 7, values=LEDGER_GST_APPLICABLE_OPTIONS)
-            add_field("Registration Type", "reg_type", 8, values=["Regular", "Composition", "Unregistered", "Consumer", "Unknown"])
-            add_field("Billwise", "billwise", 9, values=["Yes", "No"])
+            add_field("PAN / IT No.", "pan", 7)
+            add_field("GST Applicable", "gst_applicable", 8, values=LEDGER_GST_APPLICABLE_OPTIONS)
+            add_field("Registration Type", "reg_type", 9, values=["Regular", "Composition", "Unregistered", "Consumer", "Unknown"])
+            add_field("Billwise", "billwise", 10, values=["Yes", "No"])
 
             gst_lookup_guard = {"busy": False, "last": ""}
 
@@ -6880,9 +6924,15 @@ class GSTR2BTallyApp(ctk.CTk):
                 )
                 if fetch_result.get("success"):
                     fetched = fetch_result.get("details", {})
-                    for key in ["mailing_name", "address1", "address2", "state", "country", "pincode", "gstin", "gst_applicable", "reg_type", "billwise"]:
+                    for key in ["mailing_name", "address1", "address2", "state", "country", "pincode", "gstin", "pan", "gst_applicable", "reg_type", "billwise"]:
                         if key in entries and fetched.get(key):
                             set_widget_value(entries[key], fetched.get(key))
+                    # Auto-derive PAN from GSTIN if not returned by Tally
+                    if "pan" in entries and not _normalize_ledger_name(entries["pan"].get() or ""):
+                        gstin_fetched = _normalize_ledger_name(fetched.get("gstin") or "").upper()
+                        pan_auto = _pan_from_gstin(gstin_fetched)
+                        if pan_auto:
+                            set_widget_value(entries["pan"], pan_auto)
                     self.log_panel.log("GST fetch succeeded from existing Tally ledger data.", "success")
                     if show_messages:
                         messagebox.showinfo("GST Fetch", "Details fetched from existing Tally ledger with same GSTIN.")
@@ -6915,6 +6965,10 @@ class GSTR2BTallyApp(ctk.CTk):
                     inferred = _state_name_from_gstin(gstin_now)
                     if inferred:
                         set_widget_value(entries["state"], inferred)
+                if len(gstin_now) == 15 and not _normalize_ledger_name(entries["pan"].get() or ""):
+                    pan_auto = _pan_from_gstin(gstin_now)
+                    if pan_auto:
+                        set_widget_value(entries["pan"], pan_auto)
                 if len(gstin_now) == 15 and gstin_now != gst_lookup_guard["last"] and not gst_lookup_guard["busy"]:
                     gst_lookup_guard["busy"] = True
                     gst_lookup_guard["last"] = gstin_now
