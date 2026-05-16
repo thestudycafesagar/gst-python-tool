@@ -2252,6 +2252,206 @@ def generate_accounting_xml(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  GENERATE SALES EXPORT XML  –  ACCOUNTING MODE (INR + FOREX)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def generate_export_accounting_xml(
+    rows: list,
+    company: str,
+    use_today_date: bool = False,
+    date_mode: str = "",
+    custom_tally_date: str = "",
+    start_voucher_number=None,
+    voucher_type: str = "Sales Export",
+) -> str:
+    """
+    Export sales accounting voucher (VCHTYPE = Sales Export).
+    Supports both INR entries (Amount column) and foreign-currency entries
+    (ForeignCurrency + ForeignAmount + ExchangeRate columns).
+    Dollar AMOUNT format: '$100.00 @ ₹ 95/$ = ₹ 9500.00'
+    """
+    lines = []
+    a = lines.append
+    company_static = _company_static_block(company)
+    a('<?xml version="1.0" encoding="UTF-8"?>')
+    a('<ENVELOPE>')
+    a(' <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>')
+    a(' <BODY><IMPORTDATA>')
+    a('  <REQUESTDESC><REPORTNAME>Vouchers</REPORTNAME>')
+    if company_static:
+        a(company_static)
+    a('  </REQUESTDESC>')
+    a('  <REQUESTDATA>')
+
+    resolved_mode = str(date_mode or ("current" if use_today_date else "excel")).strip().lower()
+    if resolved_mode not in {"current", "excel", "custom"}:
+        resolved_mode = "current" if use_today_date else "excel"
+    resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
+
+    for idx, r in enumerate(rows):
+        if resolved_mode == "current":
+            source_date = datetime.today()
+        elif resolved_mode == "custom":
+            source_date = resolved_custom_date
+        else:
+            source_date = _row_get(r, "Date", "")
+        dt = tally_date(source_date)
+
+        excel_vno = _row_voucher_number(r, "")
+        if excel_vno:
+            vno_raw = excel_vno
+        elif start_voucher_number is not None:
+            vno_raw = _voucher_number_with_offset(start_voucher_number, idx) or str(start_voucher_number)
+        else:
+            vno_raw = ""
+        vno = xml_escape(vno_raw)
+        invoice_ref_raw = _row_invoice_reference(r, vno_raw)
+        invoice_ref = xml_escape(invoice_ref_raw)
+
+        party_raw = _ledger_or_suspense(_resolve_party_ledger(r, is_purchase_mode=False))
+        party = xml_escape(party_raw)
+        sales_raw = _ledger_or_suspense(_row_text(r, "SalesLedger"))
+        sales_esc = xml_escape(sales_raw)
+        country_raw = xml_escape((_row_text(r, "CountryOfResidence") or "").strip())
+        narr = xml_escape(_row_text(r, "Narration"))
+
+        # ── Currency handling ──────────────────────────────────────────────
+        foreign_currency = str(_row_get(r, "ForeignCurrency", "") or "").strip()
+        foreign_amount_s = str(_row_get(r, "ForeignAmount", "") or "").strip()
+        exchange_rate_s  = str(_row_get(r, "ExchangeRate", "") or "").strip()
+        inr_amount_s     = str(_row_get(r, "INRAmount", "") or "").strip()
+        amount_inr_s     = str(_row_get(r, "Amount", "") or "").strip()
+
+        is_forex = bool(foreign_currency and foreign_amount_s)
+        if is_forex:
+            try:
+                fa = float(foreign_amount_s)
+                er = float(exchange_rate_s) if exchange_rate_s else 0.0
+                if inr_amount_s:
+                    ia = float(inr_amount_s)
+                elif er:
+                    ia = round(fa * er, 2)
+                else:
+                    ia = fa
+                cur = foreign_currency.lstrip("-").strip() or "$"
+                fa_fmt = f"{fa:.2f}"
+                er_fmt = str(int(er)) if er == int(er) else str(er)
+                ia_fmt = f"{ia:.2f}"
+                _party_amt = f"-{cur}{fa_fmt} @ ₹ {er_fmt}/{cur} = -₹ {ia_fmt}"
+                _sales_amt = f"{cur}{fa_fmt} @ ₹ {er_fmt}/{cur} = ₹ {ia_fmt}"
+                # INR equivalents used wherever Tally rejects the forex format
+                _bill_party_amt = f"-{ia_fmt}"
+                _sales_inr_amt  = ia_fmt
+            except (ValueError, ZeroDivisionError):
+                is_forex = False
+
+        if not is_forex:
+            try:
+                inr_val = float(amount_inr_s) if amount_inr_s else 0.0
+            except ValueError:
+                inr_val = 0.0
+            _party_amt      = f"-{fmt_amt(inr_val)}"
+            _sales_amt      = fmt_amt(inr_val)
+            _bill_party_amt = _party_amt
+            _sales_inr_amt  = fmt_amt(inr_val)
+
+        _row_vtype = str(_row_get(r, "VoucherType", "") or "").strip()
+        effective_vch_type = _row_vtype or str(voucher_type or "Sales Export").strip() or "Sales Export"
+        _vch_type_esc = xml_escape(effective_vch_type)
+
+        a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
+        a(f'    <VOUCHER VCHTYPE="{_vch_type_esc}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
+        a(f'     <DATE>{dt}</DATE>')
+        a(f'     <VOUCHERTYPENAME>{_vch_type_esc}</VOUCHERTYPENAME>')
+        a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
+        a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
+        a(f'     <PARTYMAILINGNAME>{party}</PARTYMAILINGNAME>')
+        a(f'     <BASICBUYERNAME>{party}</BASICBUYERNAME>')
+        a(f'     <BASICBASEPARTYNAME>{party}</BASICBASEPARTYNAME>')
+        a(f'     <CONSIGNEEMAILINGNAME>{party}</CONSIGNEEMAILINGNAME>')
+        if country_raw:
+            a(f'     <COUNTRYOFRESIDENCE>{country_raw}</COUNTRYOFRESIDENCE>')
+            a(f'     <CONSIGNEECOUNTRYNAME>{country_raw}</CONSIGNEECOUNTRYNAME>')
+        a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
+        a('     <NUMBERINGSTYLE>Manual</NUMBERINGSTYLE>')
+        a('     <ISINVOICE>Yes</ISINVOICE>')
+        a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
+        a('     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>')
+        a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
+        a('     <VCHSTATUSISREACCEPHSNSIXONEDONE>Yes</VCHSTATUSISREACCEPHSNSIXONEDONE>')
+        a('     <VCHGSTSTATUSISUNCERTAIN>No</VCHGSTSTATUSISUNCERTAIN>')
+        a('     <VCHGSTSTATUSISINCLUDED>Yes</VCHGSTSTATUSISINCLUDED>')
+        a('     <VCHGSTSTATUSISAPPLICABLE>Yes</VCHGSTSTATUSISAPPLICABLE>')
+        a('     <GSTREGISTRATIONTYPE>\x04 Unknown</GSTREGISTRATIONTYPE>')
+        if invoice_ref:
+            a(f'     <REFERENCE>{invoice_ref}</REFERENCE>')
+        if narr:
+            a(f'     <NARRATION>{narr}</NARRATION>')
+
+        # ── Party ledger – Debit ───────────────────────────────────────────
+        a('     <LEDGERENTRIES.LIST>')
+        a(f'      <LEDGERNAME>{party}</LEDGERNAME>')
+        a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
+        a('      <ISPARTYLEDGER>Yes</ISPARTYLEDGER>')
+        a(f'      <AMOUNT>{_party_amt}</AMOUNT>')
+        if not is_forex and (invoice_ref or vno):
+            # Forex ledgers reject bill references — skip BILLALLOCATIONS for forex entries
+            a('      <BILLALLOCATIONS.LIST>')
+            a(f'       <NAME>{invoice_ref or vno}</NAME>')
+            a('       <BILLTYPE>New Ref</BILLTYPE>')
+            a(f'       <AMOUNT>{_bill_party_amt}</AMOUNT>')
+            a('      </BILLALLOCATIONS.LIST>')
+        a('     </LEDGERENTRIES.LIST>')
+
+        # ── Sales / Income ledger – Credit (export exempt) ─────────────────
+        a('     <LEDGERENTRIES.LIST>')
+        a(f'      <LEDGERNAME>{sales_esc}</LEDGERNAME>')
+        a('      <GSTOVRDNISREVCHARGEAPPL>\x04 Not Applicable</GSTOVRDNISREVCHARGEAPPL>')
+        a('      <GSTOVRDNTAXABILITY>Exempt</GSTOVRDNTAXABILITY>')
+        a('      <GSTSOURCETYPE>Ledger</GSTSOURCETYPE>')
+        a(f'      <GSTLEDGERSOURCE>{sales_esc}</GSTLEDGERSOURCE>')
+        a('      <HSNSOURCETYPE>Ledger</HSNSOURCETYPE>')
+        a(f'      <HSNLEDGERSOURCE>{sales_esc}</HSNLEDGERSOURCE>')
+        a('      <GSTOVRDNSTOREDNATURE/>')
+        a('      <GSTOVRDNTYPEOFSUPPLY>Services</GSTOVRDNTYPEOFSUPPLY>')
+        a('      <GSTRATEINFERAPPLICABILITY>As per Masters/Company</GSTRATEINFERAPPLICABILITY>')
+        a('      <GSTHSNINFERAPPLICABILITY>As per Masters/Company</GSTHSNINFERAPPLICABILITY>')
+        a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
+        a('      <ISPARTYLEDGER>No</ISPARTYLEDGER>')
+        a(f'      <AMOUNT>{_sales_amt}</AMOUNT>')
+        a(f'      <VATEXPAMOUNT>{_sales_inr_amt}</VATEXPAMOUNT>')
+        a('      <RATEDETAILS.LIST>')
+        a('       <GSTRATEDUTYHEAD>CGST</GSTRATEDUTYHEAD>')
+        a('       <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>')
+        a('      </RATEDETAILS.LIST>')
+        a('      <RATEDETAILS.LIST>')
+        a('       <GSTRATEDUTYHEAD>SGST/UTGST</GSTRATEDUTYHEAD>')
+        a('       <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>')
+        a('      </RATEDETAILS.LIST>')
+        a('      <RATEDETAILS.LIST>')
+        a('       <GSTRATEDUTYHEAD>IGST</GSTRATEDUTYHEAD>')
+        a('       <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>')
+        a('      </RATEDETAILS.LIST>')
+        a('      <RATEDETAILS.LIST>')
+        a('       <GSTRATEDUTYHEAD>Cess</GSTRATEDUTYHEAD>')
+        a('       <GSTRATEVALUATIONTYPE>\x04 Not Applicable</GSTRATEVALUATIONTYPE>')
+        a('      </RATEDETAILS.LIST>')
+        a('      <RATEDETAILS.LIST>')
+        a('       <GSTRATEDUTYHEAD>State Cess</GSTRATEDUTYHEAD>')
+        a('       <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>')
+        a('      </RATEDETAILS.LIST>')
+        a('     </LEDGERENTRIES.LIST>')
+
+        a('    </VOUCHER>')
+        a('   </TALLYMESSAGE>')
+
+    a('  </REQUESTDATA>')
+    a(' </IMPORTDATA></BODY>')
+    a('</ENVELOPE>')
+    return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  GENERATE SALES XML  –  ITEM / INVENTORY MODE
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -5755,6 +5955,7 @@ class TallySalesApp(ctk.CTk):
         _panel_options = [
             "📋  Sales Accounting Invoice",
             "📦  Sales Item Invoice",
+            # "🌍  Sales Export Accounting",  # DISABLED
             "🧾  Purchase Accounting Invoice",
             "🛒  Purchase Item Invoice",
             "📝  Credit Note (Accounting)",
@@ -5768,6 +5969,7 @@ class TallySalesApp(ctk.CTk):
         self._panel_option_to_key = {
             "📋  Sales Accounting Invoice": "accounting",
             "📦  Sales Item Invoice": "item",
+            # "🌍  Sales Export Accounting": "export_accounting",  # DISABLED
             "🧾  Purchase Accounting Invoice": "purchase_accounting",
             "🛒  Purchase Item Invoice": "purchase_item",
             "📝  Credit Note (Accounting)": "credit_note_accounting",
@@ -5808,7 +6010,7 @@ class TallySalesApp(ctk.CTk):
         _content_outer.grid_columnconfigure(0, weight=1)
 
         self._panels = {}
-        for _key in ("accounting", "item", "purchase_accounting", "purchase_item", "ledger", "stock"):
+        for _key in ("accounting", "item", "purchase_accounting", "purchase_item", "ledger", "stock"):  # "export_accounting" DISABLED
             _pf = ctk.CTkFrame(_content_outer, fg_color="transparent")
             _pf.grid(row=0, column=0, sticky="nsew")
             self._panels[_key] = _pf
@@ -5831,6 +6033,7 @@ class TallySalesApp(ctk.CTk):
 
         self.tab_acct = self._panels["accounting"]
         self.tab_item = self._panels["item"]
+        # self.tab_export_acct = self._panels["export_accounting"]  # DISABLED
         self.tab_purchase_acct = self._panels["purchase_accounting"]
         self.tab_purchase_item = self._panels["purchase_item"]
         self.tab_ledger = self._panels["ledger"]
@@ -5838,6 +6041,7 @@ class TallySalesApp(ctk.CTk):
 
         self._build_voucher_tab(self.tab_acct, mode="accounting")
         self._build_voucher_tab(self.tab_item, mode="item")
+        # self._build_voucher_tab(self.tab_export_acct, mode="export_accounting")  # DISABLED
         self._build_voucher_tab(self.tab_purchase_acct, mode="purchase_accounting")
         self._build_voucher_tab(self.tab_purchase_item, mode="purchase_item")
         self._build_note_panel(self._panels["note"])
@@ -6125,11 +6329,12 @@ class TallySalesApp(ctk.CTk):
 
         # Row 3: Voucher Type selector (purchase modes only)
         # Sales modes (accounting / item) use per-row VoucherType column from the Excel file.
-        _default_vtype = "Sales" if mode in {"accounting", "item"} else "Purchase"
+        _SALES_MODES = {"accounting", "item"}  # "export_accounting" DISABLED
+        _default_vtype = "Sales" if mode in _SALES_MODES else "Purchase"
         vtype_var = ctk.StringVar(value=_default_vtype)
         self._voucher_type_vars[mode] = vtype_var
 
-        if mode not in {"accounting", "item"}:
+        if mode not in _SALES_MODES:
             vtype_row = ctk.CTkFrame(parent, fg_color="transparent")
             vtype_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(6, 0))
             ctk.CTkLabel(vtype_row, text="Voucher Type:", font=("Segoe UI", 12)).pack(side="left", padx=(0, 8))
@@ -6175,7 +6380,7 @@ class TallySalesApp(ctk.CTk):
                          font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=8)
 
         # Row 4 (or 3 for sales modes): Auto Round Off
-        _roundoff_grid_row = 3 if mode in {"accounting", "item"} else 4
+        _roundoff_grid_row = 3 if mode in {"accounting", "item"} else 4  # "export_accounting" DISABLED
         roundoff_row = ctk.CTkFrame(parent, fg_color="transparent")
         roundoff_row.grid(row=_roundoff_grid_row, column=0, sticky="ew", padx=10, pady=(4, 0))
 
@@ -6579,6 +6784,7 @@ class TallySalesApp(ctk.CTk):
                      "CGST", 900, "SGST", 900, "IGST", 0, "Testing"],
                 ],
             },
+            # "export_accounting": { ... },  # DISABLED
             "purchase_accounting": {
                 "sheet_name": "Sheet1",
                 "headers": [
@@ -6628,21 +6834,10 @@ class TallySalesApp(ctk.CTk):
                 "sheet_name": "Sheet1",
                 "headers": [
                     "Date",
-                    "InvoiceNo",
+                    "Supplier Invoice No",
+                    "GSTIN",
                     "VoucherNo",
-                    "SupplierInvoiceNo",
                     "PartyLedger",
-                    "PartyName",
-                    "PartyMailingName",
-                    "PartyAddress1",
-                    "PartyAddress2",
-                    "PartyPincode",
-                    "PartyState",
-                    "PlaceOfSupply",
-                    "PartyCountry",
-                    "GSTApplicable",
-                    "GSTRegistrationType",
-                    "GSTIN/UIN",
                     "Purchase Ledger",
                     "Item Name",
                     "Unit",
@@ -6650,14 +6845,19 @@ class TallySalesApp(ctk.CTk):
                     "Rate",
                     "TaxableValue",
                     "CGSTLedger",
-                    "CGST Amount",
+                    "CGSTRate",
                     "SGSTLedger",
-                    "SGST Amount",
+                    "SGSTRate",
                     "IGSTLedger",
-                    "IGST Amount",
+                    "IGSTRate",
                     "Narration",
                 ],
-                "sample_rows": [],
+                "sample_rows": [
+                    ["06-04-2026", 1, "06BPXPK4098H1Z", 1, "PRAKASH SACHDEVA", "Purchase IGST",
+                     "Mouse", "pcs", 100, 1000, 100000, 0, 0, 0, 0, "IGST", 18, "Testing"],
+                    ["06-04-2026", 1, "06BPXPK4098H1Z", 1, "PRAKASH SACHDEVA", "Purchase IGST",
+                     "Keyboard", "pcs", 100, 1000, 100000, 0, 0, 0, 0, "IGST", 18, "Testing"],
+                ],
             },
         }
         return templates.get(mode, {})
@@ -6964,12 +7164,12 @@ class TallySalesApp(ctk.CTk):
             )
             return
 
-        _default_vtype = "Sales" if mode in {"accounting", "item"} else "Purchase"
+        _default_vtype = "Sales" if mode in {"accounting", "item"} else "Purchase"  # "export_accounting" DISABLED
         voucher_type = (self._voucher_type_vars.get(mode) or ctk.StringVar(value=_default_vtype)).get() or _default_vtype
 
         # For sales modes pushing to Tally: validate per-row VoucherType against live Tally types.
         # Only show mismatch popup if a type is not found in Tally — never popup when all match.
-        if mode in {"accounting", "item"} and action == "push":
+        if mode in {"accounting", "item"} and action == "push":  # "export_accounting" DISABLED
             unique_vtypes = sorted({
                 str(_row_get(r, "VoucherType", "") or "").strip()
                 for r in rows_to_use
@@ -6988,6 +7188,7 @@ class TallySalesApp(ctk.CTk):
         mode_to_file_name = {
             "accounting": "Tally_Sales_Accounting.xml",
             "item": "Tally_Sales_Item.xml",
+            # "export_accounting": "Tally_Sales_Export.xml",  # DISABLED
             "purchase_accounting": "Tally_Purchase_Accounting.xml",
             "purchase_item": "Tally_Purchase_Item.xml",
         }
@@ -7024,6 +7225,14 @@ class TallySalesApp(ctk.CTk):
                     voucher_type=voucher_type,
                     round_off_ledger=round_off_ledger,
                 )
+            # if selected_mode == "export_accounting":  # DISABLED
+            #     return generate_export_accounting_xml(
+            #         rows_data, company,
+            #         date_mode=selected_date_mode,
+            #         custom_tally_date=selected_custom_date,
+            #         start_voucher_number=voucher_start,
+            #         voucher_type=voucher_type,
+            #     )
             if selected_mode == "purchase_accounting":
                 return generate_purchase_accounting_xml(
                     rows_data,
@@ -7051,7 +7260,7 @@ class TallySalesApp(ctk.CTk):
         try:
             if action == "save":
                 rows_for_save = list(rows_to_use)
-                if mode in {"accounting", "item"}:
+                if mode in {"accounting", "item"}:  # "export_accounting" DISABLED
                     try:
                         _save_url = self._get_tally_url()
                         _save_state_map = _fetch_party_ledger_states(
@@ -7192,7 +7401,7 @@ class TallySalesApp(ctk.CTk):
                         # For sales modes: fetch party ledger states from Tally so that
                         # unregistered parties (no GSTIN, no State in Excel) get a valid
                         # PlaceOfSupply — preventing "Uncertain" in GSTR-1.
-                        if mode in {"accounting", "item"}:
+                        if mode in {"accounting", "item"}:  # "export_accounting" DISABLED
                             self.after(0, lambda: self._push_message_var.set(
                                 "Fetching party states from Tally for unregistered parties..."))
                             _party_state_map = _fetch_party_ledger_states(
