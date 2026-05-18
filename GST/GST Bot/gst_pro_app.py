@@ -25,10 +25,11 @@ ctk.set_default_color_theme("blue")
 
 # --- WORKER THREAD ---
 class GSTWorker:
-    def __init__(self, app, file_path, manual_gstins=None):
+    def __init__(self, app, file_path, manual_gstins=None, credentials=None):
         self.app = app
         self.file_path = file_path
         self.manual_gstins = manual_gstins or []
+        self.credentials = credentials or []
         self.keep_running = True
         self.driver = None
 
@@ -47,7 +48,7 @@ class GSTWorker:
 
         try:
             if self.manual_gstins:
-                gstin_list = [str(x).strip() for x in self.manual_gstins if str(x).strip()]
+                gstin_list = self.manual_gstins
             else:
                 # Load Excel
                 df = pd.read_excel(self.file_path)
@@ -56,7 +57,8 @@ class GSTWorker:
                 # Remove spaces and convert to UPPERCASE
                 df.columns = df.columns.str.strip().str.upper()
 
-                if 'GSTIN' not in df.columns:
+                orig_cols = {str(c).strip().upper(): c for c in df.columns}
+                if 'GSTIN' not in orig_cols:
                     self.log("❌ Error: Excel must have a column named 'GSTIN' (case-insensitive)", "error")
                     try:
                         driver.quit()
@@ -64,16 +66,31 @@ class GSTWorker:
                         pass
                     self.driver = None
                     return
+                gstin_col = orig_cols['GSTIN']
+                cname_col = orig_cols.get('CLIENT NAME') or orig_cols.get('CLIENTNAME')
+                
+                gstin_list = []
+                seen = set()
+                for _, r in df.iterrows():
+                    g = str(r[gstin_col]).strip()
+                    if g not in seen and g.lower() != 'nan':
+                        seen.add(g)
+                        c = str(r[cname_col]).strip() if cname_col else ""
+                        if c.lower() == 'nan': c = ""
+                        gstin_list.append({"GSTIN": g, "ClientName": c})
 
-                gstin_list = df['GSTIN'].astype(str).unique().tolist()
-
-            gstin_list = list(dict.fromkeys(gstin_list))
             results = []
             total = len(gstin_list)
 
             self.log(f"📂 Found {total} unique GSTINs. Starting Batch Process...", "info")
 
-            for index, gstin in enumerate(gstin_list):
+            for index, item in enumerate(gstin_list):
+                if isinstance(item, dict):
+                    gstin = item.get("GSTIN", "")
+                    cname = item.get("ClientName", "")
+                else:
+                    gstin = str(item)
+                    cname = ""
                 if not self.keep_running: break
                 
                 self.log(f"\n🔍 Processing ({index+1}/{total}): {gstin}", "normal")
@@ -399,7 +416,19 @@ class GSTWorker:
                 self.log("🛑 Process stopped by user.", "warning")
                 if results:
                     timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-                    base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier", "reports")
+                    if len(gstin_list) == 1 and isinstance(gstin_list[0], dict) and gstin_list[0].get("ClientName"):
+                        folder_name = gstin_list[0].get("ClientName")
+                    elif len(gstin_list) == 1 and isinstance(gstin_list[0], dict):
+                        folder_name = gstin_list[0].get("GSTIN")
+                    elif len(gstin_list) == 1:
+                        folder_name = str(gstin_list[0])
+                    else:
+                        folder_name = "Bulk_Reports"
+                    
+                    import re as _re_tmp
+                    folder_name = _re_tmp.sub(r'[\\/*?:"<>|]', "", folder_name).strip()
+                    
+                    base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier", folder_name)
                     os.makedirs(base_dir, exist_ok=True)
                     output_file = os.path.join(base_dir, f"GST_Report_{timestamp}.xlsx")
                     self.log(f"📊 Partial results count: {len(results)}. Saving to: {output_file}", "info")
@@ -504,9 +533,9 @@ class GSTApp(ctk.CTk):
         super().__init__()
         
         self.title("GST Bulk Verification Pro")
-        self.geometry("700x850")
+        self.geometry("1100x850")
         self.worker = None
-        self.manual_credentials = []
+        self.gstin_list = []
         
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -515,64 +544,52 @@ class GSTApp(ctk.CTk):
         # HEADER
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.header_frame.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
+        self.header_frame.grid_columnconfigure(0, weight=1)
 
-        # CONTENT AREA (SCROLLABLE)
-        self.scroll_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll_container.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        # MAIN CONTENT: scrollable tool area
+        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.main_frame.grid_columnconfigure(0, weight=1)
+        self.main_frame.grid_rowconfigure(0, weight=1)
+
+        self.scroll_container = ctk.CTkScrollableFrame(self.main_frame, fg_color="transparent")
+        self.scroll_container.grid(row=0, column=0, sticky="nsew", pady=0)
         self.scroll_container.grid_columnconfigure(0, weight=1)
-        
-        self.lbl_title = ctk.CTkLabel(self.header_frame, text="GST VERIFICATION TOOL", 
+
+        self.lbl_title = ctk.CTkLabel(self.header_frame, text="GST VERIFICATION TOOL",
                                       font=("Segoe UI", 24, "bold"))
-        self.lbl_title.pack(side="left")
-        
-        self.lbl_subtitle = ctk.CTkLabel(self.header_frame, text="v3.1 | Pro Edition", 
+        self.lbl_title.grid(row=0, column=0)
+
+        self.lbl_subtitle = ctk.CTkLabel(self.header_frame, text="v3.1 | Pro Edition",
                                          font=("Segoe UI", 12), text_color="gray")
-        self.lbl_subtitle.pack(side="left", padx=10, pady=(10, 0))
+        self.lbl_subtitle.grid(row=1, column=0)
 
-        # --- 1. FILE UPLOAD ---
-        self.frame_file = ctk.CTkFrame(self.scroll_container)
-        self.frame_file.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-        
-        self.lbl_step1 = ctk.CTkLabel(self.frame_file, text="STEP 1: Upload Data", font=("Segoe UI", 14, "bold"))
-        self.lbl_step1.pack(anchor="w", padx=15, pady=(10, 5))
-        
-        self.file_entry = ctk.CTkEntry(self.frame_file, placeholder_text="Select Excel file or add GSTIN manually...", width=400)
-        self.file_entry.pack(side="left", padx=15, pady=(0, 15), expand=True, fill="x")
-        
-        self.btn_browse = ctk.CTkButton(self.frame_file, text="Browse", command=self.browse_excel, 
-                                        width=90, height=28, font=("Segoe UI", 12, "bold"))
-        self.btn_browse.pack(side="right", padx=(0, 15), pady=(0, 15))
-
-        # --- Button Row Tools (Internal Actions) ---
-        self.btn_row_actions = ctk.CTkFrame(self.scroll_container, fg_color="transparent")
-        self.btn_row_actions.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
-
-        self.btn_add_id = ctk.CTkButton(self.btn_row_actions, text="➕ Add GSTIN", command=self.add_id_password,
-                         fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"), width=120)
-        self.btn_add_id.pack(side="left", padx=(0, 10))
-
-        self.btn_view_id = ctk.CTkButton(self.btn_row_actions, text="👁 View", command=self.view_saved_user,
-                         fg_color="#475569", hover_color="#334155", height=28, font=("Segoe UI", 11, "bold"), width=80)
-        self.btn_view_id.pack(side="left", padx=(0, 10))
-
-        self.btn_delete_id = ctk.CTkButton(self.btn_row_actions, text="🗑 Delete", command=self.delete_saved_user,
-                           fg_color="#7C3AED", hover_color="#6D28D9", height=28, font=("Segoe UI", 11, "bold"), width=80)
-        self.btn_delete_id.pack(side="left", padx=(0, 10))
-
-        self.btn_sample = ctk.CTkButton(self.btn_row_actions, text="📥 Download Sample", command=self.download_sample,
-                           fg_color="#2563EB", hover_color="#1D4ED8", height=28, font=("Segoe UI", 12, "bold"), width=160)
-        self.btn_sample.pack(side="left", padx=(0, 10))
-
-        self.btn_demo = ctk.CTkButton(self.btn_row_actions, text="▶ View Demo", command=self.open_demo_link, 
-                          fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"), width=120)
-        self.btn_demo.pack(side="left")
-        
-        self.btn_view_id.configure(state="disabled")
-        self.btn_delete_id.configure(state="disabled")
+        # --- GSTIN Management Row ---
+        self.frame_gstin = ctk.CTkFrame(self.scroll_container)
+        self.frame_gstin.grid(row=0, column=0, padx=10, pady=(0, 6), sticky="ew")
+        self.frame_gstin.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(self.frame_gstin, text="📋 GSTIN List", font=("Segoe UI", 13, "bold")).pack(anchor="center", padx=15, pady=(14, 8))
+        gstin_row = ctk.CTkFrame(self.frame_gstin, fg_color="transparent")
+        gstin_row.pack(anchor="center", pady=(0, 12))
+        ctk.CTkButton(gstin_row, text="➕ Add GSTIN", width=130, height=34,
+                      fg_color="#059669", hover_color="#047857",
+                      font=("Segoe UI", 11, "bold"), command=self.add_gstin).pack(side="left", padx=6)
+        ctk.CTkButton(gstin_row, text="📂 Load Data", width=120, height=34,
+                      fg_color="#4338ca", hover_color="#3730a3",
+                      font=("Segoe UI", 11, "bold"), command=self.load_gstins_from_db).pack(side="left", padx=6)
+        ctk.CTkButton(gstin_row, text="✏️ View / Edit Data", width=140, height=34,
+                      fg_color="#7C3AED", hover_color="#6D28D9",
+                      font=("Segoe UI", 11, "bold"), command=self.view_gstin_data).pack(side="left", padx=6)
+        ctk.CTkButton(gstin_row, text="▶ Watch Demo Video", width=155, height=34,
+                      fg_color="#DC2626", hover_color="#B91C1C",
+                      font=("Segoe UI", 11, "bold"), command=self.open_demo_link).pack(side="left", padx=6)
+        self.lbl_gstin_count = ctk.CTkLabel(self.frame_gstin, text="No GSTINs loaded",
+                                             font=("Segoe UI", 11), text_color="gray")
+        self.lbl_gstin_count.pack(anchor="center", pady=(0, 12))
 
         # --- 2. RICH LOG & PROGRESS ---
         self.frame_log = ctk.CTkFrame(self.scroll_container)
-        self.frame_log.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
+        self.frame_log.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         
         self.lbl_step2 = ctk.CTkLabel(self.frame_log, text="Process Log", font=("Segoe UI", 14, "bold"))
         self.lbl_step2.pack(anchor="w", padx=15, pady=(10, 5))
@@ -613,33 +630,220 @@ class GSTApp(ctk.CTk):
         import webbrowser
         webbrowser.open_new_tab("https://youtu.be/RAwvIz1RU-w")
 
-    def browse_excel(self):
-        filename = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
-        if filename:
-            self.file_entry.delete(0, "end")
-            self.file_entry.insert(0, filename)
-            self.manual_credentials = []
-            self._refresh_manual_controls()
-            self.log_message(f"✅ File loaded: {filename.split('/')[-1]}", "info")
-
-    def download_sample(self):
-        try:
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".xlsx",
-                filetypes=[("Excel Files", "*.xlsx")],
-                initialfile="GST_Verifier_Sample.xlsx",
-                title="Save Sample Template"
-            )
-            if not save_path:
+    def add_gstin(self, edit_cname="", edit_gstin=""):
+        import sqlite3 as _sq, os as _os
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Edit GSTIN" if edit_gstin else "Add GSTIN")
+        dialog.geometry("420x300")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.attributes("-topmost", True)
+        card = ctk.CTkFrame(dialog, fg_color="transparent")
+        card.pack(fill="both", expand=True, padx=20, pady=20)
+        title_text = "Edit GSTIN" if edit_gstin else "Add New GSTIN"
+        ctk.CTkLabel(card, text=title_text, font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=(0, 12))
+        ctk.CTkLabel(card, text="Client Name (Optional)", font=("Segoe UI", 12)).pack(anchor="w")
+        ent_c = ctk.CTkEntry(card, placeholder_text="Enter Client Name", height=36)
+        ent_c.pack(fill="x", pady=(4, 8))
+        if edit_cname: ent_c.insert(0, edit_cname)
+        
+        ctk.CTkLabel(card, text="GSTIN Number", font=("Segoe UI", 12)).pack(anchor="w")
+        ent = ctk.CTkEntry(card, placeholder_text="e.g. 27ABCDE1234F1Z5", height=36)
+        ent.pack(fill="x", pady=(4, 16))
+        if edit_gstin: ent.insert(0, edit_gstin)
+        ent.focus_set()
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x")
+        def _save():
+            c = ent_c.get().strip()
+            g = ent.get().strip().upper()
+            if not g:
+                messagebox.showwarning("Missing", "Enter a GSTIN number.", parent=dialog)
                 return
+            db_path = _os.path.join(_os.environ.get("APPDATA", _os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
+            _os.makedirs(_os.path.dirname(db_path), exist_ok=True)
+            try:
+                conn = _sq.connect(db_path)
+                conn.execute("CREATE TABLE IF NOT EXISTS gst_gstin_list (id INTEGER PRIMARY KEY AUTOINCREMENT, gstin TEXT UNIQUE)")
+                try: conn.execute("ALTER TABLE gst_gstin_list ADD COLUMN client_name TEXT")
+                except: pass
+                
+                existing = conn.execute("SELECT id FROM gst_gstin_list WHERE gstin=?", (g,)).fetchone()
+                if existing:
+                    conn.execute("UPDATE gst_gstin_list SET client_name=? WHERE gstin=?", (c, g))
+                else:
+                    conn.execute("INSERT INTO gst_gstin_list (gstin, client_name) VALUES (?, ?)", (g, c))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                messagebox.showerror("Error", str(e), parent=dialog)
+                return
+            found = False
+            for item in self.gstin_list:
+                if isinstance(item, dict) and item.get("GSTIN") == g:
+                    found = True; break
+                elif item == g:
+                    found = True; break
+            if not found:
+                self.gstin_list.append({"GSTIN": g, "ClientName": c})
+            self._refresh_gstin_count()
+            self.log_message(f"✅ GSTIN added: {g}", "success")
+            dialog.destroy()
+        ctk.CTkButton(btn_row, text="Cancel", width=100, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(btn_row, text="Save GSTIN", width=110, fg_color="#059669", hover_color="#047857", command=_save).pack(side="right", padx=(0, 8))
+        dialog.bind("<Return>", lambda _e: _save())
 
-            df = pd.DataFrame({"GSTIN": ["27ABCDE1234F1Z5", "07AAACR1234A1Z1"]})
-            df.to_excel(save_path, index=False)
-            messagebox.showinfo("Success", f"Sample file saved successfully at:\n{save_path}")
-            self.log_message(f"📥 Sample file downloaded: {os.path.basename(save_path)}", "success")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save sample file: {e}")
-            self.log_message(f"❌ Failed to download sample: {e}", "error")
+    def load_gstins_from_db(self):
+        import sqlite3 as _sq, os as _os
+        db_path = _os.path.join(_os.environ.get("APPDATA", _os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
+        try:
+            conn = _sq.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM gst_gstin_list ORDER BY gstin")
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.close()
+        except Exception:
+            rows = []
+        if not rows:
+            messagebox.showinfo("No GSTINs", "No GSTINs saved yet. Add via the Add GSTIN button.", parent=self)
+            return
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Load GSTINs")
+        dialog.geometry("400x460")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.attributes("-topmost", True)
+        ctk.CTkLabel(dialog, text="Select GSTINs to Load",
+                     font=("Segoe UI", 14, "bold")).pack(pady=(16, 8))
+        sel_all_var = ctk.BooleanVar()
+        vars_ = {}
+        def _toggle_all():
+            state = sel_all_var.get()
+            for v in vars_.values():
+                v.set(state)
+        ctk.CTkCheckBox(dialog, text="Select All", variable=sel_all_var,
+                        command=_toggle_all,
+                        font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20, pady=(0, 4))
+        scroll = ctk.CTkScrollableFrame(dialog, height=300)
+        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        for rdata in rows:
+            g = rdata.get("gstin", "")
+            c = rdata.get("client_name") or ""
+            v = ctk.BooleanVar()
+            disp = f"{c} ({g})" if c else g
+            ctk.CTkCheckBox(scroll, text=disp, variable=v).pack(anchor="w", padx=10, pady=3)
+            vars_[(g, c)] = v
+        def _load():
+            selected = [{"GSTIN": g, "ClientName": c} for (g, c), v in vars_.items() if v.get()]
+            if not selected:
+                messagebox.showwarning("No Selection", "Select at least one GSTIN.", parent=dialog)
+                return
+            self.gstin_list = selected
+            self._refresh_gstin_count()
+            self.log_message(f"📂 Loaded {len(selected)} GSTIN(s) from DB", "info")
+            dialog.destroy()
+        foot = ctk.CTkFrame(dialog, fg_color="transparent")
+        foot.pack(fill="x", padx=16, pady=(0, 12))
+        ctk.CTkButton(foot, text="Cancel", width=100, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(foot, text="Load Selected", width=120,
+                      fg_color="#4338ca", hover_color="#3730a3",
+                      command=_load).pack(side="right", padx=(0, 8))
+
+    def clear_gstins(self):
+        self.gstin_list = []
+        self._refresh_gstin_count()
+        self.log_message("🗑 GSTIN list cleared", "info")
+
+    def view_gstin_data(self):
+        import sqlite3 as _sq, os as _os
+        db_path = _os.path.join(_os.environ.get("APPDATA", _os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
+        try:
+            conn = _sq.connect(db_path)
+            rows = conn.execute("SELECT id, gstin FROM gst_gstin_list ORDER BY gstin").fetchall()
+            conn.close()
+        except Exception:
+            rows = []
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Saved GSTINs")
+        dialog.geometry("480x500")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.attributes("-topmost", True)
+        ctk.CTkLabel(dialog, text="Saved GSTINs", font=("Segoe UI", 14, "bold")).pack(pady=(16, 8))
+        scroll = ctk.CTkScrollableFrame(dialog, height=360)
+        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        scroll.grid_columnconfigure(0, weight=1)
+        def _rebuild():
+            for w in scroll.winfo_children():
+                w.destroy()
+            try:
+                c = _sq.connect(db_path)
+                cur = c.cursor()
+                cur.execute("SELECT * FROM gst_gstin_list ORDER BY gstin")
+                cols = [d[0] for d in cur.description]
+                rs = [dict(zip(cols, r)) for r in cur.fetchall()]
+                c.close()
+            except Exception:
+                rs = []
+            if not rs:
+                ctk.CTkLabel(scroll, text="No GSTINs saved yet.",
+                             font=("Segoe UI", 12), text_color="gray").pack(pady=30)
+                return
+            for rdata in rs:
+                rid = rdata.get("id")
+                gnum = rdata.get("gstin", "")
+                cname = rdata.get("client_name") or ""
+                row_f = ctk.CTkFrame(scroll, fg_color=("#f8fafc", "#273549"),
+                                     corner_radius=8, border_width=1,
+                                     border_color=("#e2e8f0", "#334155"))
+                row_f.pack(fill="x", padx=4, pady=4)
+                row_f.grid_columnconfigure(0, weight=1)
+                disp = f"  {cname} ({gnum})" if cname else f"  {gnum}"
+                ctk.CTkLabel(row_f, text=disp,
+                             font=("Segoe UI", 13, "bold"),
+                             anchor="w").grid(row=0, column=0, sticky="w", padx=12, pady=10)
+                def _edit(c=cname, g=gnum):
+                    dialog.destroy()
+                    self.add_gstin(edit_cname=c, edit_gstin=g)
+                ctk.CTkButton(row_f, text="Edit", width=60, height=28,
+                              fg_color="#2563EB", hover_color="#1D4ED8",
+                              font=("Segoe UI", 11, "bold"),
+                              command=_edit).grid(row=0, column=1, padx=(0, 5))
+                def _del(r=rid, n=gnum):
+                    if not messagebox.askyesno("Delete", f"Delete GSTIN '{n}'?", parent=dialog):
+                        return
+                    try:
+                        c2 = _sq.connect(db_path)
+                        c2.execute("DELETE FROM gst_gstin_list WHERE id=?", (r,))
+                        c2.commit()
+                        c2.close()
+                    except Exception:
+                        pass
+                    new_list = []
+                    for item in self.gstin_list:
+                        if isinstance(item, dict) and item.get("GSTIN") == n: continue
+                        if item == n: continue
+                        new_list.append(item)
+                    self.gstin_list = new_list
+                    self._refresh_gstin_count()
+                    _rebuild()
+                ctk.CTkButton(row_f, text="Delete", width=70, height=28,
+                              fg_color="#DC2626", hover_color="#B91C1C",
+                              font=("Segoe UI", 11, "bold"),
+                              command=_del).grid(row=0, column=2, padx=(0, 10))
+        _rebuild()
+        ctk.CTkButton(dialog, text="Close", width=100, command=dialog.destroy).pack(pady=(0, 12))
+
+    def _refresh_gstin_count(self):
+        n = len(self.gstin_list)
+        if n == 0:
+            self.lbl_gstin_count.configure(text="No GSTINs loaded", text_color="gray")
+        else:
+            self.lbl_gstin_count.configure(text=f"{n} GSTIN(s) ready", text_color="#059669")
 
     def open_output_folder(self):
         target = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier")
@@ -647,90 +851,6 @@ class GSTApp(ctk.CTk):
             os.startfile(target)
         else:
             messagebox.showinfo("Info", "Output folder not found.")
-
-    def _get_saved_user_id(self):
-        if not self.manual_credentials:
-            return ""
-        return str(self.manual_credentials[0].get("Username", "")).strip()
-
-    def _refresh_manual_controls(self):
-        has_manual = bool(self.manual_credentials)
-        self.btn_view_id.configure(state="normal" if has_manual else "disabled")
-        self.btn_delete_id.configure(state="normal" if has_manual else "disabled")
-        if has_manual:
-            user_id = self._get_saved_user_id()
-            self.file_entry.delete(0, "end")
-            self.file_entry.insert(0, f"Selected GSTIN: {user_id}")
-
-    def view_saved_user(self):
-        user_id = self._get_saved_user_id()
-        if not user_id:
-            messagebox.showinfo("Info", "No saved GSTIN found.")
-            return
-        messagebox.showinfo("Saved GSTIN", f"Current GSTIN: {user_id}")
-
-    def delete_saved_user(self):
-        user_id = self._get_saved_user_id()
-        if not user_id:
-            messagebox.showinfo("Info", "No saved GSTIN found.")
-            return
-        if not messagebox.askyesno("Delete GSTIN", f"Delete saved GSTIN {user_id}?"):
-            return
-        self.manual_credentials = []
-        self.file_entry.delete(0, "end")
-        self._refresh_manual_controls()
-        messagebox.showinfo("Deleted", "Saved GSTIN deleted successfully.")
-
-    def add_id_password(self):
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Add GSTIN")
-        dialog.geometry("420x180")
-        dialog.resizable(False, False)
-        dialog.transient(self)
-        dialog.grab_set()
-
-        card = ctk.CTkFrame(dialog, fg_color="transparent")
-        card.pack(fill="both", expand=True, padx=16, pady=16)
-
-        ctk.CTkLabel(card, text="GSTIN").pack(anchor="w")
-        ent_user = ctk.CTkEntry(card, placeholder_text="Enter GSTIN (e.g., 27ABCDE1234F1Z5)")
-        ent_user.pack(fill="x", pady=(4, 14))
-
-        btn_row = ctk.CTkFrame(card, fg_color="transparent")
-        btn_row.pack(fill="x")
-
-        def _save():
-            username = (ent_user.get() or "").strip().upper()
-            if not username:
-                messagebox.showerror("Missing Data", "Please enter GSTIN", parent=dialog)
-                return
-
-            if len(username) != 15 or not username.isalnum():
-                messagebox.showerror(
-                    "Invalid GSTIN",
-                    "Please enter a valid 15-character GSTIN.\nExample: 27ABCDE1234F1Z5",
-                    parent=dialog,
-                )
-                return
-
-            existing_user = self._get_saved_user_id()
-            if existing_user and not messagebox.askyesno(
-                "Overwrite GSTIN",
-                "Your previous GSTIN will be overwritten with this.",
-                parent=dialog
-            ):
-                return
-
-            self.manual_credentials = [{"Username": username}]
-            self._refresh_manual_controls()
-            messagebox.showinfo("Added", f"GSTIN saved: {username}", parent=dialog)
-            dialog.destroy()
-
-        ctk.CTkButton(btn_row, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
-        ctk.CTkButton(btn_row, text="Add", width=110, command=_save).pack(side="right", padx=(0, 8))
-
-        ent_user.focus_set()
-        dialog.bind("<Return>", lambda _e: _save())
 
     def update_log_safe(self, message, tag="normal"):
         self.after(0, lambda: self.log_message(message, tag))
@@ -751,15 +871,10 @@ class GSTApp(ctk.CTk):
         pass
 
     def start_process(self):
-        file_path = self.file_entry.get()
-        manual_gstins = [
-            row.get("Username", "").strip()
-            for row in self.manual_credentials
-            if row.get("Username", "").strip()
-        ]
+        manual_gstins = list(self.gstin_list)
 
-        if not file_path and not manual_gstins:
-            messagebox.showwarning("Warning", "Please add GSTIN first!")
+        if not manual_gstins:
+            messagebox.showwarning("Warning", "Please add GSTINs first!")
             return
         
         self.reset_status_label()
@@ -768,7 +883,7 @@ class GSTApp(ctk.CTk):
         self.btn_stop.grid()
         self.btn_open_folder.grid_remove()
         self.log_message("🚀 Starting Automation Thread...", "info")
-        self.worker = GSTWorker(self, file_path, manual_gstins=manual_gstins)
+        self.worker = GSTWorker(self, None, manual_gstins=manual_gstins)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
     def stop_process(self):

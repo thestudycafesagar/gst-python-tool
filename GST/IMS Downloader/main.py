@@ -21,7 +21,7 @@ from selenium.common.exceptions import TimeoutException
 import sys
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
-from stealth_driver import create_chrome_driver, build_chrome_options
+from stealth_driver import create_chrome_driver, build_chrome_options, show_browser_alert
 
 # --- UI CONFIGURATION ---
 ctk.set_appearance_mode("System")
@@ -416,6 +416,14 @@ class IMSWorker:
         except Exception as e:
             self.log(f"   ⚠️ Could not auto-fill password: {e}")
 
+        # If captcha present, show a browser banner
+        try:
+            if self.driver.find_elements(By.ID, "imgCaptcha"):
+                show_browser_alert(self.driver, "Please enter captcha in the browser and submit to continue.")
+                self.log("   🟨 Captcha detected — please complete it in the browser.")
+        except Exception:
+            pass
+
         self.log("   👉 Please enter the CAPTCHA in the Chrome window and click LOGIN.")
         self.log("   ⏳ Waiting for you to complete login... (no time limit)")
 
@@ -520,7 +528,7 @@ class App(ctk.CTk):
         self.ent_file.pack(fill="x", padx=15, pady=(5, 5))
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
         btn_row.pack(fill="x", padx=15, pady=(5, 15))
-        self.btn_download = ctk.CTkButton(btn_row, text="➕ Add ID Password", command=self.add_id_password, fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"))
+        self.btn_download = ctk.CTkButton(btn_row, text="📂 Load ID Pass", command=self.load_id_pass, fg_color="#059669", hover_color="#047857", height=28, font=("Segoe UI", 12, "bold"))
         self.btn_download.pack(side="left", expand=True, fill="x", padx=(0, 5))
         self.btn_demo = ctk.CTkButton(btn_row, text="▶ View Demo", command=self.open_demo_link, fg_color="#DC2626", hover_color="#B91C1C", height=28, font=("Segoe UI", 12, "bold"))
         self.btn_demo.pack(side="left", expand=True, fill="x", padx=(5, 0))
@@ -530,12 +538,6 @@ class App(ctk.CTk):
                          fg_color="#475569", hover_color="#334155", height=28, width=100,
                          font=("Segoe UI", 11, "bold"))
         self.btn_view_id.pack(side="left")
-        self.btn_delete_id = ctk.CTkButton(manage_row, text="🗑 Delete ID", command=self.delete_saved_user,
-                           fg_color="#7C3AED", hover_color="#6D28D9", height=28, width=110,
-                           font=("Segoe UI", 11, "bold"))
-        self.btn_delete_id.pack(side="left", padx=(8, 0))
-        self.btn_view_id.configure(state="disabled")
-        self.btn_delete_id.configure(state="disabled")
 
         # LOG BOX (row=1, expands)
         self.log_frame = ctk.CTkFrame(self.scroll_container)
@@ -598,30 +600,120 @@ class App(ctk.CTk):
     def _refresh_manual_controls(self):
         has_manual = bool(self.manual_credentials)
         self.btn_view_id.configure(state="normal" if has_manual else "disabled")
-        self.btn_delete_id.configure(state="normal" if has_manual else "disabled")
         if has_manual:
             user_id = self._get_saved_user_id()
             self.ent_file.delete(0, "end")
             self.ent_file.insert(0, f"Selected ID: {user_id}")
 
     def view_saved_user(self):
-        user_id = self._get_saved_user_id()
-        if not user_id:
-            messagebox.showinfo("Info", "No saved ID found.")
+        if not self.manual_credentials:
+            messagebox.showinfo("Info", "No IDs loaded yet.", parent=self)
             return
-        messagebox.showinfo("Saved User ID", f"Current ID: {user_id}")
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Loaded IDs")
+        dialog.geometry("460x480")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.attributes("-topmost", True)
+        ctk.CTkLabel(dialog, text=f"Loaded IDs  ({len(self.manual_credentials)})",
+                     font=("Segoe UI", 14, "bold")).pack(pady=(16, 8))
+        scroll = ctk.CTkScrollableFrame(dialog, height=360)
+        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        scroll.grid_columnconfigure(0, weight=1)
+        for cred in self.manual_credentials:
+            u = cred.get("Username", "")
+            p = cred.get("Password", "")
+            row_f = ctk.CTkFrame(scroll, fg_color=("#f8fafc", "#273549"),
+                                 corner_radius=8, border_width=1,
+                                 border_color=("#e2e8f0", "#334155"))
+            row_f.pack(fill="x", padx=4, pady=4)
+            row_f.grid_columnconfigure(1, weight=1)
+            ctk.CTkLabel(row_f, text="👤", font=("Segoe UI", 16)
+                         ).grid(row=0, column=0, padx=(12, 6), pady=10)
+            info_f = ctk.CTkFrame(row_f, fg_color="transparent")
+            info_f.grid(row=0, column=1, sticky="w", pady=8)
+            ctk.CTkLabel(info_f, text=u, font=("Segoe UI", 13, "bold"),
+                         anchor="w").pack(anchor="w")
+            pass_var = ctk.StringVar(value="•" * len(p))
+            pass_lbl = ctk.CTkLabel(info_f, textvariable=pass_var,
+                                    font=("Segoe UI", 11), text_color="gray",
+                                    anchor="w")
+            pass_lbl.pack(anchor="w")
+            shown = [False]
+            def _toggle(pv=pass_var, pw=p, s=shown):
+                if s[0]:
+                    pv.set("•" * len(pw))
+                    s[0] = False
+                else:
+                    pv.set(pw)
+                    s[0] = True
+            ctk.CTkButton(row_f, text="👁", width=36, height=28,
+                          fg_color="transparent",
+                          hover_color=("#e2e8f0", "#334155"),
+                          command=_toggle).grid(row=0, column=2, padx=(0, 10))
+        ctk.CTkButton(dialog, text="Close", width=100,
+                      command=dialog.destroy).pack(pady=(0, 12))
 
-    def delete_saved_user(self):
-        user_id = self._get_saved_user_id()
-        if not user_id:
-            messagebox.showinfo("Info", "No saved ID found.")
+    def load_id_pass(self):
+        import sqlite3 as _sq, os as _os
+        db_path = _os.path.join(_os.environ.get("APPDATA", _os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
+        if not _os.path.exists(db_path):
+            db_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "suite_profiles.db")
+        try:
+            conn = _sq.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM gst_profiles ORDER BY username")
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.close()
+        except Exception:
+            rows = []
+        if not rows:
+            messagebox.showinfo("No Profiles", "No saved profiles found.\nPlease add profiles via GST Suite settings.", parent=self)
             return
-        if not messagebox.askyesno("Delete ID", f"Delete saved ID {user_id}?"):
-            return
-        self.manual_credentials = []
-        self.ent_file.delete(0, "end")
-        self._refresh_manual_controls()
-        messagebox.showinfo("Deleted", "Saved ID deleted successfully.")
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Load ID Password")
+        dialog.geometry("400x460")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.attributes("-topmost", True)
+        ctk.CTkLabel(dialog, text="Select Profiles to Load", font=("Segoe UI", 14, "bold")).pack(pady=(16, 8))
+        sel_all_var = ctk.BooleanVar()
+        def _toggle_all():
+            state = sel_all_var.get()
+            for v in vars_.values():
+                v.set(state)
+        ctk.CTkCheckBox(dialog, text="Select All", variable=sel_all_var, command=_toggle_all,
+                        font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20, pady=(0, 4))
+        scroll = ctk.CTkScrollableFrame(dialog, height=300)
+        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        vars_ = {}
+        for rdata in rows:
+            u = rdata.get("username", "")
+            p = rdata.get("password", "")
+            c = rdata.get("client_name") or ""
+            v = ctk.BooleanVar()
+            disp = f"{c} ({u})" if c else u
+            ctk.CTkCheckBox(scroll, text=disp, variable=v).pack(anchor="w", padx=10, pady=3)
+            vars_[(u, p, c)] = v
+        foot = ctk.CTkFrame(dialog, fg_color="transparent")
+        foot.pack(fill="x", padx=16, pady=(0, 16))
+        def _load():
+            selected = [{"Username": u, "Password": p, "ClientName": c} for (u, p, c), v in vars_.items() if v.get()]
+            if not selected:
+                messagebox.showwarning("No Selection", "Please select at least one profile.", parent=dialog)
+                return
+            self.manual_credentials = selected
+            n = len(selected)
+            label = selected[0]["Username"] if n == 1 else f"Loaded {n} profiles"
+            self.ent_file.delete(0, "end")
+            self.ent_file.insert(0, label)
+            self.btn_view_id.configure(state="normal")
+            dialog.destroy()
+        ctk.CTkButton(foot, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(foot, text="Load Selected", width=130, fg_color="#059669", hover_color="#047857", command=_load).pack(side="right", padx=(0, 8))
 
     def add_id_password(self):
         dialog = ctk.CTkToplevel(self)
@@ -675,7 +767,7 @@ class App(ctk.CTk):
             ):
                 return
 
-            self.manual_credentials = [{"Username": username, "Password": password}]
+            self.manual_credentials = [{"Username": username, "Password": password, "ClientName": ""}]
             self.excel_file = ""
             self._refresh_manual_controls()
             messagebox.showinfo("Added", f"Credential saved for {username}", parent=dialog)

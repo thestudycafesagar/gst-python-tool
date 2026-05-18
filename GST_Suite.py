@@ -542,7 +542,6 @@ PDF_TOOLS = [
     {"key": "PDF_Merge",    "tab": "⊕  Merge",    "module": os.path.join(_PDF_BASE, "main.py"), "class": "MergeApp",    "tk": True, "desc": "Merge multiple PDF files into one high-quality document."},
     {"key": "PDF_Split",    "tab": "✂  Split",    "module": os.path.join(_PDF_BASE, "main.py"), "class": "SplitApp",    "tk": True, "desc": "Split PDF files into smaller parts by page range or every N pages."},
     {"key": "PDF_Extract",  "tab": "⊙  Extract",  "module": os.path.join(_PDF_BASE, "main.py"), "class": "ExtractApp",  "tk": True, "desc": "Extract specific pages from a PDF document to a new file."},
-    {"key": "PDF_Compress", "tab": "⊜  Compress", "module": os.path.join(_PDF_BASE, "main.py"), "class": "CompressApp", "tk": True, "desc": "Reduce PDF file size while maintaining visual quality."},
     {"key": "PDF_Redact",   "tab": "⬛  Redact",   "module": os.path.join(_PDF_BASE, "main.py"), "class": "RedactApp",   "tk": True, "desc": "Securely black out sensitive information and text from PDF documents."},
 ]
 
@@ -1252,7 +1251,7 @@ class GSTSuite(_RealCTk):
             if getattr(self, '_allowed', None) is None:
                 return False
             return not any(self._is_tool_allowed(t.get("key")) for t in visible_tools)  
-        # ── Dynamic 3x3 Grid Layout ───────────────────────────────────────────
+        # ── Dynamic 3x3 Grid Layout   ───────────────────────────────────────────
         categories = [
             (GST_TOOLS, "🏛", "GST Tools", "Downloads, converters & verifiers\nfor GST portal automation.", _C["gst_acc"], _C["gst_bg"], _C["gst_hover"], lambda: self._show_category("gst")),
             (IT_TOOLS, "💼", "Income Tax Automation Suite", "26AS, Challan & ITR filing\nautomation tools.", _C["it_acc"], _C["it_bg"], _C["it_hover"], lambda: self._show_category("it")),
@@ -1558,6 +1557,14 @@ class GSTSuite(_RealCTk):
                      font=("Segoe UI", 10, "bold"),
                      text_color="#ffffff").pack(padx=4, pady=4)
 
+        if key in ["gst", "it"]:
+            acc_color = _C["gst_acc"] if key == "gst" else _C["it_acc"]
+            ctk.CTkButton(tr, text="Manage ID/Pass",
+                          command=lambda: _show_cred(),
+                          fg_color=acc_color, hover_color=("#3730a3", "#6366f1"),
+                          height=30, font=("Segoe UI", 11, "bold"),
+                          corner_radius=8).pack(side="right", padx=(12, 0))
+
         hero_help = "Click any tab to load a tool — each loads once and stays active."
         if key == "mail":
             hero_help = "Choose Outlook or Gmail, then switch between 3 built-in templates and 1 custom template inside that suite."
@@ -1634,8 +1641,349 @@ class GSTSuite(_RealCTk):
                     _attach(_card)
                 _make_attach()
 
+        if key in ["gst", "it"]:
+            is_it = (key == "it")
+            table_name = "it_profiles" if is_it else "gst_profiles"
+            cat_label = "Income Tax" if is_it else "GST"
+            cat_acc = _C["it_acc"] if is_it else _C["gst_acc"]
+            
+            cred_view = ctk.CTkFrame(frame, fg_color=("white", "#0f172a"), corner_radius=0)
+
+            def _show_cred():
+                scroll.pack_forget()
+                cred_view.pack(fill="both", expand=True)
+                _ov_refresh()
+
+            def _show_cards():
+                cred_view.pack_forget()
+                scroll.pack(fill="both", expand=True)
+
+            import sqlite3 as _sq_ov, os as _os_ov
+
+            def _get_ov_db():
+                p = _os_ov.path.join(_os_ov.environ.get("APPDATA", _os_ov.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
+                _os_ov.makedirs(_os_ov.path.dirname(p), exist_ok=True)
+                conn = _sq_ov.connect(p)
+                conn.execute(f"CREATE TABLE IF NOT EXISTS {table_name} (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
+                try: conn.execute(f"ALTER TABLE {table_name} ADD COLUMN client_name TEXT")
+                except: pass
+                if table_name == "it_profiles":
+                    try: conn.execute(f"ALTER TABLE {table_name} ADD COLUMN dob TEXT")
+                    except: pass
+                conn.commit()
+                return conn
+
+            cv_header = ctk.CTkFrame(cred_view, fg_color=_C["surface"], corner_radius=0)
+            cv_header.pack(fill="x")
+            ctk.CTkFrame(cv_header, height=4, fg_color=cat_acc, corner_radius=0).pack(fill="x")
+            cv_hb = ctk.CTkFrame(cv_header, fg_color="transparent")
+            cv_hb.pack(fill="x", padx=20, pady=10)
+            ctk.CTkButton(cv_hb, text="<- Back to Tools", command=_show_cards,
+                          fg_color="transparent", hover_color=("#e2e8f0", "#334155"),
+                          text_color=cat_acc, font=("Segoe UI", 13, "bold"),
+                          width=150, height=32).pack(side="left")
+            ctk.CTkLabel(cv_hb, text=f"{cat_label} Profile Manager",
+                         font=("Segoe UI", 16, "bold"),
+                         text_color=cat_acc).pack(side="left", padx=(20, 0))
+
+            cv_tabs = ctk.CTkTabview(cred_view, fg_color=_C["surface2"],
+                                     segmented_button_fg_color=_C["surface"],
+                                     segmented_button_selected_color=cat_acc,
+                                     segmented_button_selected_hover_color=("#3730a3", "#6366f1"),
+                                     segmented_button_unselected_color=_C["surface"],
+                                     segmented_button_unselected_hover_color=("#e2e8f0", "#334155"))
+            cv_tabs.pack(fill="both", expand=True, padx=20, pady=(8, 16))
+            cv_tabs.add(f"  {cat_label} ID  ")
+
+            # ══════════════════ PROFILE ID TAB ══════════════════
+            gst_tab = cv_tabs.tab(f"  {cat_label} ID  ")
+            gst_tab.grid_columnconfigure(0, weight=3)
+            gst_tab.grid_columnconfigure(1, weight=2)
+            gst_tab.grid_rowconfigure(0, weight=1)
+
+            cv_left = ctk.CTkFrame(gst_tab, fg_color=_C["surface"], corner_radius=12,
+                                   border_width=1, border_color=_C["border"])
+            cv_left.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=4)
+            cv_left.grid_columnconfigure(0, weight=1)
+            cv_left.grid_rowconfigure(2, weight=1)
+            ctk.CTkFrame(cv_left, height=4, fg_color=cat_acc, corner_radius=0).grid(row=0, column=0, sticky="ew")
+            ctk.CTkLabel(cv_left, text="Saved Profiles",
+                         font=("Segoe UI", 14, "bold"),
+                         text_color=cat_acc).grid(row=1, column=0, sticky="w", padx=16, pady=(12, 6))
+            list_box = ctk.CTkScrollableFrame(cv_left, fg_color=("#f8fafc", "#1a2535"), corner_radius=8)
+            list_box.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
+            list_box.grid_columnconfigure(0, weight=1)
+
+            def _ov_refresh():
+                for w in list_box.winfo_children():
+                    w.destroy()
+                try:
+                    conn = _get_ov_db()
+                    cur = conn.cursor()
+                    cur.execute(f"SELECT * FROM {table_name} ORDER BY username")
+                    cols = [d[0] for d in cur.description]
+                    rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                    conn.close()
+                except Exception:
+                    rows = []
+                if not rows:
+                    ctk.CTkLabel(list_box, text="No profiles saved yet",
+                                 font=("Segoe UI", 12),
+                                 text_color=("#94a3b8", "#475569")).pack(pady=30)
+                    return
+                for rdata in rows:
+                    rid = rdata.get("id")
+                    uname = rdata.get("username", "")
+                    cname = rdata.get("client_name") or ""
+                    pwd = rdata.get("password", "")
+                    dob = rdata.get("dob", "")
+                    row_f = ctk.CTkFrame(list_box, fg_color=("#ffffff", "#273549"),
+                                          corner_radius=8, border_width=1,
+                                          border_color=("#e2e8f0", "#334155"))
+                    row_f.pack(fill="x", padx=6, pady=4)
+                    row_f.grid_columnconfigure(0, weight=1)
+                    disp_text = f"  {cname} ({uname})" if cname else f"  {uname}"
+                    ctk.CTkLabel(row_f, text=disp_text,
+                                 font=("Segoe UI", 13, "bold"),
+                                 anchor="w").grid(row=0, column=0, sticky="w", padx=12, pady=10)
+
+                    def _edit(u=uname, p=pwd, c=cname, d=dob):
+                        ent_u.delete(0, "end"); ent_u.insert(0, u)
+                        ent_p.delete(0, "end"); ent_p.insert(0, p)
+                        ent_client.delete(0, "end"); ent_client.insert(0, c)
+                        if ent_dob: ent_dob.delete(0, "end"); ent_dob.insert(0, d)
+                    ctk.CTkButton(row_f, text="Edit", width=60, height=30, fg_color="#2563EB", hover_color="#1D4ED8",
+                                  font=("Segoe UI", 11, "bold"), command=_edit).grid(row=0, column=2, padx=(0, 5))
+                    def _del(r=rid, u=uname):
+                        from tkinter import messagebox as _mb2
+                        if _mb2.askyesno("Delete", f"Delete profile for '{u}'?"):
+                            try:
+                                c = _get_ov_db(); c.execute(f"DELETE FROM {table_name} WHERE id=?", (r,)); c.commit(); c.close()
+                            except Exception: pass
+                            _ov_refresh()
+                    ctk.CTkButton(row_f, text="Delete", width=70, height=30,
+                                  fg_color="#7C3AED", hover_color="#6D28D9",
+                                  font=("Segoe UI", 11, "bold"), command=_del
+                                  ).grid(row=0, column=3, padx=(0, 10))
+
+            cv_right = ctk.CTkFrame(gst_tab, fg_color=_C["surface"], corner_radius=12,
+                                    border_width=1, border_color=_C["border"])
+            cv_right.grid(row=0, column=1, sticky="nsew", pady=4)
+            cv_right.grid_columnconfigure(0, weight=1)
+            ctk.CTkFrame(cv_right, height=4, fg_color=cat_acc, corner_radius=0).pack(fill="x")
+            rf = ctk.CTkFrame(cv_right, fg_color="transparent")
+            rf.pack(fill="both", expand=True, padx=20, pady=(6, 16))
+            ctk.CTkLabel(rf, text="Add New Profile",
+                         font=("Segoe UI", 14, "bold"),
+                         text_color=cat_acc).pack(anchor="w", pady=(0, 10))
+            
+            ctk.CTkLabel(rf, text="Client Name (Optional)", font=("Segoe UI", 12)).pack(anchor="w")
+            ent_client = ctk.CTkEntry(rf, placeholder_text="Enter Client Name", height=36)
+            ent_client.pack(fill="x", pady=(2, 10))
+
+            user_field_label = "PAN / User ID" if is_it else "Username / GST ID"
+            user_placeholder = "Enter PAN or User ID" if is_it else "Enter GST username"
+            
+            ctk.CTkLabel(rf, text=user_field_label, font=("Segoe UI", 12)).pack(anchor="w")
+            ent_u = ctk.CTkEntry(rf, placeholder_text=user_placeholder, height=36)
+            ent_u.pack(fill="x", pady=(2, 10))
+            ctk.CTkLabel(rf, text="Password", font=("Segoe UI", 12)).pack(anchor="w")
+            pr = ctk.CTkFrame(rf, fg_color="transparent")
+            pr.pack(fill="x", pady=(2, 12))
+            ent_p = ctk.CTkEntry(pr, placeholder_text="Enter password", show="*", height=36)
+            ent_p.pack(side="left", expand=True, fill="x")
+            def _tog(e=ent_p):
+                e.configure(show="" if e.cget("show") == "*" else "*")
+            ctk.CTkButton(pr, text="Show", width=50, height=36,
+                          fg_color="transparent", text_color=("#475569", "#94a3b8"),
+                          hover_color=("#e2e8f0", "#334155"), command=_tog).pack(side="right", padx=(6, 0))
+
+            ent_dob = None
+            if is_it:
+                ctk.CTkLabel(rf, text="Date of Birth (Optional)", font=("Segoe UI", 12)).pack(anchor="w")
+                ent_dob = ctk.CTkEntry(rf, placeholder_text="DD/MM/YYYY", height=36)
+                ent_dob.pack(fill="x", pady=(2, 4))
+                ctk.CTkLabel(rf, text="* DOB is only required for AIS and TIS tools.", font=("Segoe UI", 10), text_color=("#64748b", "#94a3b8")).pack(anchor="w", pady=(0, 10))
+
+            def _ov_save():
+                from tkinter import messagebox as _mb3
+                c = ent_client.get().strip()
+                u = ent_u.get().strip()
+                p = ent_p.get().strip()
+                d = ent_dob.get().strip() if ent_dob else ""
+                if not u or not p:
+                    _mb3.showerror("Missing", "Enter both username and password.")
+                    return
+                try:
+                    conn = _get_ov_db()
+                    existing = conn.execute(f"SELECT id FROM {table_name} WHERE username=?", (u,)).fetchone()
+                    if existing:
+                        if is_it:
+                            conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, dob=? WHERE username=?", (p, c, d, u))
+                        else:
+                            conn.execute(f"UPDATE {table_name} SET password=?, client_name=? WHERE username=?", (p, c, u))
+                    else:
+                        if is_it:
+                            conn.execute(f"INSERT INTO {table_name} (username, password, client_name, dob) VALUES (?,?,?,?)", (u, p, c, d))
+                        else:
+                            conn.execute(f"INSERT INTO {table_name} (username, password, client_name) VALUES (?,?,?)", (u, p, c))
+                    conn.commit()
+                    conn.close()
+                except Exception as e:
+                    _mb3.showerror("Error", str(e))
+                    return
+                ent_client.delete(0, "end")
+                ent_u.delete(0, "end")
+                ent_p.delete(0, "end")
+                if ent_dob: ent_dob.delete(0, "end")
+                _ov_refresh()
+            ctk.CTkButton(rf, text="✅  Save Profile", command=_ov_save,
+                          fg_color="#059669", hover_color="#047857",
+                          height=50, font=("Segoe UI", 16, "bold")).pack(fill="x", pady=(15, 0))
 
     # ══════════════════════════════════════════════════════════════════════════
+    def _open_gst_profiles_manager(self):
+        import sqlite3 as _sq, os as _os
+
+        def _get_db():
+            p = _os.path.join(_os.environ.get("APPDATA", _os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
+            if not _os.path.exists(_os.path.dirname(p)):
+                _os.makedirs(_os.path.dirname(p), exist_ok=True)
+            conn = _sq.connect(p)
+            conn.execute("CREATE TABLE IF NOT EXISTS gst_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
+            try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN client_name TEXT")
+            except: pass
+            conn.commit()
+            return conn
+
+        win = ctk.CTkToplevel(self)
+        win.title("Manage GST ID / Password")
+        win.geometry("480x540")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        win.attributes("-topmost", True)
+
+        ctk.CTkFrame(win, height=5, fg_color=_C["gst_acc"]).pack(fill="x")
+
+        ctk.CTkLabel(win, text="👤  GST Login Profiles",
+                     font=("Segoe UI", 15, "bold"),
+                     text_color=_C["gst_acc"]).pack(anchor="w", padx=20, pady=(14, 4))
+        ctk.CTkLabel(win, text="Saved credentials are shared across all GST tools.",
+                     font=("Segoe UI", 11),
+                     text_color=("#64748b", "#94a3b8")).pack(anchor="w", padx=20, pady=(0, 10))
+
+        list_frame = ctk.CTkScrollableFrame(win, height=220, fg_color=("#f8fafc", "#1e293b"),
+                                            corner_radius=8)
+        list_frame.pack(fill="x", padx=16, pady=(0, 4))
+        list_frame.grid_columnconfigure(0, weight=1)
+
+        empty_lbl = ctk.CTkLabel(list_frame, text="No profiles saved yet.",
+                                  font=("Segoe UI", 12),
+                                  text_color=("#94a3b8", "#475569"))
+
+        def _refresh_list():
+            for w in list_frame.winfo_children(): w.destroy()
+            try:
+                conn = _get_db()
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM gst_profiles ORDER BY username")
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                conn.close()
+            except Exception:
+                rows = []
+            if not rows:
+                ctk.CTkLabel(list_frame, text="No profiles saved yet.", font=("Segoe UI", 12), text_color=("#94a3b8", "#475569")).pack(pady=20)
+                return
+            for rdata in rows:
+                rid = rdata.get("id")
+                uname = rdata.get("username", "")
+                pwd = rdata.get("password", "")
+                cname = rdata.get("client_name") or ""
+                row = ctk.CTkFrame(list_frame, fg_color=("#ffffff", "#273549"), corner_radius=8, border_width=1, border_color=("#e2e8f0", "#334155"))
+                row.pack(fill="x", padx=4, pady=3)
+                row.grid_columnconfigure(0, weight=1)
+                disp_text = f"  {cname} ({uname})" if cname else f"  {uname}"
+                ctk.CTkLabel(row, text=disp_text, font=("Segoe UI", 12, "bold"), anchor="w").grid(row=0, column=0, sticky="w", padx=8, pady=6)
+                ctk.CTkLabel(row, text="••••••••", font=("Segoe UI", 11), text_color=("#94a3b8", "#64748b")).grid(row=0, column=1, padx=8)
+                def _edit(u=uname, p=pwd, c=cname):
+                    ent_user.delete(0, "end"); ent_user.insert(0, u)
+                    ent_pass.delete(0, "end"); ent_pass.insert(0, p)
+                    ent_client.delete(0, "end"); ent_client.insert(0, c)
+                ctk.CTkButton(row, text="Edit", width=50, height=28, fg_color="#2563EB", hover_color="#1D4ED8", font=("Segoe UI", 11, "bold"), command=_edit).grid(row=0, column=2, padx=(0, 5))
+                def _del(r=rid, u=uname):
+                    from tkinter import messagebox as _mb
+                    if _mb.askyesno("Delete", f"Delete profile for '{u}'?", parent=win):
+                        try:
+                            c = _get_db(); c.execute("DELETE FROM gst_profiles WHERE id=?", (r,)); c.commit(); c.close()
+                        except Exception: pass
+                        _refresh_list()
+                ctk.CTkButton(row, text="🗑", width=34, height=28, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 12), command=_del).grid(row=0, column=3, padx=(0, 8))
+
+        _refresh_list()
+
+        ctk.CTkFrame(win, height=1, fg_color=("#e2e8f0", "#334155")).pack(fill="x", padx=16, pady=(8, 0))
+        ctk.CTkLabel(win, text="Add New Profile",
+                     font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=20, pady=(10, 4))
+
+        add_frame = ctk.CTkFrame(win, fg_color="transparent")
+        add_frame.pack(fill="x", padx=16, pady=(0, 4))
+
+        ctk.CTkLabel(add_frame, text="Client Name (Optional)", font=("Segoe UI", 11)).pack(anchor="w")
+        ent_client = ctk.CTkEntry(add_frame, placeholder_text="Enter Client Name", height=34)
+        ent_client.pack(fill="x", pady=(2, 8))
+
+        ctk.CTkLabel(add_frame, text="Username / GST ID", font=("Segoe UI", 11)).pack(anchor="w")
+        ent_user = ctk.CTkEntry(add_frame, placeholder_text="Enter GST username", height=34)
+        ent_user.pack(fill="x", pady=(2, 8))
+
+        ctk.CTkLabel(add_frame, text="Password", font=("Segoe UI", 11)).pack(anchor="w")
+        pass_row = ctk.CTkFrame(add_frame, fg_color="transparent")
+        pass_row.pack(fill="x", pady=(2, 0))
+        ent_pass = ctk.CTkEntry(pass_row, placeholder_text="Enter password", show="*", height=34)
+        ent_pass.pack(side="left", expand=True, fill="x")
+        def _toggle():
+            ent_pass.configure(show="" if ent_pass.cget("show") == "*" else "*")
+        ctk.CTkButton(pass_row, text="👁", width=36, height=34,
+                      fg_color="transparent", text_color=("#475569", "#94a3b8"),
+                      hover_color=("#e2e8f0", "#334155"), command=_toggle).pack(side="right", padx=(6, 0))
+
+        def _save():
+            from tkinter import messagebox as _mb
+            c = ent_client.get().strip()
+            u = ent_user.get().strip()
+            p = ent_pass.get().strip()
+            if not u or not p:
+                _mb.showerror("Missing", "Please enter both username and password.", parent=win)
+                return
+            try:
+                conn = _get_db()
+                existing = conn.execute("SELECT id FROM gst_profiles WHERE username=?", (u,)).fetchone()
+                if existing:
+                    conn.execute("UPDATE gst_profiles SET password=?, client_name=? WHERE username=?", (p, c, u))
+                else:
+                    conn.execute("INSERT INTO gst_profiles (username, password, client_name) VALUES (?, ?, ?)", (u, p, c))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                _mb.showerror("Error", str(e), parent=win)
+                return
+            ent_client.delete(0, "end")
+            ent_user.delete(0, "end")
+            ent_pass.delete(0, "end")
+            _refresh_list()
+
+        btn_row = ctk.CTkFrame(win, fg_color="transparent")
+        btn_row.pack(fill="x", padx=16, pady=(10, 16))
+        ctk.CTkButton(btn_row, text="✅ Save Profile", command=_save,
+                      fg_color="#059669", hover_color="#047857",
+                      height=34, font=("Segoe UI", 12, "bold")).pack(side="left", expand=True, fill="x", padx=(0, 6))
+        ctk.CTkButton(btn_row, text="Close", command=win.destroy,
+                      fg_color="#475569", hover_color="#334155",
+                      height=34, font=("Segoe UI", 12, "bold")).pack(side="left", expand=True, fill="x")
+
+
     #  NAVIGATION
     # ══════════════════════════════════════════════════════════════════════════
     def _show_landing(self):
