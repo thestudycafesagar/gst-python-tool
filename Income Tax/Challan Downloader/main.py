@@ -1338,10 +1338,14 @@ class App(ctk.CTk):
             conn = _sq.connect(db_path)
             # Check if dob column exists
             try:
-                rows = conn.execute("SELECT username, password, dob FROM it_profiles ORDER BY username").fetchall()
+                rows = conn.execute("SELECT username, password, dob, client_name FROM it_profiles ORDER BY username").fetchall()
             except:
-                rows = conn.execute("SELECT username, password FROM it_profiles ORDER BY username").fetchall()
-                rows = [(r[0], r[1], "") for r in rows]
+                try:
+                    rows = conn.execute("SELECT username, password, dob FROM it_profiles ORDER BY username").fetchall()
+                    rows = [(r[0], r[1], r[2], "") for r in rows]
+                except:
+                    rows = conn.execute("SELECT username, password FROM it_profiles ORDER BY username").fetchall()
+                    rows = [(r[0], r[1], "", "") for r in rows]
             conn.close()
         except Exception:
             rows = []
@@ -1374,10 +1378,11 @@ class App(ctk.CTk):
         scroll = ctk.CTkScrollableFrame(dialog, height=300)
         scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
         
-        for u, p, d in rows:
+        for u, p, d, cname in rows:
             v = ctk.BooleanVar()
             vars_[(u, p, d)] = v
-            ctk.CTkCheckBox(scroll, text=u, variable=v).pack(anchor="w", padx=10, pady=3)
+            disp_text = f"{u} ({cname})" if cname else u
+            ctk.CTkCheckBox(scroll, text=disp_text, variable=v).pack(anchor="w", padx=10, pady=3)
             
         def _load():
             selected = [{"PAN": u, "Password": p, "DOB": d} for (u, p, d), v in vars_.items() if v.get()]

@@ -1777,33 +1777,54 @@ class GSTSuite(_RealCTk):
                          font=("Segoe UI", 14, "bold"),
                          text_color=cat_acc).pack(anchor="w", pady=(0, 10))
             
-            ctk.CTkLabel(rf, text="Client Name (Optional)", font=("Segoe UI", 12)).pack(anchor="w")
-            ent_client = ctk.CTkEntry(rf, placeholder_text="Enter Client Name", height=36)
-            ent_client.pack(fill="x", pady=(2, 10))
+            row1 = ctk.CTkFrame(rf, fg_color="transparent")
+            row1.pack(fill="x", pady=(0, 10))
+            row1.grid_columnconfigure((0, 1), weight=1)
+            
+            f_client = ctk.CTkFrame(row1, fg_color="transparent")
+            f_client.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+            ctk.CTkLabel(f_client, text="Client Name", font=("Segoe UI", 12)).pack(anchor="w")
+            ent_client = ctk.CTkEntry(f_client, placeholder_text="Enter Client Name", height=36)
+            ent_client.pack(fill="x", pady=(2, 0))
 
             user_field_label = "PAN / User ID" if is_it else "Username / GST ID"
-            user_placeholder = "Enter PAN or User ID" if is_it else "Enter GST username"
+            user_placeholder = "Enter PAN/User ID" if is_it else "Enter GST username"
             
-            ctk.CTkLabel(rf, text=user_field_label, font=("Segoe UI", 12)).pack(anchor="w")
-            ent_u = ctk.CTkEntry(rf, placeholder_text=user_placeholder, height=36)
-            ent_u.pack(fill="x", pady=(2, 10))
-            ctk.CTkLabel(rf, text="Password", font=("Segoe UI", 12)).pack(anchor="w")
-            pr = ctk.CTkFrame(rf, fg_color="transparent")
-            pr.pack(fill="x", pady=(2, 12))
+            f_u = ctk.CTkFrame(row1, fg_color="transparent")
+            f_u.grid(row=0, column=1, sticky="ew", padx=(5, 0))
+            ctk.CTkLabel(f_u, text=user_field_label, font=("Segoe UI", 12)).pack(anchor="w")
+            ent_u = ctk.CTkEntry(f_u, placeholder_text=user_placeholder, height=36)
+            ent_u.pack(fill="x", pady=(2, 0))
+
+            row2 = ctk.CTkFrame(rf, fg_color="transparent")
+            row2.pack(fill="x", pady=(0, 10))
+            row2.grid_columnconfigure((0, 1), weight=1)
+
+            f_p = ctk.CTkFrame(row2, fg_color="transparent")
+            f_p.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+            ctk.CTkLabel(f_p, text="Password", font=("Segoe UI", 12)).pack(anchor="w")
+            pr = ctk.CTkFrame(f_p, fg_color="transparent")
+            pr.pack(fill="x", pady=(2, 0))
             ent_p = ctk.CTkEntry(pr, placeholder_text="Enter password", show="*", height=36)
             ent_p.pack(side="left", expand=True, fill="x")
             def _tog(e=ent_p):
                 e.configure(show="" if e.cget("show") == "*" else "*")
-            ctk.CTkButton(pr, text="Show", width=50, height=36,
+            ctk.CTkButton(pr, text="Show", width=40, height=36,
                           fg_color="transparent", text_color=("#475569", "#94a3b8"),
-                          hover_color=("#e2e8f0", "#334155"), command=_tog).pack(side="right", padx=(6, 0))
+                          hover_color=("#e2e8f0", "#334155"), command=_tog).pack(side="right", padx=(2, 0))
 
             ent_dob = None
+            f_dob = ctk.CTkFrame(row2, fg_color="transparent")
+            f_dob.grid(row=0, column=1, sticky="ew", padx=(5, 0))
             if is_it:
-                ctk.CTkLabel(rf, text="Date of Birth (Optional)", font=("Segoe UI", 12)).pack(anchor="w")
-                ent_dob = ctk.CTkEntry(rf, placeholder_text="DD/MM/YYYY", height=36)
-                ent_dob.pack(fill="x", pady=(2, 4))
-                ctk.CTkLabel(rf, text="* DOB is only required for AIS and TIS tools.", font=("Segoe UI", 10), text_color=("#64748b", "#94a3b8")).pack(anchor="w", pady=(0, 10))
+                ctk.CTkLabel(f_dob, text="Date of Birth", font=("Segoe UI", 12)).pack(anchor="w")
+                ent_dob = ctk.CTkEntry(f_dob, placeholder_text="DD/MM/YYYY", height=36)
+                ent_dob.pack(fill="x", pady=(2, 0))
+            else:
+                ctk.CTkLabel(f_dob, text=" ", font=("Segoe UI", 12)).pack(anchor="w")
+
+            if is_it:
+                ctk.CTkLabel(rf, text="* DOB is only required for AIS and TIS tools.", font=("Segoe UI", 10), text_color=("#64748b", "#94a3b8")).pack(anchor="w", pady=(0, 5))
 
             def _ov_save():
                 from tkinter import messagebox as _mb3

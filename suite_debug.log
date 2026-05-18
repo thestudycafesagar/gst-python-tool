@@ -2943,3 +2943,67 @@
 [2026-05-18 17:19:32] warmup ok requests
 [2026-05-18 17:19:32] warmup ok PIL
 [2026-05-18 17:19:32] dependency warmup done
+[2026-05-18 17:52:21] dependency warmup start
+[2026-05-18 17:52:22] warmup ok pandas
+[2026-05-18 17:52:22] warmup ok numpy
+[2026-05-18 17:52:22] warmup ok openpyxl
+[2026-05-18 17:52:22] warmup ok fitz
+[2026-05-18 17:52:23] warmup ok pdfplumber
+[2026-05-18 17:52:23] warmup ok pdfminer
+[2026-05-18 17:52:23] warmup ok selenium
+[2026-05-18 17:52:23] warmup ok webdriver_manager
+[2026-05-18 17:52:23] warmup ok requests
+[2026-05-18 17:52:23] warmup ok PIL
+[2026-05-18 17:52:23] dependency warmup done
+[2026-05-18 17:56:58] dependency warmup start
+[2026-05-18 17:56:58] warmup ok pandas
+[2026-05-18 17:56:58] warmup ok numpy
+[2026-05-18 17:56:59] warmup ok openpyxl
+[2026-05-18 17:56:59] warmup ok fitz
+[2026-05-18 17:56:59] warmup ok pdfplumber
+[2026-05-18 17:56:59] warmup ok pdfminer
+[2026-05-18 17:56:59] warmup ok selenium
+[2026-05-18 17:56:59] warmup ok webdriver_manager
+[2026-05-18 17:56:59] warmup ok requests
+[2026-05-18 17:56:59] warmup ok PIL
+[2026-05-18 17:56:59] dependency warmup done
+[2026-05-18 17:57:02] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-18 17:57:03] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_0_26_AS_Downlaoder
+[2026-05-18 17:57:03] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-18 17:57:03] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-18 17:59:33] dependency warmup start
+[2026-05-18 17:59:34] warmup ok pandas
+[2026-05-18 17:59:34] warmup ok numpy
+[2026-05-18 17:59:34] warmup ok openpyxl
+[2026-05-18 17:59:34] warmup ok fitz
+[2026-05-18 17:59:34] warmup ok pdfplumber
+[2026-05-18 17:59:34] warmup ok pdfminer
+[2026-05-18 17:59:34] warmup ok selenium
+[2026-05-18 17:59:34] warmup ok webdriver_manager
+[2026-05-18 17:59:34] warmup ok requests
+[2026-05-18 17:59:34] warmup ok PIL
+[2026-05-18 17:59:34] dependency warmup done
+[2026-05-18 17:59:49] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-18 17:59:49] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_0_26_AS_Downlaoder
+[2026-05-18 17:59:49] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-18 17:59:49] instantiate success tab=📄  26AS/AIS & TIS instance=App
+[2026-05-18 18:01:22] dependency warmup start
+[2026-05-18 18:01:23] warmup ok pandas
+[2026-05-18 18:01:23] warmup ok numpy
+[2026-05-18 18:01:23] warmup ok openpyxl
+[2026-05-18 18:01:24] warmup ok fitz
+[2026-05-18 18:01:24] warmup ok pdfplumber
+[2026-05-18 18:01:24] warmup ok pdfminer
+[2026-05-18 18:01:24] warmup ok selenium
+[2026-05-18 18:01:24] warmup ok webdriver_manager
+[2026-05-18 18:01:24] warmup ok requests
+[2026-05-18 18:01:24] warmup ok PIL
+[2026-05-18 18:01:24] dependency warmup done
+[2026-05-18 18:01:24] activate_tab start cat=it tab=💰  Challan Downloader module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\Challan Downloader\main.py exists=True tk=False
+[2026-05-18 18:01:24] main_import begin tab=💰  Challan Downloader uid=_suite_mod_0_Challan_Downloader
+[2026-05-18 18:01:24] main_import success tab=💰  Challan Downloader class=App
+[2026-05-18 18:01:25] instantiate success tab=💰  Challan Downloader instance=App
+[2026-05-18 18:01:45] activate_tab start cat=it tab=📄  26AS/AIS & TIS module=c:\Users\HP\Desktop\Rohit Python Tools\rohit combo\rohit combo\Income Tax\26 AS Downlaoder\main.py exists=True tk=False
+[2026-05-18 18:01:45] main_import begin tab=📄  26AS/AIS & TIS uid=_suite_mod_1_26_AS_Downlaoder
+[2026-05-18 18:01:45] main_import success tab=📄  26AS/AIS & TIS class=App
+[2026-05-18 18:01:46] instantiate success tab=📄  26AS/AIS & TIS instance=App
