@@ -303,8 +303,17 @@ def send_emails(template, cfg, recipients, attachment_folder, log_cb, done_cb):
     from email.mime.application import MIMEApplication
     import os
 
-    sender_email = str(cfg.get("sender_email", "")).strip()
-    app_password = str(cfg.get("app_password", "")).strip()
+    import json as _json
+    cred_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gmail_credentials.json")
+    sender_email = app_password = ""
+    try:
+        if os.path.exists(cred_path):
+            with open(cred_path, "r") as f:
+                creds = _json.load(f)
+                sender_email = creds.get("email", "")
+                app_password = creds.get("password", "")
+    except Exception:
+        pass
 
     if not sender_email or not app_password:
         log_cb("[ERROR] Sender Gmail or App Password not configured.")
@@ -1047,7 +1056,7 @@ class BulkMailApp(ctk.CTk):
                 self._log("── Done ──")
                 messagebox.showinfo("Done", msg)
             else:
-                messagebox.showerror("Outlook Error", "Could not connect to Outlook.\n\n1. Make sure Outlook is installed and open.\n2. Note: The 'New Outlook' (Modern App) does not support COM automation. You must use the classic Outlook Desktop App.")
+                messagebox.showerror("Gmail Error", "Could not connect to Gmail.\n\nPlease check your Gmail address and App Password in '⚙ Email Settings'.")
         self.after(0, _show)
 
 class GSTReturnMailApp(BulkMailApp):

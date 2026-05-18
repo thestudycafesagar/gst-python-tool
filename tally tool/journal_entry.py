@@ -1059,8 +1059,8 @@ class TallyJournalApp(ctk.CTk):
             width=96,
             height=34,
             font=("Segoe UI", 10, "bold"),
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"),
+            hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=lambda: self._fetch_tally_companies_thread(),
@@ -1189,11 +1189,11 @@ class TallyJournalApp(ctk.CTk):
         self.source_tabs = ctk.CTkTabview(
             content_card,
             fg_color="transparent",
-            segmented_button_fg_color=COLORS["bg_input"],
+            segmented_button_fg_color=("#F1F5F9", "#7F1D1D"),
             segmented_button_selected_color=COLORS["accent"],
             segmented_button_selected_hover_color=COLORS["accent_hover"],
-            segmented_button_unselected_color=COLORS["bg_input"],
-            segmented_button_unselected_hover_color=COLORS["bg_card_hover"],
+            segmented_button_unselected_color=("#F1F5F9", "#DC2626"),
+            segmented_button_unselected_hover_color=("#E2E8F0", "#B91C1C"),
         )
         self.source_tabs.pack(fill="both", expand=True, padx=10, pady=(10, 5))
 
@@ -1384,8 +1384,8 @@ class TallyJournalApp(ctk.CTk):
                     width=70,
                     height=26,
                     font=("Segoe UI", 10, "bold"),
-                    fg_color=COLORS["bg_input"],
-                    hover_color=COLORS["bg_card_hover"],
+                    fg_color=("#F1F5F9", "#DC2626"),
+                    hover_color=("#E2E8F0", "#B91C1C"),
                     text_color=COLORS["text_secondary"],
                     command=self._fetch_party_ledgers_thread,
                 )
@@ -1411,8 +1411,8 @@ class TallyJournalApp(ctk.CTk):
                     text="Clear",
                     width=58,
                     height=34,
-                    fg_color=COLORS["bg_input"],
-                    hover_color=COLORS["bg_card_hover"],
+                    fg_color=("#F1F5F9", "#DC2626"),
+                    hover_color=("#E2E8F0", "#B91C1C"),
                     text_color=COLORS["text_secondary"],
                     font=("Segoe UI", 9, "bold"),
                     command=self._clear_party_ledger_search,
@@ -1510,8 +1510,8 @@ class TallyJournalApp(ctk.CTk):
         clear_form_btn = ctk.CTkButton(
             btn_row,
             text="Clear Form",
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"),
+            hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"],
             height=34,
             command=self._clear_manual_form,

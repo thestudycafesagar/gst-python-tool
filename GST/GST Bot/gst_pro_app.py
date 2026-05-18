@@ -48,7 +48,7 @@ class GSTWorker:
 
         try:
             if self.manual_gstins:
-                gstin_list = [str(x).strip() for x in self.manual_gstins if str(x).strip()]
+                gstin_list = self.manual_gstins
             else:
                 # Load Excel
                 df = pd.read_excel(self.file_path)
@@ -57,7 +57,8 @@ class GSTWorker:
                 # Remove spaces and convert to UPPERCASE
                 df.columns = df.columns.str.strip().str.upper()
 
-                if 'GSTIN' not in df.columns:
+                orig_cols = {str(c).strip().upper(): c for c in df.columns}
+                if 'GSTIN' not in orig_cols:
                     self.log("❌ Error: Excel must have a column named 'GSTIN' (case-insensitive)", "error")
                     try:
                         driver.quit()
@@ -65,16 +66,31 @@ class GSTWorker:
                         pass
                     self.driver = None
                     return
+                gstin_col = orig_cols['GSTIN']
+                cname_col = orig_cols.get('CLIENT NAME') or orig_cols.get('CLIENTNAME')
+                
+                gstin_list = []
+                seen = set()
+                for _, r in df.iterrows():
+                    g = str(r[gstin_col]).strip()
+                    if g not in seen and g.lower() != 'nan':
+                        seen.add(g)
+                        c = str(r[cname_col]).strip() if cname_col else ""
+                        if c.lower() == 'nan': c = ""
+                        gstin_list.append({"GSTIN": g, "ClientName": c})
 
-                gstin_list = df['GSTIN'].astype(str).unique().tolist()
-
-            gstin_list = list(dict.fromkeys(gstin_list))
             results = []
             total = len(gstin_list)
 
             self.log(f"📂 Found {total} unique GSTINs. Starting Batch Process...", "info")
 
-            for index, gstin in enumerate(gstin_list):
+            for index, item in enumerate(gstin_list):
+                if isinstance(item, dict):
+                    gstin = item.get("GSTIN", "")
+                    cname = item.get("ClientName", "")
+                else:
+                    gstin = str(item)
+                    cname = ""
                 if not self.keep_running: break
                 
                 self.log(f"\n🔍 Processing ({index+1}/{total}): {gstin}", "normal")
@@ -400,7 +416,19 @@ class GSTWorker:
                 self.log("🛑 Process stopped by user.", "warning")
                 if results:
                     timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-                    base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier", "reports")
+                    if len(gstin_list) == 1 and isinstance(gstin_list[0], dict) and gstin_list[0].get("ClientName"):
+                        folder_name = gstin_list[0].get("ClientName")
+                    elif len(gstin_list) == 1 and isinstance(gstin_list[0], dict):
+                        folder_name = gstin_list[0].get("GSTIN")
+                    elif len(gstin_list) == 1:
+                        folder_name = str(gstin_list[0])
+                    else:
+                        folder_name = "Bulk_Reports"
+                    
+                    import re as _re_tmp
+                    folder_name = _re_tmp.sub(r'[\\/*?:"<>|]', "", folder_name).strip()
+                    
+                    base_dir = os.path.join(os.getcwd(), "GST Downloaded", "GST Verifier", folder_name)
                     os.makedirs(base_dir, exist_ok=True)
                     output_file = os.path.join(base_dir, f"GST_Report_{timestamp}.xlsx")
                     self.log(f"📊 Partial results count: {len(results)}. Saving to: {output_file}", "info")
@@ -549,7 +577,7 @@ class GSTApp(ctk.CTk):
         ctk.CTkButton(gstin_row, text="📂 Load Data", width=120, height=34,
                       fg_color="#4338ca", hover_color="#3730a3",
                       font=("Segoe UI", 11, "bold"), command=self.load_gstins_from_db).pack(side="left", padx=6)
-        ctk.CTkButton(gstin_row, text="🗑 Delete Data", width=125, height=34,
+        ctk.CTkButton(gstin_row, text="✏️ View / Edit Data", width=140, height=34,
                       fg_color="#7C3AED", hover_color="#6D28D9",
                       font=("Segoe UI", 11, "bold"), command=self.view_gstin_data).pack(side="left", padx=6)
         ctk.CTkButton(gstin_row, text="▶ Watch Demo Video", width=155, height=34,
@@ -602,25 +630,33 @@ class GSTApp(ctk.CTk):
         import webbrowser
         webbrowser.open_new_tab("https://youtu.be/RAwvIz1RU-w")
 
-    def add_gstin(self):
+    def add_gstin(self, edit_cname="", edit_gstin=""):
         import sqlite3 as _sq, os as _os
         dialog = ctk.CTkToplevel(self)
-        dialog.title("Add GSTIN")
-        dialog.geometry("420x220")
+        dialog.title("Edit GSTIN" if edit_gstin else "Add GSTIN")
+        dialog.geometry("420x300")
         dialog.resizable(False, False)
         dialog.transient(self)
         dialog.grab_set()
         dialog.attributes("-topmost", True)
         card = ctk.CTkFrame(dialog, fg_color="transparent")
         card.pack(fill="both", expand=True, padx=20, pady=20)
-        ctk.CTkLabel(card, text="Add New GSTIN", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=(0, 12))
+        title_text = "Edit GSTIN" if edit_gstin else "Add New GSTIN"
+        ctk.CTkLabel(card, text=title_text, font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=(0, 12))
+        ctk.CTkLabel(card, text="Client Name (Optional)", font=("Segoe UI", 12)).pack(anchor="w")
+        ent_c = ctk.CTkEntry(card, placeholder_text="Enter Client Name", height=36)
+        ent_c.pack(fill="x", pady=(4, 8))
+        if edit_cname: ent_c.insert(0, edit_cname)
+        
         ctk.CTkLabel(card, text="GSTIN Number", font=("Segoe UI", 12)).pack(anchor="w")
         ent = ctk.CTkEntry(card, placeholder_text="e.g. 27ABCDE1234F1Z5", height=36)
         ent.pack(fill="x", pady=(4, 16))
+        if edit_gstin: ent.insert(0, edit_gstin)
         ent.focus_set()
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
         btn_row.pack(fill="x")
         def _save():
+            c = ent_c.get().strip()
             g = ent.get().strip().upper()
             if not g:
                 messagebox.showwarning("Missing", "Enter a GSTIN number.", parent=dialog)
@@ -630,14 +666,27 @@ class GSTApp(ctk.CTk):
             try:
                 conn = _sq.connect(db_path)
                 conn.execute("CREATE TABLE IF NOT EXISTS gst_gstin_list (id INTEGER PRIMARY KEY AUTOINCREMENT, gstin TEXT UNIQUE)")
-                conn.execute("INSERT OR REPLACE INTO gst_gstin_list (gstin) VALUES (?)", (g,))
+                try: conn.execute("ALTER TABLE gst_gstin_list ADD COLUMN client_name TEXT")
+                except: pass
+                
+                existing = conn.execute("SELECT id FROM gst_gstin_list WHERE gstin=?", (g,)).fetchone()
+                if existing:
+                    conn.execute("UPDATE gst_gstin_list SET client_name=? WHERE gstin=?", (c, g))
+                else:
+                    conn.execute("INSERT INTO gst_gstin_list (gstin, client_name) VALUES (?, ?)", (g, c))
                 conn.commit()
                 conn.close()
             except Exception as e:
                 messagebox.showerror("Error", str(e), parent=dialog)
                 return
-            if g not in self.gstin_list:
-                self.gstin_list.append(g)
+            found = False
+            for item in self.gstin_list:
+                if isinstance(item, dict) and item.get("GSTIN") == g:
+                    found = True; break
+                elif item == g:
+                    found = True; break
+            if not found:
+                self.gstin_list.append({"GSTIN": g, "ClientName": c})
             self._refresh_gstin_count()
             self.log_message(f"✅ GSTIN added: {g}", "success")
             dialog.destroy()
@@ -650,7 +699,10 @@ class GSTApp(ctk.CTk):
         db_path = _os.path.join(_os.environ.get("APPDATA", _os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
         try:
             conn = _sq.connect(db_path)
-            rows = conn.execute("SELECT gstin FROM gst_gstin_list ORDER BY gstin").fetchall()
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM gst_gstin_list ORDER BY gstin")
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
             conn.close()
         except Exception:
             rows = []
@@ -677,12 +729,15 @@ class GSTApp(ctk.CTk):
                         font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20, pady=(0, 4))
         scroll = ctk.CTkScrollableFrame(dialog, height=300)
         scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
-        for (g,) in rows:
+        for rdata in rows:
+            g = rdata.get("gstin", "")
+            c = rdata.get("client_name") or ""
             v = ctk.BooleanVar()
-            ctk.CTkCheckBox(scroll, text=g, variable=v).pack(anchor="w", padx=10, pady=3)
-            vars_[g] = v
+            disp = f"{c} ({g})" if c else g
+            ctk.CTkCheckBox(scroll, text=disp, variable=v).pack(anchor="w", padx=10, pady=3)
+            vars_[(g, c)] = v
         def _load():
-            selected = [g for g, v in vars_.items() if v.get()]
+            selected = [{"GSTIN": g, "ClientName": c} for (g, c), v in vars_.items() if v.get()]
             if not selected:
                 messagebox.showwarning("No Selection", "Select at least one GSTIN.", parent=dialog)
                 return
@@ -727,7 +782,10 @@ class GSTApp(ctk.CTk):
                 w.destroy()
             try:
                 c = _sq.connect(db_path)
-                rs = c.execute("SELECT id, gstin FROM gst_gstin_list ORDER BY gstin").fetchall()
+                cur = c.cursor()
+                cur.execute("SELECT * FROM gst_gstin_list ORDER BY gstin")
+                cols = [d[0] for d in cur.description]
+                rs = [dict(zip(cols, r)) for r in cur.fetchall()]
                 c.close()
             except Exception:
                 rs = []
@@ -735,15 +793,26 @@ class GSTApp(ctk.CTk):
                 ctk.CTkLabel(scroll, text="No GSTINs saved yet.",
                              font=("Segoe UI", 12), text_color="gray").pack(pady=30)
                 return
-            for rid, gnum in rs:
+            for rdata in rs:
+                rid = rdata.get("id")
+                gnum = rdata.get("gstin", "")
+                cname = rdata.get("client_name") or ""
                 row_f = ctk.CTkFrame(scroll, fg_color=("#f8fafc", "#273549"),
                                      corner_radius=8, border_width=1,
                                      border_color=("#e2e8f0", "#334155"))
                 row_f.pack(fill="x", padx=4, pady=4)
                 row_f.grid_columnconfigure(0, weight=1)
-                ctk.CTkLabel(row_f, text=f"  {gnum}",
+                disp = f"  {cname} ({gnum})" if cname else f"  {gnum}"
+                ctk.CTkLabel(row_f, text=disp,
                              font=("Segoe UI", 13, "bold"),
                              anchor="w").grid(row=0, column=0, sticky="w", padx=12, pady=10)
+                def _edit(c=cname, g=gnum):
+                    dialog.destroy()
+                    self.add_gstin(edit_cname=c, edit_gstin=g)
+                ctk.CTkButton(row_f, text="Edit", width=60, height=28,
+                              fg_color="#2563EB", hover_color="#1D4ED8",
+                              font=("Segoe UI", 11, "bold"),
+                              command=_edit).grid(row=0, column=1, padx=(0, 5))
                 def _del(r=rid, n=gnum):
                     if not messagebox.askyesno("Delete", f"Delete GSTIN '{n}'?", parent=dialog):
                         return
@@ -754,14 +823,18 @@ class GSTApp(ctk.CTk):
                         c2.close()
                     except Exception:
                         pass
-                    if n in self.gstin_list:
-                        self.gstin_list.remove(n)
+                    new_list = []
+                    for item in self.gstin_list:
+                        if isinstance(item, dict) and item.get("GSTIN") == n: continue
+                        if item == n: continue
+                        new_list.append(item)
+                    self.gstin_list = new_list
                     self._refresh_gstin_count()
                     _rebuild()
                 ctk.CTkButton(row_f, text="Delete", width=70, height=28,
                               fg_color="#DC2626", hover_color="#B91C1C",
                               font=("Segoe UI", 11, "bold"),
-                              command=_del).grid(row=0, column=1, padx=(0, 10))
+                              command=_del).grid(row=0, column=2, padx=(0, 10))
         _rebuild()
         ctk.CTkButton(dialog, text="Close", width=100, command=dialog.destroy).pack(pady=(0, 12))
 

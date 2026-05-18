@@ -221,7 +221,10 @@ class App(ctk.CTk):
             db_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "suite_profiles.db")
         try:
             conn = _sq.connect(db_path)
-            rows = conn.execute("SELECT username, password FROM gst_profiles ORDER BY username").fetchall()
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM gst_profiles ORDER BY username")
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
             conn.close()
         except Exception:
             rows = []
@@ -246,12 +249,16 @@ class App(ctk.CTk):
                         font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20, pady=(0, 4))
         scroll = ctk.CTkScrollableFrame(dialog, height=300)
         scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
-        for u, p in rows:
+        for rdata in rows:
+            u = rdata.get("username", "")
+            p = rdata.get("password", "")
+            c = rdata.get("client_name") or ""
             v = ctk.BooleanVar()
-            ctk.CTkCheckBox(scroll, text=u, variable=v).pack(anchor="w", padx=10, pady=3)
-            vars_[(u, p)] = v
+            disp = f"{c} ({u})" if c else u
+            ctk.CTkCheckBox(scroll, text=disp, variable=v).pack(anchor="w", padx=10, pady=3)
+            vars_[(u, p, c)] = v
         def _load():
-            selected = [{"Username": u, "Password": p} for (u, p), v in vars_.items() if v.get()]
+            selected = [{"Username": u, "Password": p, "ClientName": c} for (u, p, c), v in vars_.items() if v.get()]
             if not selected:
                 return
             self.manual_credentials = selected
@@ -319,7 +326,10 @@ class MasterProfilePicker(ctk.CTkToplevel):
             if not os.path.exists(db_path):
                 db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "suite_profiles.db")
             conn = sqlite3.connect(db_path)
-            rows = conn.execute("SELECT username, password FROM gst_profiles ORDER BY username").fetchall()
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM gst_profiles ORDER BY username")
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
             conn.close()
             for u, p in rows:
                 v = ctk.BooleanVar()

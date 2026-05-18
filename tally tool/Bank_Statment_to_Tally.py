@@ -1,4 +1,4 @@
-"""
+﻿"""
 TallyBankPro - Bank Statement to Tally Payment/Receipt Voucher Creator
 Reads bank statement Excel (template format) and pushes Payment/Receipt
 vouchers to TallyPrime via HTTP API.
@@ -670,6 +670,17 @@ def _fetch_next_voucher_number(tally_url: str, company: str, voucher_type: str, 
 
 # ─── Generate Payment/Receipt Voucher XML ───────────────────────────────
 
+def _pick_suspense_ledger(existing_names: set) -> str:
+    """Return the correct suspense ledger name based on what exists in Tally.
+    Prefers 'Suspense A/c', falls back to 'Suspense', defaults to 'Suspense A/c'."""
+    upper = {str(n).strip().upper() for n in (existing_names or [])}
+    if "SUSPENSE A/C" in upper:
+        return "Suspense A/c"
+    if "SUSPENSE" in upper:
+        return "Suspense"
+    return "Suspense A/c"
+
+
 def generate_bank_voucher_xml(
     rows: list,
     company: str,
@@ -681,6 +692,7 @@ def generate_bank_voucher_xml(
     receipt_start_vno: int = None,
     contra_ledger_names: set = None,
     contra_start_vno: int = None,
+    suspense_ledger: str = "Suspense A/c",
 ) -> str:
     """
     Generate Payment, Receipt, and Contra vouchers from bank statement rows.
@@ -738,9 +750,9 @@ def generate_bank_voucher_xml(
                 )
             dt = parsed_source_date.strftime("%Y%m%d")
 
-        contra_ledger = str(r.get("LEDGER") or r.get("Ledger") or "Suspense A/c").strip()
+        contra_ledger = str(r.get("LEDGER") or r.get("Ledger") or "").strip()
         if not contra_ledger:
-            contra_ledger = "Suspense A/c"
+            contra_ledger = suspense_ledger
         contra_esc = xml_escape(contra_ledger)
 
         description = str(r.get("DESCRIPTION") or r.get("Description") or "").strip()
@@ -2882,7 +2894,7 @@ class TallyBankApp(ctk.CTk):
         demo_url = (self.workflow_demo_url or "").strip()
         if demo_url:
             try:
-                webbrowser.open_new_tab(demo_url)
+                webbrowser.open(demo_url)
                 return
             except Exception as exc:
                 messagebox.showwarning("View Demo", f"Could not open demo link.\n\n{exc}")
@@ -2977,7 +2989,7 @@ class TallyBankApp(ctk.CTk):
         self.company_combo.pack(side="left", padx=(10, 8), fill="x", expand=True)
         self.company_refresh_btn = ctk.CTkButton(
             row_2, text="Refresh", width=96, height=34, font=("Segoe UI", 10, "bold"),
-            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"], corner_radius=8,
             command=lambda: self._fetch_companies_thread())
         self.company_refresh_btn.pack(side="right")
@@ -3106,7 +3118,7 @@ class TallyBankApp(ctk.CTk):
             fg_color=SUCCESS,
             hover_color="#15803D",
             width=170,
-            command=lambda: self._generate("save"),
+            command=lambda: self._check_ledgers_then_generate("save"),
         )
         self.save_xml_btn.pack(side="left", padx=(0, 10))
 
@@ -3116,7 +3128,7 @@ class TallyBankApp(ctk.CTk):
             fg_color=ACCENT,
             hover_color=ACCENT_HOVER,
             width=170,
-            command=lambda: self._generate("push"),
+            command=lambda: self._check_ledgers_then_generate("push"),
         )
         self.push_tally_btn.pack(side="left")
 
@@ -3598,6 +3610,397 @@ class TallyBankApp(ctk.CTk):
         wb.save(out)
         messagebox.showinfo("Template Saved", f"Template saved to:\n{out}")
 
+    # ── Ledger Mapping Popup ────────────────────────────────────────────
+
+    def _find_unmapped_ledger_descs(self):
+        """Return sorted list of unique descriptions whose LEDGER column is blank."""
+        seen, result = set(), []
+        for r in self.loaded_rows:
+            ledger = str(r.get("LEDGER") or r.get("Ledger") or "").strip()
+            if not ledger:
+                desc = str(
+                    r.get("DESCRIPTION") or r.get("Description") or
+                    r.get("NARRATION") or r.get("Narration") or ""
+                ).strip() or "(no description)"
+                if desc not in seen:
+                    seen.add(desc)
+                    result.append(desc)
+        return sorted(result)
+
+    def _find_nonmatching_ledgers(self, tally_ledger_names_upper: set):
+        """Return sorted list of unique LEDGER values in rows not found in Tally."""
+        seen, result = set(), []
+        for r in self.loaded_rows:
+            ledger = str(r.get("LEDGER") or r.get("Ledger") or "").strip()
+            if ledger and ledger.upper() not in tally_ledger_names_upper:
+                if ledger not in seen:
+                    seen.add(ledger)
+                    result.append(ledger)
+        return sorted(result)
+
+    def _show_ledger_mapping_dialog(self, blank_descs, nonmatch_ledgers, on_proceed, on_cancel=None):
+        """Popup to fix missing or non-matching LEDGER entries before generating/pushing.
+
+        blank_descs     – list of description strings whose LEDGER column is empty.
+        nonmatch_ledgers – list of ledger name strings not found in Tally (may be empty).
+        on_proceed      – callback(mapping) where mapping is {old_key: new_ledger_name}.
+                          Keys for blank entries use prefix "BLANK::<desc>".
+                          Keys for non-matching entries use prefix "WRONG::<name>".
+        """
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Fix Ledger Mapping")
+        dialog.geometry("820x620")
+        dialog.resizable(True, True)
+        dialog.minsize(640, 420)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.configure(fg_color=COLORS["bg_dark"])
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - 820) // 2
+        y = self.winfo_y() + (self.winfo_height() - 620) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        _tally_ledgers = []  # filled by "Fetch Ledgers" button
+
+        # ── header ──────────────────────────────────────────────────────
+        total_issues = len(blank_descs) + len(nonmatch_ledgers)
+        hdr = ctk.CTkFrame(dialog, fg_color=COLORS["error_bg"] if hasattr(COLORS, "error_bg")
+                           else ("#FEF2F2", "#450A0A"), corner_radius=10, height=60)
+        hdr.pack(fill="x", padx=16, pady=(16, 4))
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="⚠️  Ledger Mapping Issues",
+                     font=("Segoe UI", 15, "bold"),
+                     text_color=COLORS["error"]).pack(side="left", padx=16)
+        ctk.CTkLabel(hdr, text=f"{total_issues} item(s) need attention",
+                     font=("Segoe UI", 11),
+                     text_color=COLORS["text_secondary"]).pack(side="right", padx=16)
+
+        # ── fetch-ledger bar ────────────────────────────────────────────
+        info_bar = ctk.CTkFrame(dialog, fg_color="transparent")
+        info_bar.pack(fill="x", padx=16, pady=(4, 2))
+        ctk.CTkLabel(info_bar, text="Type a ledger name or click 🔍 to search from Tally.",
+                     font=("Segoe UI", 11),
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        fetch_status_lbl = ctk.CTkLabel(info_bar, text="",
+                                         font=("Segoe UI", 10),
+                                         text_color=COLORS["text_muted"])
+        fetch_status_lbl.pack(side="left", padx=8)
+        fetch_btn = ctk.CTkButton(info_bar, text="Fetch Ledgers from Tally",
+                                   width=200, height=30,
+                                   font=("Segoe UI", 10, "bold"),
+                                   fg_color=COLORS["accent"],
+                                   hover_color=COLORS["accent_hover"],
+                                   text_color="#FFFFFF", corner_radius=6)
+        fetch_btn.pack(side="right")
+
+        # ── column headers ───────────────────────────────────────────────
+        col_hdr = ctk.CTkFrame(dialog, fg_color=COLORS["table_header"], corner_radius=6, height=32)
+        col_hdr.pack(fill="x", padx=16, pady=(2, 2))
+        col_hdr.pack_propagate(False)
+        ctk.CTkLabel(col_hdr, text="#", width=35, font=("Segoe UI", 10, "bold"),
+                     text_color=("#F59E0B", "#F59E0B"), anchor="center").pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(col_hdr, text="Type / Description", width=260,
+                     font=("Segoe UI", 10, "bold"),
+                     text_color=("#F59E0B", "#F59E0B"), anchor="w").pack(side="left", padx=8)
+        ctk.CTkLabel(col_hdr, text="Assign Ledger",
+                     font=("Segoe UI", 10, "bold"),
+                     text_color=("#F59E0B", "#F59E0B"), anchor="w").pack(side="left", padx=8, fill="x", expand=True)
+
+        # ── scrollable list ──────────────────────────────────────────────
+        list_frame = ctk.CTkScrollableFrame(dialog, fg_color=COLORS["bg_card"],
+                                              corner_radius=8, border_width=1,
+                                              border_color=COLORS["border"])
+        list_frame.pack(fill="both", expand=True, padx=16, pady=(0, 6))
+
+        # entry_map: key → CTkEntry  (key = "BLANK::<desc>" or "WRONG::<ledger>")
+        entry_map = {}
+
+        def _open_picker(entry_widget):
+            if not _tally_ledgers:
+                messagebox.showinfo("Fetch First",
+                                    "Click 'Fetch Ledgers from Tally' to load the ledger list.",
+                                    parent=dialog)
+                return
+            pop = tk.Toplevel(dialog)
+            pop.title("Select Ledger")
+            pop.geometry("360x340")
+            pop.resizable(False, False)
+            pop.transient(dialog)
+            pop.grab_set()
+            bg = COLORS["bg_card"]
+            fg = COLORS["text_primary"]
+            ibg = COLORS["bg_input"]
+            acc = COLORS["accent"]
+            if isinstance(bg, tuple):
+                mode = ctk.get_appearance_mode().lower()
+                idx = 1 if mode == "dark" else 0
+                bg, fg, ibg, acc = bg[idx], fg[idx], ibg[idx], acc[idx]
+            pop.configure(bg=bg)
+            sf = tk.Frame(pop, bg=bg)
+            sf.pack(fill="x", padx=8, pady=8)
+            tk.Label(sf, text="Search:", bg=bg, fg=fg, font=("Segoe UI", 10)).pack(side="left")
+            sv = tk.StringVar()
+            se = tk.Entry(sf, textvariable=sv, font=("Segoe UI", 10),
+                          bg=ibg, fg=fg, insertbackground=fg, relief="flat", bd=2)
+            se.pack(side="left", padx=(6, 0), fill="x", expand=True)
+            lf = tk.Frame(pop, bg=bg)
+            lf.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+            sb = tk.Scrollbar(lf)
+            sb.pack(side="right", fill="y")
+            lb = tk.Listbox(lf, yscrollcommand=sb.set, font=("Segoe UI", 10),
+                            selectmode="single", bg=ibg, fg=fg, relief="flat", bd=0,
+                            selectbackground=acc, selectforeground="#FFFFFF")
+            lb.pack(fill="both", expand=True)
+            sb.config(command=lb.yview)
+            def _filt(*_):
+                q = sv.get().strip().lower()
+                lb.delete(0, "end")
+                for name in _tally_ledgers:
+                    if not q or q in name.lower():
+                        lb.insert("end", name)
+            sv.trace_add("write", _filt)
+            _filt()
+            def _sel(*_):
+                sel = lb.curselection()
+                if sel:
+                    entry_widget.delete(0, "end")
+                    entry_widget.insert(0, lb.get(sel[0]))
+                    pop.destroy()
+            br = tk.Frame(pop, bg=bg)
+            br.pack(fill="x", padx=8, pady=(0, 8))
+            tk.Button(br, text="Select", command=_sel, relief="flat",
+                      font=("Segoe UI", 10, "bold"), bg=acc, fg="#FFFFFF",
+                      padx=12, pady=4).pack(side="left", padx=(0, 6))
+            tk.Button(br, text="Cancel", command=pop.destroy, relief="flat",
+                      font=("Segoe UI", 10), bg=ibg, fg=fg,
+                      padx=12, pady=4).pack(side="left")
+            lb.bind("<Double-Button-1>", _sel)
+            lb.bind("<Return>", _sel)
+            se.focus_set()
+
+        row_colors = (COLORS["bg_card"], COLORS["bg_card_hover"])
+        global_idx = 0
+
+        # ── blank LEDGER section ─────────────────────────────────────────
+        if blank_descs:
+            sec = ctk.CTkFrame(list_frame, fg_color="transparent")
+            sec.pack(fill="x", pady=(4, 0))
+            ctk.CTkLabel(sec, text="⬜ BLANK LEDGER — entries with no ledger assigned",
+                         font=("Segoe UI", 10, "bold"),
+                         text_color=COLORS["warning"]).pack(side="left", padx=8, pady=2)
+
+        for desc in blank_descs:
+            global_idx += 1
+            key = f"BLANK::{desc}"
+            bg = row_colors[global_idx % 2]
+            row_fr = ctk.CTkFrame(list_frame, fg_color=bg, corner_radius=4, height=36)
+            row_fr.pack(fill="x", pady=1)
+            row_fr.pack_propagate(False)
+            ctk.CTkLabel(row_fr, text=f"{global_idx}.", width=35,
+                         font=("Consolas", 10), text_color=COLORS["text_muted"],
+                         anchor="center").pack(side="left", padx=(8, 0))
+            ctk.CTkLabel(row_fr, text=(desc[:40] + "…" if len(desc) > 40 else desc),
+                         width=260, font=("Segoe UI", 10),
+                         text_color=COLORS["text_primary"], anchor="w").pack(side="left", padx=8)
+            pick_btn = ctk.CTkButton(row_fr, text="🔍", width=32, height=26,
+                                     fg_color=("#F1F5F9", "#DC2626"),
+                                     hover_color=("#E2E8F0", "#B91C1C"),
+                                     text_color=COLORS["accent"],
+                                     font=("Segoe UI", 11), corner_radius=4)
+            pick_btn.pack(side="right", padx=(0, 6))
+            ent = ctk.CTkEntry(row_fr, height=28, fg_color=COLORS["bg_input"],
+                               border_color=COLORS["border"],
+                               text_color=COLORS["text_primary"],
+                               font=("Segoe UI", 10), corner_radius=6,
+                               placeholder_text="Enter ledger name")
+            ent.pack(side="left", fill="x", expand=True, padx=(4, 4))
+            entry_map[key] = ent
+            pick_btn.configure(command=lambda e=ent: _open_picker(e))
+
+        # ── non-matching LEDGER section ──────────────────────────────────
+        if nonmatch_ledgers:
+            sec2 = ctk.CTkFrame(list_frame, fg_color="transparent")
+            sec2.pack(fill="x", pady=(8, 0))
+            ctk.CTkLabel(sec2, text="❌ WRONG LEDGER — name not found in Tally",
+                         font=("Segoe UI", 10, "bold"),
+                         text_color=COLORS["error"]).pack(side="left", padx=8, pady=2)
+
+        for wrong in nonmatch_ledgers:
+            global_idx += 1
+            key = f"WRONG::{wrong}"
+            bg = row_colors[global_idx % 2]
+            row_fr = ctk.CTkFrame(list_frame, fg_color=bg, corner_radius=4, height=36)
+            row_fr.pack(fill="x", pady=1)
+            row_fr.pack_propagate(False)
+            ctk.CTkLabel(row_fr, text=f"{global_idx}.", width=35,
+                         font=("Consolas", 10), text_color=COLORS["text_muted"],
+                         anchor="center").pack(side="left", padx=(8, 0))
+            ctk.CTkLabel(row_fr, text=(wrong[:40] + "…" if len(wrong) > 40 else wrong),
+                         width=260, font=("Segoe UI", 10),
+                         text_color=COLORS["error"], anchor="w").pack(side="left", padx=8)
+            pick_btn2 = ctk.CTkButton(row_fr, text="🔍", width=32, height=26,
+                                      fg_color=("#F1F5F9", "#DC2626"),
+                                      hover_color=("#E2E8F0", "#B91C1C"),
+                                      text_color=COLORS["accent"],
+                                      font=("Segoe UI", 11), corner_radius=4)
+            pick_btn2.pack(side="right", padx=(0, 6))
+            ent2 = ctk.CTkEntry(row_fr, height=28, fg_color=COLORS["bg_input"],
+                                border_color=COLORS["error"],
+                                text_color=COLORS["text_primary"],
+                                font=("Segoe UI", 10), corner_radius=6)
+            ent2.insert(0, wrong)  # pre-fill with current (wrong) name for easy editing
+            ent2.pack(side="left", fill="x", expand=True, padx=(4, 4))
+            entry_map[key] = ent2
+            pick_btn2.configure(command=lambda e=ent2: _open_picker(e))
+
+        # ── fetch button logic ───────────────────────────────────────────
+        def _do_fetch():
+            try:
+                tally_url = self._get_tally_url()
+            except Exception:
+                messagebox.showerror("Settings", "Invalid Tally URL. Check host/port.", parent=dialog)
+                return
+            company = self._get_selected_company()
+            fetch_btn.configure(state="disabled", text="Fetching…")
+            fetch_status_lbl.configure(text="Fetching ledgers…", text_color=COLORS["warning"])
+
+            def _worker():
+                result = _fetch_bank_ledgers(tally_url, company, timeout=15)
+                # Also fetch all ledgers for general use
+                all_names = sorted(_fetch_all_ledger_names(tally_url, company, timeout=15))
+                def _done():
+                    fetch_btn.configure(state="normal", text="Fetch Ledgers from Tally")
+                    if all_names:
+                        _tally_ledgers.clear()
+                        _tally_ledgers.extend(all_names)
+                        fetch_status_lbl.configure(
+                            text=f"✓ {len(_tally_ledgers)} ledgers loaded — click 🔍 to search",
+                            text_color=COLORS["success"])
+                    else:
+                        fetch_status_lbl.configure(text="✗ Fetch failed — is Tally running?",
+                                                   text_color=COLORS["error"])
+                self.after(0, _done)
+            threading.Thread(target=_worker, daemon=True).start()
+
+        fetch_btn.configure(command=_do_fetch)
+
+        # ── action buttons ───────────────────────────────────────────────
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent", height=50)
+        btn_frame.pack(fill="x", padx=16, pady=(0, 14))
+        btn_frame.pack_propagate(False)
+
+        def _do_apply():
+            mapping = {}
+            for key, ent in entry_map.items():
+                val = ent.get().strip()
+                if val:
+                    mapping[key] = val
+            # Apply blank-ledger mappings to loaded_rows
+            for r in self.loaded_rows:
+                ledger = str(r.get("LEDGER") or r.get("Ledger") or "").strip()
+                if not ledger:
+                    desc = str(
+                        r.get("DESCRIPTION") or r.get("Description") or
+                        r.get("NARRATION") or r.get("Narration") or ""
+                    ).strip() or "(no description)"
+                    mapped = mapping.get(f"BLANK::{desc}")
+                    if mapped:
+                        r["LEDGER"] = mapped
+            # Apply wrong-ledger replacements to loaded_rows
+            for r in self.loaded_rows:
+                ledger = str(r.get("LEDGER") or r.get("Ledger") or "").strip()
+                corrected = mapping.get(f"WRONG::{ledger}")
+                if corrected:
+                    r["LEDGER"] = corrected
+            dialog.destroy()
+            on_proceed()
+
+        def _do_skip():
+            dialog.destroy()
+            on_proceed()
+
+        def _do_cancel():
+            dialog.destroy()
+            if on_cancel:
+                on_cancel()
+
+        ctk.CTkButton(btn_frame, text="✓ Apply & Proceed",
+                      font=("Segoe UI", 12, "bold"), height=40,
+                      fg_color=COLORS["success"], hover_color="#047857",
+                      text_color="#FFFFFF", corner_radius=8,
+                      command=_do_apply).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(btn_frame, text="Skip (use Suspense A/c for blanks)",
+                      font=("Segoe UI", 11), height=40,
+                      fg_color=COLORS["warning"], hover_color="#B45309",
+                      text_color="#FFFFFF", corner_radius=8,
+                      command=_do_skip).pack(side="left", fill="x", expand=True, padx=4)
+        ctk.CTkButton(btn_frame, text="Cancel",
+                      font=("Segoe UI", 11), height=40,
+                      fg_color=("#E2E8F0", "#DC2626"), hover_color=("#CBD5E1", "#B91C1C"),
+                      text_color=("#1F2937", "#FFFFFF"), corner_radius=8,
+                      command=_do_cancel).pack(side="right", padx=(4, 0))
+
+    def _check_ledgers_then_generate(self, action):
+        """Pre-flight ledger check. Shows popup for blank/wrong ledgers, then calls _generate."""
+        blank_descs = self._find_unmapped_ledger_descs()
+
+        if not blank_descs:
+            # No blank ledgers — for push action also check non-matching via Tally
+            if action == "push":
+                self._check_nonmatching_then_generate(action)
+            else:
+                self._generate(action)
+            return
+
+        # Show popup for blank ledgers (no Tally call needed yet)
+        def _proceed():
+            if action == "push":
+                self._check_nonmatching_then_generate(action)
+            else:
+                self._generate(action)
+
+        self._show_ledger_mapping_dialog(
+            blank_descs=blank_descs,
+            nonmatch_ledgers=[],
+            on_proceed=_proceed,
+        )
+
+    def _check_nonmatching_then_generate(self, action):
+        """Fetch Tally ledger names, find non-matching entries, show popup if any, then _generate."""
+        try:
+            tally_url = self._get_tally_url()
+        except Exception:
+            self._generate(action)
+            return
+
+        company = self._get_selected_company()
+        self.status_var.set("Checking ledger names against Tally…")
+
+        def _worker():
+            try:
+                existing_upper = _fetch_all_ledger_names(tally_url, company, timeout=15)
+            except Exception:
+                existing_upper = set()
+
+            def _done():
+                self.status_var.set("Ready")
+                if not existing_upper:
+                    # Couldn't reach Tally — proceed without check
+                    self._generate(action)
+                    return
+                nonmatch = self._find_nonmatching_ledgers(existing_upper)
+                if not nonmatch:
+                    self._generate(action)
+                    return
+                self._show_ledger_mapping_dialog(
+                    blank_descs=[],
+                    nonmatch_ledgers=nonmatch,
+                    on_proceed=lambda: self._generate(action),
+                )
+            self.after(0, _done)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     # ── Generate & Push ─────────────────────────────────────────────────
 
     def _generate(self, action):
@@ -3660,18 +4063,20 @@ class TallyBankApp(ctk.CTk):
                             if ledger and ledger.lower() != bank_ledger.lower():
                                 unique_ledgers.add(ledger)
 
-                        if unique_ledgers:
-                            # Fetch existing ledger names so we don't overwrite them
-                            try:
-                                existing_ledger_names = _fetch_all_ledger_names(tally_url, company, timeout=15)
-                            except Exception:
-                                existing_ledger_names = set()
+                        # Always fetch existing ledger names — needed for suspense resolution
+                        try:
+                            existing_ledger_names = _fetch_all_ledger_names(tally_url, company, timeout=15)
+                        except Exception:
+                            existing_ledger_names = set()
 
+                        suspense_ledger = _pick_suspense_ledger(existing_ledger_names)
+
+                        if unique_ledgers:
                             # Only create ledgers that are truly new (not already in Tally)
                             new_ledgers = {n for n in unique_ledgers if n.upper() not in existing_ledger_names}
 
                             if new_ledgers:
-                                ledger_defs = [{"Name": n, "Parent": "Suspense A/c"} for n in new_ledgers]
+                                ledger_defs = [{"Name": n, "Parent": suspense_ledger} for n in new_ledgers]
                                 ledger_xml = generate_ledger_xml(ledger_defs, company)
                                 try:
                                     ledger_resp = push_to_tally(ledger_xml, host, int(port_text))
@@ -3742,6 +4147,7 @@ class TallyBankApp(ctk.CTk):
                                 receipt_start_vno=receipt_cursor,
                                 contra_ledger_names=banks_snapshot,
                                 contra_start_vno=contra_cursor,
+                                suspense_ledger=suspense_ledger,
                             )
 
                             resp = push_to_tally(

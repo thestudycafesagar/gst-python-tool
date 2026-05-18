@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════╗
 ║     GSTR-2B + Tally Sheet → Tally Converter v4.1         ║
@@ -234,7 +234,11 @@ class B2BColumnMapper:
 
         gstin_col = self.column_map.get("gstin", 0)
         self.data_start_row = self.header_row_2 + 1
-        for row_idx in range(self.header_row_2 + 1, min(self.header_row_2 + 10, ws.max_row + 1)):
+        # Scan from header_row_2 (not +1) so that single-header-row GSTR-2B files
+        # (where header_row_2 is actually the first data row) are detected correctly.
+        # In the normal two-row-header format, header_row_2 holds sub-headers with no
+        # 15-char GSTIN, so the loop safely skips it and lands on the real first data row.
+        for row_idx in range(self.header_row_2, min(self.header_row_2 + 10, ws.max_row + 1)):
             val = ws.cell(row=row_idx, column=gstin_col + 1).value
             if val and isinstance(val, str) and len(val.strip()) >= 15:
                 self.data_start_row = row_idx
@@ -1830,7 +1834,7 @@ class LogPanel(ctk.CTkFrame):
         ctk.CTkLabel(header, text="Activity Log", font=("Segoe UI", 13, "bold"),
                      text_color=COLORS["text_primary"]).pack(side="left")
         ctk.CTkButton(header, text="Clear", width=60, height=26, font=("Segoe UI", 11),
-                      fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                      fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
                       text_color=COLORS["text_secondary"], corner_radius=6,
                       command=self.clear_log).pack(side="right")
         self.textbox = ctk.CTkTextbox(self, fg_color=COLORS["bg_dark"], text_color=COLORS["text_secondary"],
@@ -4183,7 +4187,9 @@ class _GSTFetchDialog(ctk.CTkToplevel):
             command=self._on_confirm, state="disabled")
         self._confirm_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ctk.CTkButton(btn_row, text="Cancel",
-                       fg_color=("gray60", "gray30"),
+                       fg_color=("gray60", "#DC2626"),
+                       hover_color=("gray50", "#B91C1C"),
+                       text_color=("#1F2937", "#FFFFFF"),
                        command=self._on_cancel, width=90).pack(side="left")
 
     def _on_load_captcha(self):
@@ -4377,8 +4383,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 height=34,
                 font=("Segoe UI", 11, "bold"),
                 corner_radius=8,
-                fg_color=COLORS["bg_input"],
-                hover_color=COLORS["bg_card_hover"],
+                fg_color=("#F1F5F9", "#DC2626"),
+                hover_color=("#E2E8F0", "#B91C1C"),
                 text_color=COLORS["text_primary"],
                 command=lambda value=label: self._on_mode_change(value),
             )
@@ -4423,7 +4429,7 @@ class GSTR2BTallyApp(ctk.CTk):
 
         ctk.CTkButton(
             map_btn_frame, text="📤  Upload Template", font=("Segoe UI", 11), height=32,
-            fg_color=COLORS["bg_card"], hover_color=COLORS["bg_card_hover"],
+            fg_color=("#FFFFFF", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"], corner_radius=6,
             command=self._upload_itc_template).pack(fill="x")
 
@@ -4482,8 +4488,8 @@ class GSTR2BTallyApp(ctk.CTk):
             text="...",
             width=42,
             height=34,
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"),
+            hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._browse_download2b_excel,
@@ -4499,7 +4505,7 @@ class GSTR2BTallyApp(ctk.CTk):
         add_btn_frame = ctk.CTkFrame(self.d2b_manual_frame, fg_color="transparent")
         add_btn_frame.pack(fill="x", padx=16, pady=(0, 8))
         ctk.CTkButton(add_btn_frame, text="+ Add User", width=100, height=28, font=("Segoe UI", 11, "bold"),
-                      fg_color=COLORS["bg_dark"], text_color=COLORS["text_primary"], hover_color=COLORS["bg_card_hover"],
+                      fg_color=("#F0F4F8", "#DC2626"), text_color=COLORS["text_primary"], hover_color=("#E2E8F0", "#B91C1C"),
                       command=self._add_d2b_manual_entry).pack(side="left")
         
         self._add_d2b_manual_entry() # Add one by default
@@ -4632,8 +4638,8 @@ class GSTR2BTallyApp(ctk.CTk):
             text="...",
             width=42,
             height=34,
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"),
+            hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._browse_tally_push_xml,
@@ -4770,8 +4776,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=86,
             height=34,
             font=("Segoe UI", 10, "bold"),
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"),
+            hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._fetch_tally_companies_thread,
@@ -4908,8 +4914,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=82,
             height=34,
             font=("Segoe UI", 9, "bold"),
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"),
+            hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._fetch_create_ledger_companies_thread,
@@ -5155,8 +5161,8 @@ class GSTR2BTallyApp(ctk.CTk):
             text="Test Connection",
             height=38,
             font=("Segoe UI", 10, "bold"),
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"),
+            hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._check_create_ledger_connection_thread,
@@ -5237,7 +5243,7 @@ class GSTR2BTallyApp(ctk.CTk):
 
         self.roundoff_fetch_btn = ctk.CTkButton(
             ro_entry_row, text="Fetch Ledgers", width=130, height=36,
-            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"], font=("Segoe UI", 11),
             corner_radius=8, state="disabled")
         self.roundoff_fetch_btn.pack(side="left")
@@ -5298,8 +5304,8 @@ class GSTR2BTallyApp(ctk.CTk):
                                           placeholder_text="Same as source file",
                                           font=("Segoe UI", 11), corner_radius=8)
         self.output_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(out_frame, text="...", width=40, height=36, fg_color=COLORS["bg_input"],
-                      hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_secondary"],
+        ctk.CTkButton(out_frame, text="...", width=40, height=36, fg_color=("#F1F5F9", "#DC2626"),
+                      hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_secondary"],
                       corner_radius=8, command=self._browse_output).pack(side="right")
 
         # ─── LEFT: Action Buttons ───
@@ -5316,12 +5322,12 @@ class GSTR2BTallyApp(ctk.CTk):
         self.generate_btn.pack(fill="x", padx=16, pady=(0, 6))
         # Keep these created (they are referenced elsewhere) but not packed
         self.excel_only_btn = ctk.CTkButton(self.action_card, text="Generate Tally Sheet Only",
-                                             font=("Segoe UI", 12), height=38, fg_color=COLORS["bg_input"],
-                                             hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_primary"],
+                                             font=("Segoe UI", 12), height=38, fg_color=("#F1F5F9", "#DC2626"),
+                                             hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_primary"],
                                              corner_radius=8, command=lambda: self._generate_output(xml=False))
         self.xml_only_btn = ctk.CTkButton(self.action_card, text="Generate XML Only",
-                                           font=("Segoe UI", 12), height=38, fg_color=COLORS["bg_input"],
-                                           hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_primary"],
+                                           font=("Segoe UI", 12), height=38, fg_color=("#F1F5F9", "#DC2626"),
+                                           hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_primary"],
                                            corner_radius=8, command=lambda: self._generate_output(excel=False))
 
         # ─── Inline Push to Tally Panel ───────────────────────────────────────
@@ -5391,8 +5397,8 @@ class GSTR2BTallyApp(ctk.CTk):
         self.inline_push_company_cb.grid(row=0, column=1, sticky="ew", padx=(8, 6))
         self.inline_push_company_refresh_btn = ctk.CTkButton(
             _cr2, text="Fetch", width=60, height=34,
-            font=("Segoe UI", 10, "bold"), fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_secondary"],
+            font=("Segoe UI", 10, "bold"), fg_color=("#F1F5F9", "#DC2626"),
+            hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_secondary"],
             corner_radius=8, command=self._inline_push_refresh_companies_thread)
         self.inline_push_company_refresh_btn.grid(row=0, column=2, sticky="e")
 
@@ -5530,8 +5536,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 )
             else:
                 btn.configure(
-                    fg_color=COLORS["bg_input"],
-                    hover_color=COLORS["bg_card_hover"],
+                    fg_color=("#F1F5F9", "#DC2626"),
+                    hover_color=("#E2E8F0", "#B91C1C"),
                     text_color=COLORS["text_primary"],
                 )
 
@@ -7121,8 +7127,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 text="Close & Save",
                 height=34,
                 font=("Segoe UI", 11),
-                fg_color=COLORS["bg_input"],
-                hover_color=COLORS["bg_card_hover"],
+                fg_color=("#F1F5F9", "#DC2626"),
+                hover_color=("#E2E8F0", "#B91C1C"),
                 text_color=COLORS["text_secondary"],
                 command=_close_with_save,
             ).pack(side="right")
@@ -7192,8 +7198,9 @@ class GSTR2BTallyApp(ctk.CTk):
             ctk.CTkButton(
                 bf,
                 text="Create Manually",
-                fg_color=("gray70", "gray30"),
-                hover_color=("gray60", "gray40"),
+                fg_color=("gray70", "#DC2626"),
+                hover_color=("gray60", "#B91C1C"),
+                text_color=("#1F2937", "#FFFFFF"),
                 height=44,
                 font=("Segoe UI", 12),
                 command=_choose_manual,
@@ -7550,8 +7557,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=130,
             height=38,
             font=("Segoe UI", 11, "bold"),
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"),
+            hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=do_save_all_details,
@@ -7577,8 +7584,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=110,
             height=38,
             font=("Segoe UI", 11, "bold"),
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"),
+            hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=dialog.destroy,
@@ -7972,9 +7979,16 @@ class GSTR2BTallyApp(ctk.CTk):
                     return 0
                 src_ws = src_wb[src_name]
 
-                # Detect header rows and data start using same logic as engine
-                mapper = B2BColumnMapper()
-                mapper.detect_columns(src_ws)
+                # Reuse the engine's already-verified mapper when possible.
+                # The engine parsed all records correctly, so its data_start_row is
+                # authoritative. A fresh re-detection can be off-by-one on some portal
+                # layouts (single-header-row files, merged cells, etc.).
+                _eng_mapper = getattr(self.engine, "mapper", None)
+                if _eng_mapper and _eng_mapper.column_map:
+                    mapper = _eng_mapper
+                else:
+                    mapper = B2BColumnMapper()
+                    mapper.detect_columns(src_ws)
                 data_start = mapper.data_start_row
                 has_rate_col = mapper.has("rate")
                 # Extend yellow headers with Rate column only if source GSTR-2B has one
@@ -8013,6 +8027,29 @@ class GSTR2BTallyApp(ctk.CTk):
                         row[gstin_col] = _itc_last_gstin
                         if not row[_itc_trade_col]:
                             row[_itc_trade_col] = _itc_last_trade_name
+                        # Skip genuinely empty trailing rows (forward-filled GSTIN but no real data).
+                        # Two signals must BOTH be absent to consider a row empty:
+                        #   1. No invoice number  (blank in merged-cell or continuation row)
+                        #   2. No non-zero amounts (taxable / igst / cgst / sgst / cess)
+                        # Rate-wise continuation rows have blank invoice_no but carry amounts → kept.
+                        # True trailing phantom rows have blank invoice_no AND all-zero amounts → skipped.
+                        _inv_col = mapper.get("invoice_no")
+                        _has_inv = (
+                            _inv_col is not None
+                            and _inv_col < len(row)
+                            and str(row[_inv_col] or "").strip()
+                        )
+                        if not _has_inv:
+                            _amt_cols = [
+                                mapper.get("taxable_value"), mapper.get("igst"),
+                                mapper.get("cgst"), mapper.get("sgst"), mapper.get("cess"),
+                            ]
+                            _has_amounts = any(
+                                c is not None and c < len(row) and row[c] not in (None, 0, 0.0, "")
+                                for c in _amt_cols
+                            )
+                            if not _has_amounts:
+                                continue
                     else:
                         continue
                     try:
@@ -8836,7 +8873,7 @@ class GSTR2BTallyApp(ctk.CTk):
                          text_color=COLORS["text_primary"], anchor="w").pack(side="left", padx=8)
 
             pick_btn = ctk.CTkButton(row, text="🔍", width=32, height=26,
-                                     fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                     fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
                                      text_color=COLORS["accent"], font=("Segoe UI", 11),
                                      corner_radius=4)
             pick_btn.pack(side="right", padx=(0, 6))
@@ -9262,7 +9299,7 @@ class GSTR2BTallyApp(ctk.CTk):
             def _make_add(ii, cont, r):
                 return lambda: _add_item_row(ii, cont, r)
             ctk.CTkButton(inv_card, text="+ Add Item", font=("Segoe UI", 11), height=26, width=110,
-                          fg_color=COLORS["bg_card_hover"], hover_color=COLORS["bg_dark"],
+                          fg_color=("#E2E8F0", "#DC2626"), hover_color=("#CBD5E1", "#B91C1C"),
                           text_color=COLORS["accent"], corner_radius=4,
                           command=_make_add(inv_idx, item_container, rec),
                           ).pack(anchor="w", padx=12, pady=(0, 6))
@@ -9552,7 +9589,7 @@ class GSTR2BTallyApp(ctk.CTk):
         cancel_btn = ctk.CTkButton(
             btn_bar, text="Cancel",
             font=("Segoe UI", 12), height=42, width=100,
-            fg_color=COLORS["bg_card"], hover_color=COLORS["bg_card_hover"],
+            fg_color=("#FFFFFF", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_primary"], corner_radius=8, command=dialog.destroy)
         cancel_btn.pack(side="right", padx=(0, 4))
 
@@ -9809,9 +9846,27 @@ class GSTR2BTallyApp(ctk.CTk):
                 self.log_panel.log(f"Found {len(unmapped)} unmapped party names.", "warning")
                 # Capture excel/xml flags for retry callback
                 e_flag, x_flag = excel, xml
+
+                def _proceed_after_mapping():
+                    # After resolving unmapped ledgers, still need to check for stock items
+                    # before calling _do_generate — otherwise the stock item popup is skipped.
+                    def _is_note_or_cdnr_inner(r):
+                        st = str(r.get("sheet_type") or "").upper()
+                        it = str(r.get("invoice_type") or "").lower()
+                        return st == "CDNR" or "credit note" in it or "debit note" in it
+
+                    if self.current_mode == "gstr2b" and _SPE_AVAILABLE:
+                        s_recs = [r for r in records_to_generate if r.get("has_stock_item") and not _is_note_or_cdnr_inner(r)]
+                        reg_recs = [r for r in records_to_generate if not r.get("has_stock_item") or _is_note_or_cdnr_inner(r)]
+                        if s_recs:
+                            self._show_stock_item_popup(s_recs, xml_flag=x_flag,
+                                                        regular_recs=reg_recs, excel_flag=e_flag)
+                            return
+                    self._do_generate(e_flag, x_flag, records_to_generate=records_to_generate)
+
                 self._show_unmapped_dialog(
                     unmapped,
-                    on_proceed=lambda: self._do_generate(e_flag, x_flag, records_to_generate=records_to_generate),
+                    on_proceed=_proceed_after_mapping,
                     on_retry=lambda: self._retry_mapping_and_generate(e_flag, x_flag, records_to_generate=records_to_generate)
                 )
                 return  # Wait for dialog choice

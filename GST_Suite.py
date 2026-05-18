@@ -542,7 +542,6 @@ PDF_TOOLS = [
     {"key": "PDF_Merge",    "tab": "⊕  Merge",    "module": os.path.join(_PDF_BASE, "main.py"), "class": "MergeApp",    "tk": True, "desc": "Merge multiple PDF files into one high-quality document."},
     {"key": "PDF_Split",    "tab": "✂  Split",    "module": os.path.join(_PDF_BASE, "main.py"), "class": "SplitApp",    "tk": True, "desc": "Split PDF files into smaller parts by page range or every N pages."},
     {"key": "PDF_Extract",  "tab": "⊙  Extract",  "module": os.path.join(_PDF_BASE, "main.py"), "class": "ExtractApp",  "tk": True, "desc": "Extract specific pages from a PDF document to a new file."},
-    {"key": "PDF_Compress", "tab": "⊜  Compress", "module": os.path.join(_PDF_BASE, "main.py"), "class": "CompressApp", "tk": True, "desc": "Reduce PDF file size while maintaining visual quality."},
     {"key": "PDF_Redact",   "tab": "⬛  Redact",   "module": os.path.join(_PDF_BASE, "main.py"), "class": "RedactApp",   "tk": True, "desc": "Securely black out sensitive information and text from PDF documents."},
 ]
 
@@ -1252,7 +1251,7 @@ class GSTSuite(_RealCTk):
             if getattr(self, '_allowed', None) is None:
                 return False
             return not any(self._is_tool_allowed(t.get("key")) for t in visible_tools)  
-        # ── Dynamic 3x3 Grid Layout ───────────────────────────────────────────
+        # ── Dynamic 3x3 Grid Layout   ───────────────────────────────────────────
         categories = [
             (GST_TOOLS, "🏛", "GST Tools", "Downloads, converters & verifiers\nfor GST portal automation.", _C["gst_acc"], _C["gst_bg"], _C["gst_hover"], lambda: self._show_category("gst")),
             (IT_TOOLS, "💼", "Income Tax Automation Suite", "26AS, Challan & ITR filing\nautomation tools.", _C["it_acc"], _C["it_bg"], _C["it_hover"], lambda: self._show_category("it")),
@@ -1666,6 +1665,8 @@ class GSTSuite(_RealCTk):
                 _os_ov.makedirs(_os_ov.path.dirname(p), exist_ok=True)
                 conn = _sq_ov.connect(p)
                 conn.execute(f"CREATE TABLE IF NOT EXISTS {table_name} (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
+                try: conn.execute(f"ALTER TABLE {table_name} ADD COLUMN client_name TEXT")
+                except: pass
                 if table_name == "it_profiles":
                     try: conn.execute(f"ALTER TABLE {table_name} ADD COLUMN dob TEXT")
                     except: pass
@@ -1718,7 +1719,10 @@ class GSTSuite(_RealCTk):
                     w.destroy()
                 try:
                     conn = _get_ov_db()
-                    rows = conn.execute(f"SELECT id, username FROM {table_name} ORDER BY username").fetchall()
+                    cur = conn.cursor()
+                    cur.execute(f"SELECT * FROM {table_name} ORDER BY username")
+                    cols = [d[0] for d in cur.description]
+                    rows = [dict(zip(cols, r)) for r in cur.fetchall()]
                     conn.close()
                 except Exception:
                     rows = []
@@ -1727,33 +1731,40 @@ class GSTSuite(_RealCTk):
                                  font=("Segoe UI", 12),
                                  text_color=("#94a3b8", "#475569")).pack(pady=30)
                     return
-                for rid, uname in rows:
+                for rdata in rows:
+                    rid = rdata.get("id")
+                    uname = rdata.get("username", "")
+                    cname = rdata.get("client_name") or ""
+                    pwd = rdata.get("password", "")
+                    dob = rdata.get("dob", "")
                     row_f = ctk.CTkFrame(list_box, fg_color=("#ffffff", "#273549"),
                                           corner_radius=8, border_width=1,
                                           border_color=("#e2e8f0", "#334155"))
                     row_f.pack(fill="x", padx=6, pady=4)
                     row_f.grid_columnconfigure(0, weight=1)
-                    ctk.CTkLabel(row_f, text=f"  {uname}",
+                    disp_text = f"  {cname} ({uname})" if cname else f"  {uname}"
+                    ctk.CTkLabel(row_f, text=disp_text,
                                  font=("Segoe UI", 13, "bold"),
                                  anchor="w").grid(row=0, column=0, sticky="w", padx=12, pady=10)
-                    ctk.CTkLabel(row_f, text="................",
-                                 font=("Segoe UI", 11),
-                                 text_color=("#94a3b8", "#64748b")).grid(row=0, column=1, padx=12)
+
+                    def _edit(u=uname, p=pwd, c=cname, d=dob):
+                        ent_u.delete(0, "end"); ent_u.insert(0, u)
+                        ent_p.delete(0, "end"); ent_p.insert(0, p)
+                        ent_client.delete(0, "end"); ent_client.insert(0, c)
+                        if ent_dob: ent_dob.delete(0, "end"); ent_dob.insert(0, d)
+                    ctk.CTkButton(row_f, text="Edit", width=60, height=30, fg_color="#2563EB", hover_color="#1D4ED8",
+                                  font=("Segoe UI", 11, "bold"), command=_edit).grid(row=0, column=2, padx=(0, 5))
                     def _del(r=rid, u=uname):
                         from tkinter import messagebox as _mb2
                         if _mb2.askyesno("Delete", f"Delete profile for '{u}'?"):
                             try:
-                                c = _get_ov_db()
-                                c.execute(f"DELETE FROM {table_name} WHERE id=?", (r,))
-                                c.commit()
-                                c.close()
-                            except Exception:
-                                pass
+                                c = _get_ov_db(); c.execute(f"DELETE FROM {table_name} WHERE id=?", (r,)); c.commit(); c.close()
+                            except Exception: pass
                             _ov_refresh()
                     ctk.CTkButton(row_f, text="Delete", width=70, height=30,
                                   fg_color="#7C3AED", hover_color="#6D28D9",
                                   font=("Segoe UI", 11, "bold"), command=_del
-                                  ).grid(row=0, column=2, padx=(0, 10))
+                                  ).grid(row=0, column=3, padx=(0, 10))
 
             cv_right = ctk.CTkFrame(gst_tab, fg_color=_C["surface"], corner_radius=12,
                                     border_width=1, border_color=_C["border"])
@@ -1766,15 +1777,17 @@ class GSTSuite(_RealCTk):
                          font=("Segoe UI", 14, "bold"),
                          text_color=cat_acc).pack(anchor="w", pady=(0, 10))
             
+            ctk.CTkLabel(rf, text="Client Name (Optional)", font=("Segoe UI", 12)).pack(anchor="w")
+            ent_client = ctk.CTkEntry(rf, placeholder_text="Enter Client Name", height=36)
+            ent_client.pack(fill="x", pady=(2, 10))
+
             user_field_label = "PAN / User ID" if is_it else "Username / GST ID"
             user_placeholder = "Enter PAN or User ID" if is_it else "Enter GST username"
             
-            ctk.CTkLabel(rf, text=user_field_label,
-                         font=("Segoe UI", 12)).pack(anchor="w")
+            ctk.CTkLabel(rf, text=user_field_label, font=("Segoe UI", 12)).pack(anchor="w")
             ent_u = ctk.CTkEntry(rf, placeholder_text=user_placeholder, height=36)
             ent_u.pack(fill="x", pady=(2, 10))
-            ctk.CTkLabel(rf, text="Password",
-                         font=("Segoe UI", 12)).pack(anchor="w")
+            ctk.CTkLabel(rf, text="Password", font=("Segoe UI", 12)).pack(anchor="w")
             pr = ctk.CTkFrame(rf, fg_color="transparent")
             pr.pack(fill="x", pady=(2, 12))
             ent_p = ctk.CTkEntry(pr, placeholder_text="Enter password", show="*", height=36)
@@ -1787,15 +1800,14 @@ class GSTSuite(_RealCTk):
 
             ent_dob = None
             if is_it:
-                ctk.CTkLabel(rf, text="Date of Birth (Optional)",
-                             font=("Segoe UI", 12)).pack(anchor="w")
+                ctk.CTkLabel(rf, text="Date of Birth (Optional)", font=("Segoe UI", 12)).pack(anchor="w")
                 ent_dob = ctk.CTkEntry(rf, placeholder_text="DD/MM/YYYY", height=36)
                 ent_dob.pack(fill="x", pady=(2, 4))
-                ctk.CTkLabel(rf, text="* DOB is only required for AIS and TIS tools.",
-                             font=("Segoe UI", 10), text_color=("#64748b", "#94a3b8")).pack(anchor="w", pady=(0, 10))
+                ctk.CTkLabel(rf, text="* DOB is only required for AIS and TIS tools.", font=("Segoe UI", 10), text_color=("#64748b", "#94a3b8")).pack(anchor="w", pady=(0, 10))
 
             def _ov_save():
                 from tkinter import messagebox as _mb3
+                c = ent_client.get().strip()
                 u = ent_u.get().strip()
                 p = ent_p.get().strip()
                 d = ent_dob.get().strip() if ent_dob else ""
@@ -1804,15 +1816,23 @@ class GSTSuite(_RealCTk):
                     return
                 try:
                     conn = _get_ov_db()
-                    if is_it:
-                        conn.execute(f"INSERT OR REPLACE INTO {table_name} (username, password, dob) VALUES (?,?,?)", (u, p, d))
+                    existing = conn.execute(f"SELECT id FROM {table_name} WHERE username=?", (u,)).fetchone()
+                    if existing:
+                        if is_it:
+                            conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, dob=? WHERE username=?", (p, c, d, u))
+                        else:
+                            conn.execute(f"UPDATE {table_name} SET password=?, client_name=? WHERE username=?", (p, c, u))
                     else:
-                        conn.execute(f"INSERT OR REPLACE INTO {table_name} (username, password) VALUES (?,?)", (u, p))
+                        if is_it:
+                            conn.execute(f"INSERT INTO {table_name} (username, password, client_name, dob) VALUES (?,?,?,?)", (u, p, c, d))
+                        else:
+                            conn.execute(f"INSERT INTO {table_name} (username, password, client_name) VALUES (?,?,?)", (u, p, c))
                     conn.commit()
                     conn.close()
                 except Exception as e:
                     _mb3.showerror("Error", str(e))
                     return
+                ent_client.delete(0, "end")
                 ent_u.delete(0, "end")
                 ent_p.delete(0, "end")
                 if ent_dob: ent_dob.delete(0, "end")
@@ -1831,6 +1851,8 @@ class GSTSuite(_RealCTk):
                 _os.makedirs(_os.path.dirname(p), exist_ok=True)
             conn = _sq.connect(p)
             conn.execute("CREATE TABLE IF NOT EXISTS gst_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
+            try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN client_name TEXT")
+            except: pass
             conn.commit()
             return conn
 
@@ -1861,45 +1883,43 @@ class GSTSuite(_RealCTk):
                                   text_color=("#94a3b8", "#475569"))
 
         def _refresh_list():
-            for w in list_frame.winfo_children():
-                w.destroy()
+            for w in list_frame.winfo_children(): w.destroy()
             try:
                 conn = _get_db()
-                rows = conn.execute("SELECT id, username, password FROM gst_profiles ORDER BY username").fetchall()
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM gst_profiles ORDER BY username")
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
                 conn.close()
             except Exception:
                 rows = []
             if not rows:
-                empty_lbl_r = ctk.CTkLabel(list_frame, text="No profiles saved yet.",
-                                            font=("Segoe UI", 12),
-                                            text_color=("#94a3b8", "#475569"))
-                empty_lbl_r.pack(pady=20)
+                ctk.CTkLabel(list_frame, text="No profiles saved yet.", font=("Segoe UI", 12), text_color=("#94a3b8", "#475569")).pack(pady=20)
                 return
-            for rid, uname, pwd in rows:
-                row = ctk.CTkFrame(list_frame, fg_color=("#ffffff", "#273549"), corner_radius=8,
-                                   border_width=1, border_color=("#e2e8f0", "#334155"))
+            for rdata in rows:
+                rid = rdata.get("id")
+                uname = rdata.get("username", "")
+                pwd = rdata.get("password", "")
+                cname = rdata.get("client_name") or ""
+                row = ctk.CTkFrame(list_frame, fg_color=("#ffffff", "#273549"), corner_radius=8, border_width=1, border_color=("#e2e8f0", "#334155"))
                 row.pack(fill="x", padx=4, pady=3)
                 row.grid_columnconfigure(0, weight=1)
-                ctk.CTkLabel(row, text=f"  {uname}",
-                             font=("Segoe UI", 12, "bold"),
-                             anchor="w").grid(row=0, column=0, sticky="w", padx=8, pady=6)
-                ctk.CTkLabel(row, text="••••••••",
-                             font=("Segoe UI", 11),
-                             text_color=("#94a3b8", "#64748b")).grid(row=0, column=1, padx=8)
+                disp_text = f"  {cname} ({uname})" if cname else f"  {uname}"
+                ctk.CTkLabel(row, text=disp_text, font=("Segoe UI", 12, "bold"), anchor="w").grid(row=0, column=0, sticky="w", padx=8, pady=6)
+                ctk.CTkLabel(row, text="••••••••", font=("Segoe UI", 11), text_color=("#94a3b8", "#64748b")).grid(row=0, column=1, padx=8)
+                def _edit(u=uname, p=pwd, c=cname):
+                    ent_user.delete(0, "end"); ent_user.insert(0, u)
+                    ent_pass.delete(0, "end"); ent_pass.insert(0, p)
+                    ent_client.delete(0, "end"); ent_client.insert(0, c)
+                ctk.CTkButton(row, text="Edit", width=50, height=28, fg_color="#2563EB", hover_color="#1D4ED8", font=("Segoe UI", 11, "bold"), command=_edit).grid(row=0, column=2, padx=(0, 5))
                 def _del(r=rid, u=uname):
                     from tkinter import messagebox as _mb
                     if _mb.askyesno("Delete", f"Delete profile for '{u}'?", parent=win):
                         try:
-                            c = _get_db()
-                            c.execute("DELETE FROM gst_profiles WHERE id=?", (r,))
-                            c.commit()
-                            c.close()
-                        except Exception:
-                            pass
+                            c = _get_db(); c.execute("DELETE FROM gst_profiles WHERE id=?", (r,)); c.commit(); c.close()
+                        except Exception: pass
                         _refresh_list()
-                ctk.CTkButton(row, text="🗑", width=34, height=28,
-                              fg_color="#7C3AED", hover_color="#6D28D9",
-                              font=("Segoe UI", 12), command=_del).grid(row=0, column=2, padx=(0, 8))
+                ctk.CTkButton(row, text="🗑", width=34, height=28, fg_color="#7C3AED", hover_color="#6D28D9", font=("Segoe UI", 12), command=_del).grid(row=0, column=3, padx=(0, 8))
 
         _refresh_list()
 
@@ -1909,6 +1929,10 @@ class GSTSuite(_RealCTk):
 
         add_frame = ctk.CTkFrame(win, fg_color="transparent")
         add_frame.pack(fill="x", padx=16, pady=(0, 4))
+
+        ctk.CTkLabel(add_frame, text="Client Name (Optional)", font=("Segoe UI", 11)).pack(anchor="w")
+        ent_client = ctk.CTkEntry(add_frame, placeholder_text="Enter Client Name", height=34)
+        ent_client.pack(fill="x", pady=(2, 8))
 
         ctk.CTkLabel(add_frame, text="Username / GST ID", font=("Segoe UI", 11)).pack(anchor="w")
         ent_user = ctk.CTkEntry(add_frame, placeholder_text="Enter GST username", height=34)
@@ -1927,6 +1951,7 @@ class GSTSuite(_RealCTk):
 
         def _save():
             from tkinter import messagebox as _mb
+            c = ent_client.get().strip()
             u = ent_user.get().strip()
             p = ent_pass.get().strip()
             if not u or not p:
@@ -1934,12 +1959,17 @@ class GSTSuite(_RealCTk):
                 return
             try:
                 conn = _get_db()
-                conn.execute("INSERT OR REPLACE INTO gst_profiles (username, password) VALUES (?, ?)", (u, p))
+                existing = conn.execute("SELECT id FROM gst_profiles WHERE username=?", (u,)).fetchone()
+                if existing:
+                    conn.execute("UPDATE gst_profiles SET password=?, client_name=? WHERE username=?", (p, c, u))
+                else:
+                    conn.execute("INSERT INTO gst_profiles (username, password, client_name) VALUES (?, ?, ?)", (u, p, c))
                 conn.commit()
                 conn.close()
             except Exception as e:
                 _mb.showerror("Error", str(e), parent=win)
                 return
+            ent_client.delete(0, "end")
             ent_user.delete(0, "end")
             ent_pass.delete(0, "end")
             _refresh_list()

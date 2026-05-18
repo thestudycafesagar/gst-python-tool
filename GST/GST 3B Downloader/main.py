@@ -106,7 +106,17 @@ class GSTWorker:
                 self.log(f"\n🔹 Processing: {username}")
                 
                 # Unique Folder Versioning
-                user_root_base = os.path.join(base_dir, username)
+                cname = str(row.get("ClientName", row.get("Client Name", ""))).strip()
+                if cname and str(cname).lower() != "nan":
+                    folder_name = cname
+                else:
+                    folder_name = username
+                
+                # Replace invalid path characters
+                import re as _re_tmp
+                folder_name = _re_tmp.sub(r'[\\/*?:"<>|]', "", folder_name).strip()
+                
+                user_root_base = os.path.join(base_dir, folder_name)
                 user_root = user_root_base
                 counter = 1
                 while os.path.exists(user_root):
@@ -798,7 +808,10 @@ class App(ctk.CTk):
             db_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "suite_profiles.db")
         try:
             conn = _sq.connect(db_path)
-            rows = conn.execute("SELECT username, password FROM gst_profiles ORDER BY username").fetchall()
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM gst_profiles ORDER BY username")
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
             conn.close()
         except Exception:
             rows = []
@@ -823,14 +836,18 @@ class App(ctk.CTk):
         scroll = ctk.CTkScrollableFrame(dialog, height=300)
         scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
         vars_ = {}
-        for u, p in rows:
+        for rdata in rows:
+            u = rdata.get("username", "")
+            p = rdata.get("password", "")
+            c = rdata.get("client_name") or ""
             v = ctk.BooleanVar()
-            ctk.CTkCheckBox(scroll, text=u, variable=v).pack(anchor="w", padx=10, pady=3)
-            vars_[(u, p)] = v
+            disp = f"{c} ({u})" if c else u
+            ctk.CTkCheckBox(scroll, text=disp, variable=v).pack(anchor="w", padx=10, pady=3)
+            vars_[(u, p, c)] = v
         foot = ctk.CTkFrame(dialog, fg_color="transparent")
         foot.pack(fill="x", padx=16, pady=(0, 16))
         def _load():
-            selected = [{"Username": u, "Password": p} for (u, p), v in vars_.items() if v.get()]
+            selected = [{"Username": u, "Password": p, "ClientName": c} for (u, p, c), v in vars_.items() if v.get()]
             if not selected:
                 messagebox.showwarning("No Selection", "Please select at least one profile.", parent=dialog)
                 return
@@ -896,7 +913,7 @@ class App(ctk.CTk):
             ):
                 return
 
-            self.manual_credentials = [{"Username": username, "Password": password}]
+            self.manual_credentials = [{"Username": username, "Password": password, "ClientName": ""}]
             self.excel_file = ""
             self._refresh_manual_controls()
             messagebox.showinfo("Added", f"Credential saved for {username}", parent=dialog)
