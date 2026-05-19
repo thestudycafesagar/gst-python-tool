@@ -2785,7 +2785,7 @@ class TallyBankApp(ctk.CTk):
         self.connection_status_var = ctk.StringVar(value="Connection: Not checked")
         self.company_status_var = ctk.StringVar(value="Companies: Not fetched")
         self.bank_status_var = ctk.StringVar(value="Banks: Not fetched")
-        self.workflow_demo_url = "https://youtu.be/lEDW1YcY2fg"  # Add YouTube demo link later.
+        self.workflow_demo_url = ""  # Add YouTube demo link later.
         self.fetched_companies = []
         self.fetched_banks = []
         self._company_fetch_running = False
@@ -2989,7 +2989,7 @@ class TallyBankApp(ctk.CTk):
         self.company_combo.pack(side="left", padx=(10, 8), fill="x", expand=True)
         self.company_refresh_btn = ctk.CTkButton(
             row_2, text="Refresh", width=96, height=34, font=("Segoe UI", 10, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"], corner_radius=8,
             command=lambda: self._fetch_companies_thread())
         self.company_refresh_btn.pack(side="right")
@@ -3803,8 +3803,8 @@ class TallyBankApp(ctk.CTk):
                          width=260, font=("Segoe UI", 10),
                          text_color=COLORS["text_primary"], anchor="w").pack(side="left", padx=8)
             pick_btn = ctk.CTkButton(row_fr, text="🔍", width=32, height=26,
-                                     fg_color=("#F1F5F9", "#DC2626"),
-                                     hover_color=("#E2E8F0", "#B91C1C"),
+                                     fg_color=COLORS["bg_input"],
+                                     hover_color=COLORS["bg_card_hover"],
                                      text_color=COLORS["accent"],
                                      font=("Segoe UI", 11), corner_radius=4)
             pick_btn.pack(side="right", padx=(0, 6))
@@ -3839,8 +3839,8 @@ class TallyBankApp(ctk.CTk):
                          width=260, font=("Segoe UI", 10),
                          text_color=COLORS["error"], anchor="w").pack(side="left", padx=8)
             pick_btn2 = ctk.CTkButton(row_fr, text="🔍", width=32, height=26,
-                                      fg_color=("#F1F5F9", "#DC2626"),
-                                      hover_color=("#E2E8F0", "#B91C1C"),
+                                      fg_color=COLORS["bg_input"],
+                                      hover_color=COLORS["bg_card_hover"],
                                       text_color=COLORS["accent"],
                                       font=("Segoe UI", 11), corner_radius=4)
             pick_btn2.pack(side="right", padx=(0, 6))
@@ -3936,8 +3936,8 @@ class TallyBankApp(ctk.CTk):
                       command=_do_skip).pack(side="left", fill="x", expand=True, padx=4)
         ctk.CTkButton(btn_frame, text="Cancel",
                       font=("Segoe UI", 11), height=40,
-                      fg_color=("#E2E8F0", "#DC2626"), hover_color=("#CBD5E1", "#B91C1C"),
-                      text_color=("#1F2937", "#FFFFFF"), corner_radius=8,
+                      fg_color=COLORS["bg_card_hover"], hover_color=COLORS["border"],
+                      text_color=COLORS["text_primary"], corner_radius=8,
                       command=_do_cancel).pack(side="right", padx=(4, 0))
 
     def _check_ledgers_then_generate(self, action):
