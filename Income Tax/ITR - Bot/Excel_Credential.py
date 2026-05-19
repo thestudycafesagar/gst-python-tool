@@ -103,7 +103,8 @@ class IncomeTaxWorker(QThread):
                 "download.prompt_for_download": False,
                 "download.directory_upgrade": True,
                 "safebrowsing.enabled": True,
-                "profile.default_content_setting_values.automatic_downloads": 1
+                "profile.default_content_setting_values.automatic_downloads": 1,
+                "plugins.always_open_pdf_externally": True
             }
             options.add_experimental_option("prefs", prefs)
 
@@ -250,20 +251,66 @@ class IncomeTaxWorker(QThread):
                     
                     self.log_signal.emit(f"   📄 {year}")
                     
-                    def click_dl(cls, name):
+                    def click_dl(cls, name, btn_text):
                         try:
-                            btn = card.find_element(By.CSS_SELECTOR, f".{cls}")
-                            driver.execute_script("arguments[0].click();", btn)
-                            self.log_signal.emit(f"      -> {name}")
-                            time.sleep(0.5)
-                        except: pass
+                            btn = None
+                            try:
+                                btn = card.find_element(By.CSS_SELECTOR, f".{cls}")
+                            except:
+                                pass
+                            if not btn:
+                                btns = card.find_elements(By.XPATH, f".//button[contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{btn_text}')]")
+                                if btns: btn = btns[0]
+                                
+                            if btn:
+                                # Record state before click
+                                try:
+                                    initial_files = {f: os.path.getmtime(os.path.join(download_folder, f)) 
+                                                     for f in os.listdir(download_folder) 
+                                                     if not f.endswith('.crdownload') and not f.endswith('.tmp')}
+                                except:
+                                    initial_files = {}
 
-                    click_dl("dformback", "Form")
-                    click_dl("drecback", "Receipt")
-                    click_dl("dxmlback", "JSON")
-                
-                self.log_signal.emit("✅ Downloads Initiated.")
-                time.sleep(5) 
+                                try:
+                                    btn.click()
+                                except:
+                                    driver.execute_script("arguments[0].click();", btn)
+                                self.log_signal.emit(f"      -> {name}")
+                                
+                                # Wait for new file to appear or overwrite, and download to finish
+                                timeout = 60
+                                while timeout > 0:
+                                    time.sleep(1)
+                                    timeout -= 1
+                                    try:
+                                        if any(f.endswith('.crdownload') or f.endswith('.tmp') for f in os.listdir(download_folder)):
+                                            continue
+                                            
+                                        current_files = {f: os.path.getmtime(os.path.join(download_folder, f)) 
+                                                         for f in os.listdir(download_folder) 
+                                                         if not f.endswith('.crdownload') and not f.endswith('.tmp')}
+                                        
+                                        changed = False
+                                        for f, mtime in current_files.items():
+                                            if f not in initial_files or mtime > initial_files[f]:
+                                                changed = True
+                                                break
+                                                
+                                        if changed:
+                                            time.sleep(1) # Extra buffer
+                                            break
+                                    except:
+                                        pass
+                            else:
+                                self.log_signal.emit(f"      ⚠️ {name} Button not found!")
+                        except Exception as e: 
+                            self.log_signal.emit(f"      ❌ {name} Error: {str(e)[:30]}")
+
+                    click_dl("dformback", "Form", "form")
+                    click_dl("drecback", "Receipt", "receipt")
+                    click_dl("dxmlback", "JSON", "json")
+                    
+                    time.sleep(2)
                 
             except Exception as e:
                 self.log_signal.emit(f"❌ Download Error: {e}")

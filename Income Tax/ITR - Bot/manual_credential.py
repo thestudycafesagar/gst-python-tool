@@ -42,7 +42,8 @@ class LoginWorker(QThread):
             "download.prompt_for_download": False,
             "download.directory_upgrade": True,
             "safebrowsing.enabled": True,
-            "profile.default_content_setting_values.automatic_downloads": 1
+            "profile.default_content_setting_values.automatic_downloads": 1,
+            "plugins.always_open_pdf_externally": True
         }
         options.add_experimental_option("prefs", prefs)
 
@@ -222,20 +223,70 @@ class LoginWorker(QThread):
 
                     self.log_signal.emit(f"--- Processing: {year_text} ---")
 
-                    def download_file(classname, name):
+                    def download_file(classname, name, btn_text):
                         try:
-                            btn = current_card.find_element(By.CSS_SELECTOR, f".{classname}")
-                            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
-                            time.sleep(0.5)
-                            driver.execute_script("arguments[0].click();", btn)
-                            self.log_signal.emit(f"   -> Started {name} Download")
-                            time.sleep(0.5) 
-                        except:
-                            self.log_signal.emit(f"   -> {name} not available")
+                            btn = None
+                            try:
+                                btn = current_card.find_element(By.CSS_SELECTOR, f".{classname}")
+                            except:
+                                pass
+                            if not btn:
+                                btns = current_card.find_elements(By.XPATH, f".//button[contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{btn_text}')]")
+                                if btns: btn = btns[0]
+                                
+                            if btn:
+                                import tempfile, os
+                                download_root = tempfile.gettempdir() # Replace with actual download path logic later if needed
+                                # Record state before click
+                                try:
+                                    dl_path = os.path.join(download_root, self.user_id) # Using user_id for path estimation
+                                    if not os.path.exists(dl_path): dl_path = download_root
+                                    initial_files = {f: os.path.getmtime(os.path.join(dl_path, f)) 
+                                                     for f in os.listdir(dl_path) 
+                                                     if not f.endswith('.crdownload') and not f.endswith('.tmp')}
+                                except:
+                                    initial_files = {}
 
-                    download_file("dformback", "Form")
-                    download_file("drecback", "Receipt")
-                    download_file("dxmlback", "JSON")
+                                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
+                                time.sleep(0.5)
+                                try:
+                                    btn.click()
+                                except:
+                                    driver.execute_script("arguments[0].click();", btn)
+                                self.log_signal.emit(f"   -> Started {name} Download")
+                                
+                                # Wait for new file to appear or overwrite, and download to finish
+                                timeout = 60
+                                while timeout > 0:
+                                    time.sleep(1)
+                                    timeout -= 1
+                                    try:
+                                        if any(f.endswith('.crdownload') or f.endswith('.tmp') for f in os.listdir(dl_path)):
+                                            continue
+
+                                        current_files = {f: os.path.getmtime(os.path.join(dl_path, f)) 
+                                                         for f in os.listdir(dl_path) 
+                                                         if not f.endswith('.crdownload') and not f.endswith('.tmp')}
+                                        
+                                        changed = False
+                                        for f, mtime in current_files.items():
+                                            if f not in initial_files or mtime > initial_files[f]:
+                                                changed = True
+                                                break
+                                                
+                                        if changed:
+                                            time.sleep(1) # Extra buffer
+                                            break
+                                    except:
+                                        pass
+                            else:
+                                self.log_signal.emit(f"   ⚠️ {name} Button not found!")
+                        except Exception as e: 
+                            self.log_signal.emit(f"   ❌ {name} Error: {str(e)[:30]}")
+
+                    download_file("dformback", "Form", "form")
+                    download_file("drecback", "Receipt", "receipt")
+                    download_file("dxmlback", "JSON", "json")
                     
                     self.log_signal.emit("-----------------------------")
 

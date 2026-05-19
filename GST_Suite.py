@@ -1896,7 +1896,7 @@ class GSTSuite(_RealCTk):
 
         list_frame = ctk.CTkScrollableFrame(win, height=220, fg_color=("#f8fafc", "#1e293b"),
                                             corner_radius=8)
-        list_frame.pack(fill="x", padx=16, pady=(0, 4))
+        list_frame.pack(fill="x", padx=16, pady=(0, 4))   
         list_frame.grid_columnconfigure(0, weight=1)
 
         empty_lbl = ctk.CTkLabel(list_frame, text="No profiles saved yet.",

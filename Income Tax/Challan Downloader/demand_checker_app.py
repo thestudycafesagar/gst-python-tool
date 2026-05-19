@@ -723,7 +723,7 @@ class DemandCheckerApp(ctk.CTk):
             self.entry_file_demand.delete(0, "end")
             self.entry_file_demand.insert(0, label)
             
-            self.log_to_gui(f"Loaded {n} Profiles from database")
+            self.log_to_gui_demand(f"Loaded {n} Profiles from database")
             dialog.destroy()
             
         ctk.CTkButton(dialog, text="✅ Load Selected", command=_load, height=35).pack(pady=10)

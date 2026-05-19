@@ -799,7 +799,7 @@ class RefundCheckerApp(ctk.CTk):
             self.entry_file_filed.delete(0, "end")
             self.entry_file_filed.insert(0, label)
             
-            self.log(f"Loaded {n} Profiles from database")
+            self.log_to_gui_filed(f"Loaded {n} Profiles from database")
             dialog.destroy()
             
         ctk.CTkButton(dialog, text="✅ Load Selected", command=_load, height=35).pack(pady=10)
