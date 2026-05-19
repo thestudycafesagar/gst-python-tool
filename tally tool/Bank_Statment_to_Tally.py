@@ -1,7 +1,7 @@
 ﻿"""
 TallyBankPro - Bank Statement to Tally Payment/Receipt Voucher Creator
 Reads bank statement Excel (template format) and pushes Payment/Receipt
-vouchers to TallyPrime via HTTP API.
+vouchers to TallyPrime via HTTP API. modi
 Author: Studycafe | Built with CustomTkinter
 """
 
