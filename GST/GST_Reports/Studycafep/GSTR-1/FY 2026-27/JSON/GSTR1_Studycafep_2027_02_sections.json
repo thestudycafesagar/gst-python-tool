@@ -1,0 +1,26 @@
+{
+  "rtn_prd": "022027",
+  "period": "2",
+  "year": 2027,
+  "source": "api",
+  "summary": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_00\",\"message\":\"System Failure\",\"detailMessage\":\"System Failure\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+  "sections": {
+    "b2b": "{\"b2b\": []}",
+    "b2ba": "{\"b2ba\": []}",
+    "cdnr": "{\"cdnr\": []}",
+    "cdnra": "{\"cdnra\": []}",
+    "b2cl": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_07\",\"message\":\"No pending invoices found!!\",\"detailMessage\":\"No pending invoices found!!\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+    "b2cs": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_07\",\"message\":\"No pending invoices found!!\",\"detailMessage\":\"No pending invoices found!!\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+    "exp": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_07\",\"message\":\"No pending invoices found!!\",\"detailMessage\":\"No pending invoices found!!\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+    "nil": "{\"status\":0,\"error\":{\"errorCode\":\"RET11416\",\"message\":\"No document found in selected financial year. Either this document exists in a different financial year or the document number is incorrect.\",\"detailMessage\":\"No document found in selected financial year. Either this document exists in a different financial year or the document number is incorrect.\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+    "cdnur": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_07\",\"message\":\"No pending invoices found!!\",\"detailMessage\":\"No pending invoices found!!\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+    "hsnsum": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_07\",\"message\":\"No pending invoices found!!\",\"detailMessage\":\"No pending invoices found!!\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+    "at": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_07\",\"message\":\"No pending invoices found!!\",\"detailMessage\":\"No pending invoices found!!\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+    "txp": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_07\",\"message\":\"No pending invoices found!!\",\"detailMessage\":\"No pending invoices found!!\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+    "dociss": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_07\",\"message\":\"No pending invoices found!!\",\"detailMessage\":\"No pending invoices found!!\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+    "ecom": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_07\",\"message\":\"No pending invoices found!!\",\"detailMessage\":\"No pending invoices found!!\",\"stackTrace\":[],\"suppressedExceptions\":[]}}",
+    "cdnura": "{\"status\":0,\"error\":{\"errorCode\":\"RETWEB_07\",\"message\":\"No pending invoices found!!\",\"detailMessage\":\"No pending invoices found!!\",\"stackTrace\":[],\"suppressedExceptions\":[]}}"
+  },
+  "profile": {},
+  "b2b_count": 0
+}

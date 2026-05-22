@@ -378,6 +378,7 @@ class _EmbeddedFrame(ctk.CTkFrame):
     def deiconify(self):           pass
     def option_add(self, *a, **k): pass
     def report_callback_exception(self, *a, **k): pass
+    def _set_appearance_mode(self, *a, **k): pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -416,6 +417,217 @@ class _EmbeddedTkFrame(_tk.Frame):
             try: _tk.Frame.configure(self, **safe)
             except Exception: pass
     config = configure
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  _ScrollableTabview  – horizontally scrollable ribbon replaces CTkTabview
+# ══════════════════════════════════════════════════════════════════════════════
+class _ScrollableTabview:
+    """Drop-in for ctk.CTkTabview with a canvas-based scrollable tab ribbon.
+
+    API surface used by the suite:
+        .add(name)  .tab(name)  .get()  .set(name)  .pack(**kw)
+        ._tab_dict  ._segmented_button (proxy)  ._fg_frame (proxy)
+    """
+
+    class _Proxy:
+        def configure(self, **kw): pass
+        def bind(self, *a, **kw):  pass
+        def winfo_children(self):  return []
+
+    def __init__(self, parent, accent_color=None, **kwargs):
+        fg_color     = kwargs.get("fg_color",     ("#ffffff", "#1e293b"))
+        border_color = kwargs.get("border_color",  ("#e2e8f0", "#334155"))
+        border_width = int(kwargs.get("border_width", 2))
+
+        self._outer = ctk.CTkFrame(parent, fg_color=fg_color,
+                                   border_color=border_color,
+                                   border_width=border_width,
+                                   corner_radius=10)
+        self._acc = accent_color
+        acc_c = accent_color if accent_color else ("#4f46e5", "#6366f1")
+
+        # Top accent stripe (3 px colour bar)
+        ctk.CTkFrame(self._outer, height=3, fg_color=acc_c,
+                     corner_radius=0).pack(fill="x", side="top")
+
+        # ── Ribbon row (fixed 46 px, slightly darker surface) ─────────────────
+        _mode = ctk.get_appearance_mode()
+        _ribbon_bg  = ("#eef2f7", "#141c2e") if _mode == "Dark" else ("#eef2f7", "#141c2e")
+        _canvas_bg  = "#141c2e" if _mode == "Dark" else "#eef2f7"
+
+        ribbon_row = ctk.CTkFrame(self._outer,
+                                  fg_color=_ribbon_bg,
+                                  corner_radius=0, height=46)
+        ribbon_row.pack(fill="x", side="top")
+        ribbon_row.pack_propagate(False)
+
+        # ── Left / Right arrow buttons (no native scrollbar) ─────────────────
+        _arrow_kw = dict(
+            width=30, height=46,
+            fg_color="transparent",
+            hover_color=("#d1d9e6", "#1e293b"),
+            font=("Segoe UI", 18, "bold"),
+            corner_radius=0,
+        )
+        self._btn_left = ctk.CTkButton(
+            ribbon_row, text="‹",
+            text_color=("#94a3b8", "#475569"),
+            command=self._scroll_left, **_arrow_kw)
+        self._btn_left.pack(side="left")
+
+        self._btn_right = ctk.CTkButton(
+            ribbon_row, text="›",
+            text_color=("#94a3b8", "#475569"),
+            command=self._scroll_right, **_arrow_kw)
+        self._btn_right.pack(side="right")
+
+        # ── Canvas (no scrollbar widget — arrows only) ────────────────────────
+        self._ribbon_canvas = _tk.Canvas(ribbon_row, height=46,
+                                          bg=_canvas_bg,
+                                          highlightthickness=0, bd=0)
+        self._ribbon_canvas.pack(side="left", fill="both", expand=True)
+
+        self._ribbon_inner = ctk.CTkFrame(self._ribbon_canvas,
+                                           fg_color="transparent")
+        self._ribbon_canvas.create_window(0, 0, anchor="nw",
+                                           window=self._ribbon_inner)
+
+        self._overflow = False   # True only when tabs exceed canvas width
+
+        def _update_sr(_=None):
+            bb = self._ribbon_canvas.bbox("all")
+            if not bb:
+                return
+            self._ribbon_canvas.configure(scrollregion=bb)
+            total   = bb[2] - bb[0]
+            visible = self._ribbon_canvas.winfo_width()
+            self._overflow = total > visible + 4
+            _bright = ("#334155", "#94a3b8")
+            _dim    = ("#94a3b8", "#475569")
+            self._btn_left.configure(text_color=_bright if self._overflow else _dim)
+            self._btn_right.configure(text_color=_bright if self._overflow else _dim)
+
+        self._ribbon_inner.bind("<Configure>", _update_sr)
+
+        def _mw(ev):
+            if self._overflow:
+                self._ribbon_canvas.xview_scroll(-1 if ev.delta > 0 else 1, "units")
+
+        self._ribbon_canvas.bind("<MouseWheel>", _mw)
+        self._ribbon_inner.bind("<MouseWheel>", _mw)
+        self._mw_handler = _mw
+
+        # ── Thin separator ────────────────────────────────────────────────────
+        ctk.CTkFrame(self._outer, height=1, fg_color=border_color,
+                     corner_radius=0).pack(fill="x")
+
+        # ── Content host ──────────────────────────────────────────────────────
+        self._content_host = ctk.CTkFrame(self._outer, fg_color=fg_color,
+                                           corner_radius=0)
+        self._content_host.pack(fill="both", expand=True)
+        self._content_host.grid_rowconfigure(0, weight=1)
+        self._content_host.grid_columnconfigure(0, weight=1)
+
+        self._tab_dict = {}
+        self._btn_dict = {}
+        self._current  = None
+        self._segmented_button = self._Proxy()
+        self._fg_frame         = self._Proxy()
+
+    # ── Scroll helpers ────────────────────────────────────────────────────────
+
+    def _scroll_left(self):
+        if self._overflow:
+            self._ribbon_canvas.xview_scroll(-3, "units")
+
+    def _scroll_right(self):
+        if self._overflow:
+            self._ribbon_canvas.xview_scroll(3, "units")
+
+    # ── Public tab API ────────────────────────────────────────────────────────
+
+    def add(self, name: str):
+        frame = ctk.CTkFrame(self._content_host, fg_color="transparent",
+                              corner_radius=0)
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.grid_remove()
+        self._tab_dict[name] = frame
+
+        is_first = not self._btn_dict
+        acc      = self._acc or ("#4f46e5", "#6366f1")
+        btn_fg   = acc if is_first else "transparent"
+        btn_tc   = "#ffffff" if is_first else ("#475569", "#94a3b8")
+
+        btn = ctk.CTkButton(
+            self._ribbon_inner, text=name, height=34,
+            font=("Segoe UI", 12, "bold"),
+            fg_color=btn_fg, text_color=btn_tc,
+            hover_color=("#dde3ec", "#1e293b"),
+            corner_radius=7,
+            command=lambda n=name: self.set(n),
+        )
+        btn.pack(side="left", padx=(4, 0), pady=6)
+        try:
+            btn.bind("<MouseWheel>", self._mw_handler)
+        except Exception:
+            pass
+        self._btn_dict[name] = btn
+
+        if is_first:
+            self._current = name
+            frame.grid()
+
+        return frame
+
+    def tab(self, name: str):
+        return self._tab_dict.get(name)
+
+    def get(self) -> str:
+        return self._current or ""
+
+    def set(self, name: str):
+        if name == self._current:
+            return
+        if self._current:
+            if self._current in self._btn_dict:
+                self._btn_dict[self._current].configure(
+                    fg_color="transparent",
+                    text_color=("#475569", "#94a3b8"))
+            if self._current in self._tab_dict:
+                self._tab_dict[self._current].grid_remove()
+
+        self._current = name
+        acc = self._acc or ("#4f46e5", "#6366f1")
+        if name in self._btn_dict:
+            self._btn_dict[name].configure(fg_color=acc, text_color="#ffffff")
+        if name in self._tab_dict:
+            self._tab_dict[name].grid()
+
+        # Auto-scroll ribbon so active button stays visible
+        try:
+            btn = self._btn_dict.get(name)
+            if btn:
+                btn.update_idletasks()
+                bx  = btn.winfo_x()
+                bw  = btn.winfo_width()
+                cw  = self._ribbon_canvas.winfo_width()
+                bb  = self._ribbon_canvas.bbox("all")
+                if bb and bb[2] > 0:
+                    frac = max(0.0, min(1.0, (bx + bw / 2 - cw / 2) / bb[2]))
+                    self._ribbon_canvas.xview_moveto(frac)
+        except Exception:
+            pass
+
+    # ── Geometry delegated to outer frame ─────────────────────────────────────
+
+    def pack(self, **kw):   self._outer.pack(**kw)
+    def grid(self, **kw):   self._outer.grid(**kw)
+    def place(self, **kw):  self._outer.place(**kw)
+
+    def winfo_exists(self):
+        try:    return bool(self._outer.winfo_exists())
+        except: return False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -485,6 +697,7 @@ _GST_ACCENTS = [
     ("#0891b2", "#22d3ee"),   # 3B→Excel     Cyan
     ("#0f766e", "#2dd4bf"),   # GST Reco     Teal
     ("#d97706", "#fbbf24"),   # Challan      Amber
+    ("#8b5cf6", "#c4b5fd"),   # GST Reports  Purple
 ]
 _IT_ACCENTS = [
     ("#0891b2", "#22d3ee"),   # 26/AIS/TIS     Cyan
@@ -540,6 +753,7 @@ GST_TOOLS = [
     {"key": "GSTR3B_Excel", "tab": "📊  GSTR 3B to Excel",   "module": os.path.join(_GST_BASE, "GST 3B to Excel",       "main.py"),        "class": "GSTR3BConverterPro", "desc": "Convert GSTR-3B PDF files to formatted Excel sheets."},
     {"key": "GST_Reco",     "tab": "🔄  GST Reco", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
     {"key": "GST_Challan",  "tab": "💰  GST Challan",      "module": os.path.join(_GST_BASE, "GST Challan Downloader","main.py"),        "class": "App",                "desc": "Download GST Challan PDFs in bulk (Monthly / Quarterly)."},
+    {"key": "GST_Reports",  "tab": "📊  GST Reports",      "module": os.path.join(_GST_BASE, "GST_Reports",           "gst_portal_gui.py"), "class": "GstPortalApp",       "desc": "Download GSTR-1, GSTR-2A, GSTR-2B and GSTR-3B returns directly from the GST portal with login, OTP, Excel export and consolidated yearly downloads."},
 ]
 
 IT_TOOLS = [
@@ -1086,7 +1300,7 @@ class GSTSuite(_RealCTk):
             self._theme_btn.set("☀️  Light" if mode == "Light" else "🌙  Dark")
 
     # Tool keys that are always accessible regardless of plan
-    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom"}
+    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom", "GST_Reports"}
 
     def _is_tool_allowed(self, tool_key: str) -> bool:
         if self._allowed is None:
@@ -1426,22 +1640,7 @@ class GSTSuite(_RealCTk):
         frame = ctk.CTkFrame(self._content, fg_color="transparent",
                              corner_radius=0)
 
-        # Build tabview
-        try:
-            tv = ctk.CTkTabview(
-                frame, anchor="nw",
-                segmented_button_selected_color=_C["primary"],
-                segmented_button_selected_hover_color=_C["primary_hov"],
-                segmented_button_unselected_hover_color=("#334155", "#1e293b"),
-                text_color=_C["text_hi"],
-                border_width=2,
-                border_color=_C["border"],
-                fg_color=_C["surface"],
-            )
-        except (TypeError, ValueError):
-            tv = ctk.CTkTabview(frame, anchor="nw")
-
-        # Increase tab label font via the internal segmented button
+        # Determine category accent colour
         if key == "gst":
             acc_color = _C["gst_acc"]
         elif key == "pdf":
@@ -1460,17 +1659,15 @@ class GSTSuite(_RealCTk):
             acc_color = _C["tally_acc"]
         else:
             acc_color = _C["it_acc"]
-        try:
-            tv._segmented_button.configure(font=("Segoe UI", 13, "bold"))
-        except Exception:
-            pass
 
-        # Accent top-stripe on the content frame to mark where tabs end
-        try:
-            tv._fg_frame.configure(border_width=2, border_color=acc_color)
-        except Exception:
-            pass
-
+        # Build scrollable tabview — replaces CTkTabview; adds horizontal
+        # ribbon scroll so tabs never collapse on smaller screens.
+        tv = _ScrollableTabview(
+            frame, accent_color=acc_color,
+            fg_color=_C["surface"],
+            border_color=_C["border"],
+            border_width=2,
+        )
 
         # Overview tab
         tv.add("🏠  Overview")

@@ -1,0 +1,10 @@
+22-05-2026 14:55:51  Gstr3BDownloader ready.
+22-05-2026 14:55:51  Captcha fetched (5009 bytes).
+22-05-2026 14:56:03  Logging in as: Studycafep
+22-05-2026 14:56:03  Fetching official company name from portal (ustatus API)...
+22-05-2026 14:56:03  SUCCESS: Company Name captured -> STUDYCAFE PRIVATE LIMITED
+22-05-2026 14:58:08  Gstr3BDownloader ready.
+22-05-2026 14:58:08  Captcha fetched (4790 bytes).
+22-05-2026 14:58:16  Logging in as: Studycafep
+22-05-2026 14:58:17  Fetching official company name from portal (ustatus API)...
+22-05-2026 14:58:17  SUCCESS: Company Name captured -> STUDYCAFE PRIVATE LIMITED

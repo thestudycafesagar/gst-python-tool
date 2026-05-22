@@ -98,6 +98,19 @@ except Exception:
     _SPE_AVAILABLE = False
 
 
+# ─── GST RATE SLABS (total_gst, cgst, sgst) ─────────────
+_GST_SLABS = [
+    (0.0,   0.0,   0.0),
+    (2.5,   1.25,  1.25),
+    (3.0,   1.5,   1.5),
+    (5.0,   2.5,   2.5),
+    (12.0,  6.0,   6.0),
+    (18.0,  9.0,   9.0),
+    (28.0,  14.0,  14.0),
+    (40.0,  20.0,  20.0),
+]
+
+
 # ─── THEME & PALETTE ─────────────────────────────────────
 COLORS = {
     "bg_dark":       ("#F0F4F8", "#0F172A"),
@@ -299,6 +312,7 @@ class GSTR2BEngine:
         # RCM ledger mapping set by UI before generation
         self.rcm_ledger_map = {}  # keys: expense, cgst_inward, sgst_inward, igst_inward, cgst_outward, sgst_outward, igst_outward
         self.itc_map = {}  # invoice_no.upper() → {itc_claimed, has_stock}
+        self.gst_ledger_rate_map = {}  # {rate_float: {"cgst":..,"sgst":..,"igst":..}, "default": {...}}
         # Company GST registration details fetched from Tally
         # registration_name must match the exact name in Tally's company master
         # (e.g. "Delhi Registration") to prevent vouchers going to Uncertain in GSTR-3B.
@@ -394,6 +408,46 @@ class GSTR2BEngine:
         """Look up TDS rate for a party."""
         key = party_name.upper().strip()
         return self.party_tds_rate_map.get(key, default)
+
+    def _get_gst_ledger(self, tax_type: str, rate) -> str:
+        """Return configured ledger name for a GST type + rate from gst_ledger_rate_map.
+        Returns '' when not configured so callers fall through to hard-coded defaults.
+
+        Two-pass matching:
+        1. Direct match: user entered total GST rate (e.g. 18 for an 18% invoice).
+        2. Half-rate match: user entered individual CGST/SGST rate (e.g. 9 for 18% invoice).
+        """
+        if not self.gst_ledger_rate_map:
+            return ""
+        try:
+            r = round(float(rate or 0), 2)
+        except (TypeError, ValueError):
+            r = 0.0
+        half_r = r / 2.0
+        # Pass 1 — direct match against total GST rate
+        for mapped_rate, mapping in self.gst_ledger_rate_map.items():
+            if mapped_rate == "default":
+                continue
+            try:
+                if abs(float(mapped_rate) - r) < 0.15:
+                    ledger = mapping.get(tax_type, "")
+                    if ledger:
+                        return ledger
+            except (TypeError, ValueError):
+                pass
+        # Pass 2 — half-rate match (user entered individual CGST/SGST rate)
+        for mapped_rate, mapping in self.gst_ledger_rate_map.items():
+            if mapped_rate == "default":
+                continue
+            try:
+                if abs(float(mapped_rate) - half_r) < 0.15:
+                    ledger = mapping.get(tax_type, "")
+                    if ledger:
+                        return ledger
+            except (TypeError, ValueError):
+                pass
+        default = self.gst_ledger_rate_map.get("default") or {}
+        return default.get(tax_type, "")
 
     def _today_str(self) -> str:
         return datetime.date.today().strftime("%d/%m/%Y")
@@ -1064,6 +1118,17 @@ class GSTR2BEngine:
                 base["sgst"] = _as_float(base.get("sgst"))
                 base["cess"] = _as_float(base.get("cess"))
                 base["invoice_value"] = _as_float(base.get("invoice_value"))
+                # Initialize per-ledger GST splits (for multi-rate invoices with distinct ledger names)
+                _rec_rate = rec.get("rate")
+                if _as_float(rec.get("cgst")):
+                    _cl = (rec.get("cgst_ledger") or "").strip() or self._get_gst_ledger("cgst", _rec_rate) or "CGST"
+                    base["cgst_ledger_splits"] = {_cl: _as_float(rec.get("cgst"))}
+                if _as_float(rec.get("sgst")):
+                    _sl = (rec.get("sgst_ledger") or "").strip() or self._get_gst_ledger("sgst", _rec_rate) or "SGST"
+                    base["sgst_ledger_splits"] = {_sl: _as_float(rec.get("sgst"))}
+                if _as_float(rec.get("igst")):
+                    _il = (rec.get("igst_ledger") or "").strip() or self._get_gst_ledger("igst", _rec_rate) or "IGST"
+                    base["igst_ledger_splits"] = {_il: _as_float(rec.get("igst"))}
                 key_map[key] = base
                 grouped.append(base)
                 continue
@@ -1087,6 +1152,21 @@ class GSTR2BEngine:
             base["cgst"] = _as_float(base.get("cgst")) + _as_float(rec.get("cgst"))
             base["sgst"] = _as_float(base.get("sgst")) + _as_float(rec.get("sgst"))
             base["cess"] = _as_float(base.get("cess")) + _as_float(rec.get("cess"))
+
+            # Accumulate per-ledger GST splits so each distinct ledger gets its own entry
+            _mrec_rate = rec.get("rate")
+            if _as_float(rec.get("cgst")):
+                _ck = (rec.get("cgst_ledger") or "").strip() or self._get_gst_ledger("cgst", _mrec_rate) or "CGST"
+                _cs = base.setdefault("cgst_ledger_splits", {})
+                _cs[_ck] = _as_float(_cs.get(_ck), 0.0) + _as_float(rec.get("cgst"))
+            if _as_float(rec.get("sgst")):
+                _sk = (rec.get("sgst_ledger") or "").strip() or self._get_gst_ledger("sgst", _mrec_rate) or "SGST"
+                _ss = base.setdefault("sgst_ledger_splits", {})
+                _ss[_sk] = _as_float(_ss.get(_sk), 0.0) + _as_float(rec.get("sgst"))
+            if _as_float(rec.get("igst")):
+                _ik = (rec.get("igst_ledger") or "").strip() or self._get_gst_ledger("igst", _mrec_rate) or "IGST"
+                _is = base.setdefault("igst_ledger_splits", {})
+                _is[_ik] = _as_float(_is.get(_ik), 0.0) + _as_float(rec.get("igst"))
 
             split_ledger = _resolve_purchase_ledger(rec)
             splits = base.setdefault("purchase_ledger_splits", {})
@@ -1462,10 +1542,13 @@ class GSTR2BEngine:
         rounded_splits = {k: round(float(v), 2) for k, v in splits.items() if round(float(v or 0), 2) != 0}
         purchase_total = round(sum(rounded_splits.values()), 2) if rounded_splits else taxable
         tax_total = round(igst_amt + cgst_amt + sgst_amt + cess_amt, 2)
-        # party_amount is the exact sum of all other rounded entries minus TDS
-        _ro_base     = round(purchase_total + tax_total, 2)
-        _ro_amt_main = round(round(_ro_base, 0) - _ro_base, 2) if round_off_ledger else 0.0
-        party_amount = round(_ro_base - round(float(tds_amount or 0), 2) + _ro_amt_main, 2)
+        # Round-off is applied to the net payable (after TDS) so the final
+        # amount the vendor receives is always a whole number.
+        _ro_base    = round(purchase_total + tax_total, 2)
+        _tds_val    = round(float(tds_amount or 0), 2)
+        _net_pre_ro = round(_ro_base - _tds_val, 2)
+        _ro_amt_main = round(round(_net_pre_ro, 0) - _net_pre_ro, 2) if round_off_ledger else 0.0
+        party_amount = round(_net_pre_ro + _ro_amt_main, 2)
 
         # For Debit Note: party is debited (Dr Supplier), purchase/tax are credited (Cr).
         # For Purchase / Credit Note: party is credited (Cr Supplier), purchase/tax are debited (Dr).
@@ -1496,25 +1579,51 @@ class GSTR2BEngine:
             pu.find("ISDEEMEDPOSITIVE").text = counter_deemed
             ET.SubElement(pu, "AMOUNT").text = f"{-taxable:.2f}"
 
-        if abs(igst_amt) > 0:
-            ie = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
-            ET.SubElement(ie, "LEDGERNAME").text = "IGST"
-            self._add_common_ledger_flags(ie, is_party="No")
-            ie.find("ISDEEMEDPOSITIVE").text = counter_deemed
-            ET.SubElement(ie, "AMOUNT").text = f"{-igst_amt:.2f}"
-        else:
-            if abs(cgst_amt) > 0:
+        igst_splits = {k: round(v, 2) for k, v in (rec.get("igst_ledger_splits") or {}).items() if round(abs(v), 2) > 0}
+        cgst_splits = {k: round(v, 2) for k, v in (rec.get("cgst_ledger_splits") or {}).items() if round(abs(v), 2) > 0}
+        sgst_splits = {k: round(v, 2) for k, v in (rec.get("sgst_ledger_splits") or {}).items() if round(abs(v), 2) > 0}
+
+        if igst_splits or cgst_splits or sgst_splits:
+            # Use per-ledger splits (handles multi-rate invoices with distinct ledger names)
+            for lgr, amt in igst_splits.items():
+                ie = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
+                ET.SubElement(ie, "LEDGERNAME").text = lgr or "IGST"
+                self._add_common_ledger_flags(ie, is_party="No")
+                ie.find("ISDEEMEDPOSITIVE").text = counter_deemed
+                ET.SubElement(ie, "AMOUNT").text = f"{-amt:.2f}"
+            for lgr, amt in cgst_splits.items():
                 ce = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
-                ET.SubElement(ce, "LEDGERNAME").text = "CGST"
+                ET.SubElement(ce, "LEDGERNAME").text = lgr or "CGST"
                 self._add_common_ledger_flags(ce, is_party="No")
                 ce.find("ISDEEMEDPOSITIVE").text = counter_deemed
-                ET.SubElement(ce, "AMOUNT").text = f"{-cgst_amt:.2f}"
-            if abs(sgst_amt) > 0:
+                ET.SubElement(ce, "AMOUNT").text = f"{-amt:.2f}"
+            for lgr, amt in sgst_splits.items():
                 se = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
-                ET.SubElement(se, "LEDGERNAME").text = "SGST"
+                ET.SubElement(se, "LEDGERNAME").text = lgr or "SGST"
                 self._add_common_ledger_flags(se, is_party="No")
                 se.find("ISDEEMEDPOSITIVE").text = counter_deemed
-                ET.SubElement(se, "AMOUNT").text = f"{-sgst_amt:.2f}"
+                ET.SubElement(se, "AMOUNT").text = f"{-amt:.2f}"
+        else:
+            # Fallback for records without per-ledger splits (e.g. direct GSTR-2B import)
+            if abs(igst_amt) > 0:
+                ie = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
+                ET.SubElement(ie, "LEDGERNAME").text = rec.get("igst_ledger") or "IGST"
+                self._add_common_ledger_flags(ie, is_party="No")
+                ie.find("ISDEEMEDPOSITIVE").text = counter_deemed
+                ET.SubElement(ie, "AMOUNT").text = f"{-igst_amt:.2f}"
+            else:
+                if abs(cgst_amt) > 0:
+                    ce = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
+                    ET.SubElement(ce, "LEDGERNAME").text = rec.get("cgst_ledger") or "CGST"
+                    self._add_common_ledger_flags(ce, is_party="No")
+                    ce.find("ISDEEMEDPOSITIVE").text = counter_deemed
+                    ET.SubElement(ce, "AMOUNT").text = f"{-cgst_amt:.2f}"
+                if abs(sgst_amt) > 0:
+                    se = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
+                    ET.SubElement(se, "LEDGERNAME").text = rec.get("sgst_ledger") or "SGST"
+                    self._add_common_ledger_flags(se, is_party="No")
+                    se.find("ISDEEMEDPOSITIVE").text = counter_deemed
+                    ET.SubElement(se, "AMOUNT").text = f"{-sgst_amt:.2f}"
         if abs(cess_amt) > 0:
             cs = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
             ET.SubElement(cs, "LEDGERNAME").text = "Cess"
@@ -1834,7 +1943,7 @@ class LogPanel(ctk.CTkFrame):
         ctk.CTkLabel(header, text="Activity Log", font=("Segoe UI", 13, "bold"),
                      text_color=COLORS["text_primary"]).pack(side="left")
         ctk.CTkButton(header, text="Clear", width=60, height=26, font=("Segoe UI", 11),
-                      fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                      fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                       text_color=COLORS["text_secondary"], corner_radius=6,
                       command=self.clear_log).pack(side="right")
         self.textbox = ctk.CTkTextbox(self, fg_color=COLORS["bg_dark"], text_color=COLORS["text_secondary"],
@@ -4187,9 +4296,7 @@ class _GSTFetchDialog(ctk.CTkToplevel):
             command=self._on_confirm, state="disabled")
         self._confirm_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ctk.CTkButton(btn_row, text="Cancel",
-                       fg_color=("gray60", "#DC2626"),
-                       hover_color=("gray50", "#B91C1C"),
-                       text_color=("#1F2937", "#FFFFFF"),
+                       fg_color=("gray60", "gray30"),
                        command=self._on_cancel, width=90).pack(side="left")
 
     def _on_load_captcha(self):
@@ -4308,6 +4415,7 @@ class GSTR2BTallyApp(ctk.CTk):
         self.tally_push_companies = []
         self.tally_push_company_placeholder = "Auto (Loaded Company)"
         self.roundoff_all_ledgers = []   # cached ledger list for round off picker
+        self.gst_all_ledgers = []        # cached ledger list for GST fix dialog
         self.create_ledger_is_running = False
         self.create_ledger_companies = []
         self.output_dir = ""
@@ -4383,8 +4491,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 height=34,
                 font=("Segoe UI", 11, "bold"),
                 corner_radius=8,
-                fg_color=("#F1F5F9", "#DC2626"),
-                hover_color=("#E2E8F0", "#B91C1C"),
+                fg_color=COLORS["bg_input"],
+                hover_color=COLORS["bg_card_hover"],
                 text_color=COLORS["text_primary"],
                 command=lambda value=label: self._on_mode_change(value),
             )
@@ -4429,9 +4537,22 @@ class GSTR2BTallyApp(ctk.CTk):
 
         ctk.CTkButton(
             map_btn_frame, text="📤  Upload Template", font=("Segoe UI", 11), height=32,
-            fg_color=("#FFFFFF", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_card"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"], corner_radius=6,
             command=self._upload_itc_template).pack(fill="x")
+
+        self.multi_gst_rate_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            map_btn_frame,
+            text="Check this box if you have multiple GST rates",
+            variable=self.multi_gst_rate_var,
+            font=("Segoe UI", 10),
+            text_color=COLORS["text_secondary"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            corner_radius=4,
+            height=22,
+        ).pack(anchor="w", pady=(6, 2))
 
         # ─── LEFT: Tally Sheet Upload Card (hidden by default) ───
         self.tally_card = ctk.CTkFrame(self.left_col, fg_color=COLORS["bg_card"], corner_radius=12,
@@ -4488,8 +4609,8 @@ class GSTR2BTallyApp(ctk.CTk):
             text="...",
             width=42,
             height=34,
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._browse_download2b_excel,
@@ -4505,7 +4626,7 @@ class GSTR2BTallyApp(ctk.CTk):
         add_btn_frame = ctk.CTkFrame(self.d2b_manual_frame, fg_color="transparent")
         add_btn_frame.pack(fill="x", padx=16, pady=(0, 8))
         ctk.CTkButton(add_btn_frame, text="+ Add User", width=100, height=28, font=("Segoe UI", 11, "bold"),
-                      fg_color=("#F0F4F8", "#DC2626"), text_color=COLORS["text_primary"], hover_color=("#E2E8F0", "#B91C1C"),
+                      fg_color=COLORS["bg_dark"], text_color=COLORS["text_primary"], hover_color=COLORS["bg_card_hover"],
                       command=self._add_d2b_manual_entry).pack(side="left")
         
         self._add_d2b_manual_entry() # Add one by default
@@ -4638,8 +4759,8 @@ class GSTR2BTallyApp(ctk.CTk):
             text="...",
             width=42,
             height=34,
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._browse_tally_push_xml,
@@ -4776,8 +4897,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=86,
             height=34,
             font=("Segoe UI", 10, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._fetch_tally_companies_thread,
@@ -4914,8 +5035,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=82,
             height=34,
             font=("Segoe UI", 9, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._fetch_create_ledger_companies_thread,
@@ -5161,8 +5282,8 @@ class GSTR2BTallyApp(ctk.CTk):
             text="Test Connection",
             height=38,
             font=("Segoe UI", 10, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._check_create_ledger_connection_thread,
@@ -5243,7 +5364,7 @@ class GSTR2BTallyApp(ctk.CTk):
 
         self.roundoff_fetch_btn = ctk.CTkButton(
             ro_entry_row, text="Fetch Ledgers", width=130, height=36,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"], font=("Segoe UI", 11),
             corner_radius=8, state="disabled")
         self.roundoff_fetch_btn.pack(side="left")
@@ -5304,8 +5425,8 @@ class GSTR2BTallyApp(ctk.CTk):
                                           placeholder_text="Same as source file",
                                           font=("Segoe UI", 11), corner_radius=8)
         self.output_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(out_frame, text="...", width=40, height=36, fg_color=("#F1F5F9", "#DC2626"),
-                      hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_secondary"],
+        ctk.CTkButton(out_frame, text="...", width=40, height=36, fg_color=COLORS["bg_input"],
+                      hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_secondary"],
                       corner_radius=8, command=self._browse_output).pack(side="right")
 
         # ─── LEFT: Action Buttons ───
@@ -5322,12 +5443,12 @@ class GSTR2BTallyApp(ctk.CTk):
         self.generate_btn.pack(fill="x", padx=16, pady=(0, 6))
         # Keep these created (they are referenced elsewhere) but not packed
         self.excel_only_btn = ctk.CTkButton(self.action_card, text="Generate Tally Sheet Only",
-                                             font=("Segoe UI", 12), height=38, fg_color=("#F1F5F9", "#DC2626"),
-                                             hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_primary"],
+                                             font=("Segoe UI", 12), height=38, fg_color=COLORS["bg_input"],
+                                             hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_primary"],
                                              corner_radius=8, command=lambda: self._generate_output(xml=False))
         self.xml_only_btn = ctk.CTkButton(self.action_card, text="Generate XML Only",
-                                           font=("Segoe UI", 12), height=38, fg_color=("#F1F5F9", "#DC2626"),
-                                           hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_primary"],
+                                           font=("Segoe UI", 12), height=38, fg_color=COLORS["bg_input"],
+                                           hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_primary"],
                                            corner_radius=8, command=lambda: self._generate_output(excel=False))
 
         # ─── Inline Push to Tally Panel ───────────────────────────────────────
@@ -5397,8 +5518,8 @@ class GSTR2BTallyApp(ctk.CTk):
         self.inline_push_company_cb.grid(row=0, column=1, sticky="ew", padx=(8, 6))
         self.inline_push_company_refresh_btn = ctk.CTkButton(
             _cr2, text="Fetch", width=60, height=34,
-            font=("Segoe UI", 10, "bold"), fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_secondary"],
+            font=("Segoe UI", 10, "bold"), fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_secondary"],
             corner_radius=8, command=self._inline_push_refresh_companies_thread)
         self.inline_push_company_refresh_btn.grid(row=0, column=2, sticky="e")
 
@@ -5536,8 +5657,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 )
             else:
                 btn.configure(
-                    fg_color=("#F1F5F9", "#DC2626"),
-                    hover_color=("#E2E8F0", "#B91C1C"),
+                    fg_color=COLORS["bg_input"],
+                    hover_color=COLORS["bg_card_hover"],
                     text_color=COLORS["text_primary"],
                 )
 
@@ -6696,6 +6817,7 @@ class GSTR2BTallyApp(ctk.CTk):
         selected_company="",
         date_mode="current",
         custom_tally_date="",
+        on_apply_callback=None,
     ):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Resolve Missing Ledgers")
@@ -7127,8 +7249,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 text="Close & Save",
                 height=34,
                 font=("Segoe UI", 11),
-                fg_color=("#F1F5F9", "#DC2626"),
-                hover_color=("#E2E8F0", "#B91C1C"),
+                fg_color=COLORS["bg_input"],
+                hover_color=COLORS["bg_card_hover"],
                 text_color=COLORS["text_secondary"],
                 command=_close_with_save,
             ).pack(side="right")
@@ -7198,9 +7320,8 @@ class GSTR2BTallyApp(ctk.CTk):
             ctk.CTkButton(
                 bf,
                 text="Create Manually",
-                fg_color=("gray70", "#DC2626"),
-                hover_color=("gray60", "#B91C1C"),
-                text_color=("#1F2937", "#FFFFFF"),
+                fg_color=("gray70", "gray30"),
+                hover_color=("gray60", "gray40"),
                 height=44,
                 font=("Segoe UI", 12),
                 command=_choose_manual,
@@ -7538,6 +7659,13 @@ class GSTR2BTallyApp(ctk.CTk):
                 retry_btn_ref["btn"].configure(state="disabled", text="Retrying...")
 
             dialog.destroy()
+
+            # If a custom callback is provided (e.g. stock item push), use it instead
+            # of the XML-file-based retry path.
+            if on_apply_callback is not None:
+                on_apply_callback(ledger_mapping)
+                return
+
             self._retry_post_with_ledger_resolution(
                 xml_path=xml_path,
                 tally_url=tally_url,
@@ -7557,8 +7685,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=130,
             height=38,
             font=("Segoe UI", 11, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=do_save_all_details,
@@ -7584,8 +7712,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=110,
             height=38,
             font=("Segoe UI", 11, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=dialog.destroy,
@@ -7941,24 +8069,30 @@ class GSTR2BTallyApp(ctk.CTk):
 
             # ── ITC B2B tab helpers ───────────────────────────────────────
             # Yellow (auto-filled): A=GSTIN, B=Trade/Legal name, C=Invoice Number,
-            #   D=Invoice Date, E=Invoice Value, F=Taxable Value, G=CGST, H=SGST,
+            #   D=Invoice Date, E=Invoice Type, F=Taxable Value, G=CGST, H=SGST,
             #   I=IGST, J=CESS, K=ITC Availability, L=Supply Attract Reverse Charge
             # Green (user fills): M=ITC to be claimed or not (Yes/No),
             #   N=Whether Contains stock Item (Yes/No),
-            #   O=Mapping Ledger, P=TDS Ledger, Q=TDS Rate
+            #   O=Mapping Ledger, P=CGST Ledger, Q=SGST Ledger, R=IGST Ledger,
+            #   S=TDS Ledger, T=TDS Rate
             yellow_headers = [
-                "GSTIN", "Trade/Legal name", "Invoice Number", "Invoice Date", "Invoice Value",
-                "Taxable Value", "CGST", "SGST", "IGST", "CESS",
+                "GSTIN", "Trade/Legal name", "Invoice Number", "Invoice Date", "Invoice Type",
+                "Taxable Value",
+                "CGST", "CGST Rate",
+                "SGST", "SGST Rate",
+                "IGST", "IGST Rate",
+                "CESS",
                 "ITC Availability", "Supply Attract Reverse Charge",
             ]
             green_headers = [
                 "ITC to be claimed or not", "Whether Contains stock Item",
-                "Mapping Ledger", "TDS Ledger", "TDS Rate",
+                "Mapping Ledger", "CGST Ledger", "SGST Ledger", "IGST Ledger",
+                "TDS Ledger", "TDS Rate",
             ]
             all_headers  = yellow_headers + green_headers
-            n_yellow     = len(yellow_headers)   # 12
-            dv_col_start = n_yellow + 1           # col M (1-based)
-            dv_col_end   = n_yellow + 2           # col N (1-based)
+            n_yellow     = len(yellow_headers)   # 15
+            dv_col_start = n_yellow + 1           # first green col (1-based)
+            dv_col_end   = n_yellow + 2           # second green col (1-based)
 
             yellow_fill  = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
             green_fill   = PatternFill(start_color="92D050", end_color="92D050", fill_type="solid")
@@ -7966,7 +8100,8 @@ class GSTR2BTallyApp(ctk.CTk):
             header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
             data_font    = Font(name="Calibri", size=10)
             num_align    = Alignment(horizontal="right")
-            col_widths   = [20, 32, 22, 14, 20, 14, 10, 10, 10, 10, 24, 30, 26, 28, 30, 30, 12]
+            #            GSTIN  Trade  InvNo  Date  Type  Tax   CGST  CGSTRate  SGST  SGSTRate  IGST  IGSTRate  CESS  ITC   Rev   ITCcl  Stock  Map   CGSTLdg  SGSTLdg  IGSTLdg  TDSLdg  TDSRate
+            col_widths   = [20, 32,   22,    14,   20,   14,   10,   10,       10,   10,       10,   10,       10,   24,   30,   26,    28,    26,   26,      26,      26,      14,     10]
 
             # Open source GSTR-2B workbook for raw sheet access
             src_wb = openpyxl.load_workbook(self.source_file, data_only=True)
@@ -7997,18 +8132,27 @@ class GSTR2BTallyApp(ctk.CTk):
                 _n_yellow    = len(_yellow_hdrs)          # 12 without Rate, 13 with Rate
                 _dv_col_s    = _n_yellow + 1              # first green col (1-based)
                 _dv_col_e    = _n_yellow + 2              # second green col (1-based)
-                _col_widths  = col_widths[:12] + ([10] if has_rate_col else []) + col_widths[12:]
+                _col_widths  = col_widths[:15] + ([10] if has_rate_col else []) + col_widths[15:]
 
-                # Write ITC template headers (row 1)
+                # Row 1: advisory message (red bold, centred, merged across all columns)
+                _n_cols = len(_all_hdrs)
+                _msg_cell = dest_ws.cell(row=1, column=1,
+                    value="*Kindly Map the GST Ledgers in case your tally has multiple rates of Input GST Ledger")
+                _msg_cell.font = Font(name="Calibri", size=11, bold=True, color="FF0000")
+                _msg_cell.alignment = Alignment(horizontal="center", vertical="center")
+                dest_ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=_n_cols)
+                dest_ws.row_dimensions[1].height = 22
+
+                # Row 2: yellow/green column headers
                 for col_idx, header in enumerate(_all_hdrs, start=1):
-                    cell = dest_ws.cell(row=1, column=col_idx, value=header)
+                    cell = dest_ws.cell(row=2, column=col_idx, value=header)
                     cell.font = header_font
                     cell.alignment = header_align
                     cell.fill = yellow_fill if col_idx <= _n_yellow else green_fill
-                dest_ws.row_dimensions[1].height = 32
+                dest_ws.row_dimensions[2].height = 32
 
                 # Write data rows from raw B2B sheet
-                out_row = 2
+                out_row = 3
                 _itc_last_gstin      = ""
                 _itc_last_trade_name = ""
                 _itc_trade_col = mapper.get("trade_name", 1)
@@ -8058,16 +8202,24 @@ class GSTR2BTallyApp(ctk.CTk):
                         continue
                     if not rec:
                         continue
+                    _tv = abs(rec.get("taxable_value", 0) or 0)
+                    def _tax_rate(amt, _t=_tv):
+                        v = abs(amt or 0)
+                        return round(v / _t * 100, 2) if _t > 0 and v > 0 else 0
+
                     row_values = [
                         rec.get("gstin", ""),
                         rec.get("trade_name", ""),
                         rec.get("invoice_no", ""),
                         rec.get("invoice_date", ""),
-                        rec.get("invoice_value", 0),   # E = Invoice Value
+                        rec.get("invoice_type", "Regular"),
                         rec.get("taxable_value", 0),
                         rec.get("cgst", 0),
+                        _tax_rate(rec.get("cgst", 0)),    # CGST Rate
                         rec.get("sgst", 0),
+                        _tax_rate(rec.get("sgst", 0)),    # SGST Rate
                         rec.get("igst", 0),
+                        _tax_rate(rec.get("igst", 0)),    # IGST Rate
                         rec.get("cess", 0),
                         rec.get("itc_avail", ""),
                         rec.get("reverse_charge", "No"),
@@ -8094,15 +8246,15 @@ class GSTR2BTallyApp(ctk.CTk):
                     error="Only 'Yes' or 'No' is allowed. Please select from the dropdown.",
                     errorStyle="stop",
                 )
-                dv.sqref = f"{dv_start}2:{dv_end}{last_row}"
+                dv.sqref = f"{dv_start}3:{dv_end}{last_row}"
                 dest_ws.add_data_validation(dv)
 
                 for col_idx, width in enumerate(_col_widths, start=1):
                     dest_ws.column_dimensions[
-                        dest_ws.cell(row=1, column=col_idx).column_letter
+                        dest_ws.cell(row=2, column=col_idx).column_letter
                     ].width = width
-                dest_ws.freeze_panes = "A2"
-                return last_row - 1  # data row count
+                dest_ws.freeze_panes = "A3"
+                return last_row - 2  # data row count
 
             # ── Full formatted copy for B2BA / B2B-CDNR sheets ──────────────
             def _copy_sheet_formatted(src_ws, dest_ws):
@@ -8200,10 +8352,12 @@ class GSTR2BTallyApp(ctk.CTk):
 
             # ITC B2B template column layout (0-indexed):
             # 0=GSTIN, 1=Trade/Legal name, 2=Invoice Number, 3=Invoice Date,
-            # 4=Invoice Value, 5=Taxable Value, 6=CGST, 7=SGST, 8=IGST, 9=CESS,
+            # 4=Invoice Type, 5=Taxable Value, 6=CGST, 7=SGST, 8=IGST, 9=CESS,
             # 10=ITC Availability, 11=Supply Attract Reverse Charge
             # 12=ITC to be claimed (Yes/No), 13=Whether Contains stock Item (Yes/No)
-            # 14=Mapping Ledger, 15=TDS Ledger, 16=TDS Rate
+            # 14=Mapping Ledger, 15=CGST Ledger, 16=SGST Ledger, 17=IGST Ledger,
+            # 18=TDS Ledger, 19=TDS Rate
+            # (older templates without CGST/SGST/IGST Ledger cols: 15=TDS Ledger, 16=TDS Rate)
 
             def _cell(row, idx, default=""):
                 if idx < len(row) and row[idx] is not None:
@@ -8245,19 +8399,60 @@ class GSTR2BTallyApp(ctk.CTk):
             party_tds_rt  = {}
             itc_map       = {}
 
-            # Detect if this template was generated with a Rate column (between col 12 and green cols).
-            # Older templates have green cols starting at index 12; newer ones with Rate start at 13.
-            _hdr = [str(c or "").strip().lower() for c in (
-                next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None) or []
-            )]
-            _has_rate_col = (
-                len(_hdr) > 12
-                and any(h in ("rate (%)", "rate(%)", "rate") and "tds" not in h for h in _hdr[11:14])
+            # Auto-detect whether row 1 is an advisory message (new templates) or
+            # the actual header row (old templates). If column A of row 1 is not "gstin",
+            # the header is on row 2 and data starts at row 3.
+            _row1_vals = list(next(ws.iter_rows(min_row=1, max_row=1, values_only=True), []) or [])
+            _row1_a = str(_row1_vals[0] or "").strip().lower() if _row1_vals else ""
+            _hdr_row   = 1 if _row1_a == "gstin" else 2
+            _data_start = _hdr_row + 1
+
+            _hdr_row_vals = list(next(ws.iter_rows(min_row=_hdr_row, max_row=_hdr_row, values_only=True), []) or [])
+            _hdr = [str(c or "").strip().lower() for c in _hdr_row_vals]
+
+            # Build a header-name → column-index map for robust detection across all template versions
+            _hdr_map = {h: i for i, h in enumerate(_hdr)}
+            def _hcol(name, fallback=-1):
+                return _hdr_map.get(name, fallback)
+
+            # Rate(%) col — total GST rate added from GSTR-2B source (distinct from CGST/SGST/IGST Rate cols)
+            _col_rate_pct = next(
+                (i for i, h in enumerate(_hdr)
+                 if h in ("rate (%)", "rate(%)", "rate")
+                 and "tds" not in h and "cgst" not in h and "sgst" not in h and "igst" not in h),
+                -1
             )
-            _g = 1 if _has_rate_col else 0  # offset applied to all green column indices
+            _has_rate_col = _col_rate_pct >= 0
+            _g = 1 if _has_rate_col else 0  # fallback offset for very old templates
+
+            # Yellow data columns — header-name lookup first, position fallback for old templates
+            _col_taxable    = _hcol("taxable value",                   5)
+            _col_cgst       = _hcol("cgst",                            6)
+            _col_sgst       = _hcol("sgst",                            7)
+            _col_igst       = _hcol("igst",                            8)
+            _col_cess       = _hcol("cess",                            9)
+            _col_itc_avail  = _hcol("itc availability",               10)
+            _col_rev_charge = _hcol("supply attract reverse charge",  11)
+
+            # Green columns — fully header-driven; fall back to offset-based for very old templates
+            _col_itc_claimed = _hcol("itc to be claimed or not")
+            _col_has_stock   = _hcol("whether contains stock item")
+            _col_mapping     = _hcol("mapping ledger")
+            _col_cgst_ldr    = _hcol("cgst ledger")
+            _col_sgst_ldr    = _hcol("sgst ledger")
+            _col_igst_ldr    = _hcol("igst ledger")
+            _col_tds_ldr     = _hcol("tds ledger")
+            _col_tds_rate_c  = _hcol("tds rate")
+            if _col_itc_claimed < 0: _col_itc_claimed = 12 + _g
+            if _col_has_stock   < 0: _col_has_stock   = 13 + _g
+            if _col_mapping     < 0: _col_mapping     = 14 + _g
+            if _col_tds_ldr     < 0: _col_tds_ldr    = 15 + _g
+            if _col_tds_rate_c  < 0: _col_tds_rate_c = 16 + _g
+
+            _has_gst_ledger_cols = _col_cgst_ldr >= 0
 
             # ── Parse ITC B2B sheet ───────────────────────────────────────────
-            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            for row_idx, row in enumerate(ws.iter_rows(min_row=_data_start, values_only=True), start=_data_start):
                 if not row:
                     continue
                 gstin      = _str(row, 0)
@@ -8269,21 +8464,30 @@ class GSTR2BTallyApp(ctk.CTk):
                     continue
                 invoice_no    = _str(row, 2)
                 invoice_date  = _norm_date(_cell(row, 3, ""))
-                invoice_value = _float(row, 4)           # col E = Invoice Value
-                taxable       = _float(row, 5)
-                cgst          = _float(row, 6)
-                sgst          = _float(row, 7)
-                igst          = _float(row, 8)
-                cess          = _float(row, 9)
-                itc_avail_src = _str(row, 10, "Yes")
-                rev_charge    = _str(row, 11, "No")
+                invoice_type  = _str(row, 4) or "Regular"
+                taxable       = _float(row, _col_taxable)
+                cgst          = _float(row, _col_cgst)
+                sgst          = _float(row, _col_sgst)
+                igst          = _float(row, _col_igst)
+                cess          = _float(row, _col_cess)
+                itc_avail_src = _str(row, _col_itc_avail, "Yes")
+                rev_charge    = _str(row, _col_rev_charge, "No")
 
-                # Green columns — indices shift right by 1 when Rate column is present
-                itc_claimed    = _str(row, 12 + _g)
-                has_stock      = _str(row, 13 + _g)
-                mapping_ledger = _str(row, 14 + _g)
-                tds_ledger     = _str(row, 15 + _g)
-                tds_rate_raw   = _cell(row, 16 + _g, None)
+                itc_claimed    = _str(row, _col_itc_claimed)
+                has_stock      = _str(row, _col_has_stock)
+                mapping_ledger = _str(row, _col_mapping)
+                if _has_gst_ledger_cols:
+                    cgst_ledger  = _str(row, _col_cgst_ldr) if _col_cgst_ldr >= 0 else ""
+                    sgst_ledger  = _str(row, _col_sgst_ldr) if _col_sgst_ldr >= 0 else ""
+                    igst_ledger  = _str(row, _col_igst_ldr) if _col_igst_ldr >= 0 else ""
+                    tds_ledger   = _str(row, _col_tds_ldr)  if _col_tds_ldr  >= 0 else ""
+                    tds_rate_raw = _cell(row, _col_tds_rate_c, None) if _col_tds_rate_c >= 0 else None
+                else:
+                    cgst_ledger  = ""
+                    sgst_ledger  = ""
+                    igst_ledger  = ""
+                    tds_ledger   = _str(row, _col_tds_ldr)  if _col_tds_ldr  >= 0 else ""
+                    tds_rate_raw = _cell(row, _col_tds_rate_c, None) if _col_tds_rate_c >= 0 else None
                 try:
                     tds_rate = float(tds_rate_raw) if tds_rate_raw not in (None, "") else 0.0
                 except (ValueError, TypeError):
@@ -8298,8 +8502,7 @@ class GSTR2BTallyApp(ctk.CTk):
                     eff_itc = itc_avail_src or "Yes"
 
                 if _has_rate_col:
-                    # Read rate directly from the Rate (%) column in the template
-                    rate_raw = _cell(row, 12, None)
+                    rate_raw = _cell(row, _col_rate_pct, None)
                     try:
                         rate = float(rate_raw) if rate_raw not in (None, "") else 0.0
                     except (ValueError, TypeError):
@@ -8313,11 +8516,11 @@ class GSTR2BTallyApp(ctk.CTk):
                 rec = {
                     "gstin": gstin, "trade_name": trade_name, "party_name": trade_name,
                     "invoice_no": invoice_no, "invoice_date": invoice_date,
-                    "invoice_type": "Regular",   # B2B tab = regular invoices
-                    "invoice_value": invoice_value,
+                    "invoice_type": invoice_type,
                     "taxable_value": taxable, "cgst": cgst, "sgst": sgst, "igst": igst, "cess": cess,
                     "rate": rate, "itc_avail": eff_itc, "reverse_charge": rev_charge,
                     "has_stock_item": has_stock.upper() in ("YES", "Y"),
+                    "cgst_ledger": cgst_ledger, "sgst_ledger": sgst_ledger, "igst_ledger": igst_ledger,
                     "tds_ledger": tds_ledger, "tds_rate": tds_rate, "tds_amount": "",
                     "purchase_ledger": mapping_ledger,
                     "sheet_type": "B2B", "is_amendment": False, "orig_invoice_no": "",
@@ -8873,7 +9076,7 @@ class GSTR2BTallyApp(ctk.CTk):
                          text_color=COLORS["text_primary"], anchor="w").pack(side="left", padx=8)
 
             pick_btn = ctk.CTkButton(row, text="🔍", width=32, height=26,
-                                     fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                                     fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                                      text_color=COLORS["accent"], font=("Segoe UI", 11),
                                      corner_radius=4)
             pick_btn.pack(side="right", padx=(0, 6))
@@ -9070,6 +9273,261 @@ class GSTR2BTallyApp(ctk.CTk):
             self._do_generate(excel, xml, records_to_generate=active_records)
         else:
             self.log_panel.log("Mapping upload cancelled — generation aborted.", "warning")
+
+    # ─── MULTI-GST RATE SLAB MAPPING POPUP ───
+
+    def _show_multi_gst_rate_popup(self, records, on_apply_callback, tally_url="", company_name=""):
+        """Popup to map each GST rate slab (CGST/SGST/IGST) to Tally ledger names.
+        Updates engine.gst_ledger_rate_map, then calls on_apply_callback to continue."""
+
+        def _fmt_rate(r):
+            return f"{int(r) if r == int(r) else r}%"
+
+        # Pre-fill from existing records and gst_ledger_rate_map
+        pre = {s[0]: {"cgst": "", "sgst": "", "igst": ""} for s in _GST_SLABS}
+        for rec in records:
+            try:
+                tr = round(float(rec.get("rate") or 0), 2)
+            except (TypeError, ValueError):
+                continue
+            if rec.get("cgst_ledger") and tr in pre:
+                pre[tr]["cgst"] = rec["cgst_ledger"]
+            if rec.get("sgst_ledger") and tr in pre:
+                pre[tr]["sgst"] = rec["sgst_ledger"]
+            if rec.get("igst_ledger") and tr in pre:
+                pre[tr]["igst"] = rec["igst_ledger"]
+        for mapped_rate, mapping in (self.engine.gst_ledger_rate_map or {}).items():
+            if mapped_rate == "default" or not isinstance(mapping, dict):
+                continue
+            try:
+                tr = round(float(mapped_rate), 2)
+            except (TypeError, ValueError):
+                continue
+            if tr in pre:
+                if mapping.get("cgst") and not pre[tr]["cgst"]:
+                    pre[tr]["cgst"] = mapping["cgst"]
+                if mapping.get("sgst") and not pre[tr]["sgst"]:
+                    pre[tr]["sgst"] = mapping["sgst"]
+                if mapping.get("igst") and not pre[tr]["igst"]:
+                    pre[tr]["igst"] = mapping["igst"]
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("GST Rate → Ledger Mapping")
+        dialog.geometry("860x560")
+        dialog.resizable(True, True)
+        dialog.grab_set()
+        dialog.lift()
+        dialog.focus_force()
+
+        # ── Header ──
+        ctk.CTkLabel(dialog, text="GST Rate Slab → Tally Ledger Mapping",
+                     font=("Segoe UI", 14, "bold"),
+                     text_color=COLORS["text_primary"]).pack(pady=(14, 2))
+        ctk.CTkLabel(dialog,
+                     text="Select the ledger for each GST rate. Only mapped slabs are applied; others use defaults.",
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(pady=(0, 6))
+
+        # ── Fetch bar ──
+        fetch_bar = ctk.CTkFrame(dialog, fg_color="transparent")
+        fetch_bar.pack(fill="x", padx=16, pady=(0, 4))
+        status_var = ctk.StringVar(value="Click 'Fetch from Tally' to load available ledgers.")
+        ctk.CTkLabel(fetch_bar, textvariable=status_var, font=("Segoe UI", 10),
+                     text_color=COLORS["text_muted"]).pack(side="left")
+
+        tally_leds_ref = [[]]  # mutable cache; tally_leds_ref[0] = list of names
+
+        def _do_fetch():
+            status_var.set("Fetching ledgers from Tally…")
+            dialog.update_idletasks()
+            try:
+                # Prefer the URL/company passed in (from the pending push flow);
+                # fall back to whichever push-panel widget has a value.
+                t_url = (tally_url
+                         or getattr(self, "_pending_push_url", "")
+                         or self._get_tally_push_url())
+                t_co = (company_name
+                        or getattr(self, "_pending_push_company", "")
+                        or self._get_effective_push_company()
+                        or self.engine.company_name or "")
+            except Exception:
+                t_url = tally_url or "http://localhost:9000"
+                t_co = company_name or self.engine.company_name or ""
+
+            def _fetch_thread():
+                try:
+                    res = _fetch_tally_ledgers(t_url, timeout=20, company_name=t_co)
+                    if res.get("success"):
+                        leds = [str(x) for x in (res.get("ledgers") or [])]
+                        self.gst_all_ledgers = leds
+                        tally_leds_ref[0] = leds
+                        dialog.after(0, lambda: status_var.set(
+                            f"Fetched {len(leds)} ledgers from '{t_co or 'active company'}'. Type to search."))
+                    else:
+                        err = res.get("error", "Unknown error")
+                        dialog.after(0, lambda: status_var.set(f"Fetch failed: {err}"))
+                except Exception as ex:
+                    dialog.after(0, lambda: status_var.set(f"Fetch error: {ex}"))
+
+            threading.Thread(target=_fetch_thread, daemon=True).start()
+
+        ctk.CTkButton(fetch_bar, text="🔄 Fetch from Tally", width=150, height=28,
+                      font=("Segoe UI", 10), fg_color=COLORS["accent"],
+                      hover_color=COLORS["accent_hover"],
+                      command=_do_fetch).pack(side="right")
+
+        # ── Table ──
+        table = ctk.CTkScrollableFrame(dialog, fg_color=COLORS["bg_dark"])
+        table.pack(fill="both", expand=True, padx=16, pady=(4, 0))
+
+        def _make_search_entry(parent, init_val=""):
+            """Entry with live-filter listbox dropdown."""
+            entry = ctk.CTkEntry(
+                parent, height=26, width=230, font=("Segoe UI", 10),
+                fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                text_color=COLORS["text_primary"], placeholder_text="Search ledger…",
+            )
+            entry.pack(fill="x")
+            if init_val:
+                entry.insert(0, init_val)
+            lb = tk.Listbox(
+                parent, height=0, exportselection=False, activestyle="none",
+                relief="solid", borderwidth=1,
+                bg=_theme_color("bg_input"), fg=_theme_color("text_primary"),
+                selectbackground=_theme_color("accent"), selectforeground="#FFFFFF",
+                font=("Segoe UI", 10),
+            )
+            lb.pack(fill="x")
+
+            def _filter(e=None):
+                q = entry.get().strip().lower()
+                candidates = [n for n in tally_leds_ref[0] if q in n.lower()] if q else []
+                lb.delete(0, "end")
+                if q and candidates:
+                    for it in candidates[:6]:
+                        lb.insert("end", it)
+                    lb.configure(height=min(len(candidates), 4))
+                else:
+                    lb.configure(height=0)
+
+            def _select(e=None):
+                sel = lb.curselection()
+                if not sel:
+                    return
+                val = str(lb.get(sel[0]) or "").strip()
+                if not val:
+                    return
+                entry.delete(0, "end")
+                entry.insert(0, val)
+                lb.configure(height=0)
+                lb.delete(0, "end")
+
+            entry.bind("<KeyRelease>", _filter)
+            lb.bind("<<ListboxSelect>>", _select)
+            lb.bind("<Double-Button-1>", _select)
+            return entry
+
+        # Column headers
+        hdr = ctk.CTkFrame(table, fg_color=COLORS["bg_card"], corner_radius=6)
+        hdr.pack(fill="x", pady=(0, 4))
+        ctk.CTkLabel(hdr, text="GST Rate", font=("Segoe UI", 10, "bold"),
+                     width=80, anchor="w").grid(row=0, column=0, padx=(8, 4), pady=6)
+        for col_idx, col_title in enumerate(["CGST", "SGST", "IGST"], start=1):
+            ctk.CTkLabel(hdr, text=col_title, font=("Segoe UI", 10, "bold"),
+                         width=240, anchor="w").grid(row=0, column=col_idx, padx=4, pady=6)
+
+        # Per-slab entry rows
+        slab_entries = []  # list of dicts: {total_rate, cgst_entry, sgst_entry, igst_entry}
+        for slab_idx, (total_r, cgst_r, sgst_r) in enumerate(_GST_SLABS):
+            bg = COLORS["bg_card"] if slab_idx % 2 == 0 else COLORS["bg_dark"]
+            row_f = ctk.CTkFrame(table, fg_color=bg, corner_radius=4)
+            row_f.pack(fill="x", pady=2)
+
+            ctk.CTkLabel(row_f, text=f"GST {_fmt_rate(total_r)}",
+                         font=("Segoe UI", 10, "bold"), width=80, anchor="w").grid(
+                row=0, column=0, padx=(8, 4), pady=4)
+
+            pre_vals = pre.get(total_r, {})
+
+            # CGST sub-column
+            cgst_f = ctk.CTkFrame(row_f, fg_color="transparent")
+            cgst_f.grid(row=0, column=1, padx=4, pady=4)
+            ctk.CTkLabel(cgst_f, text=f"CGST {_fmt_rate(cgst_r)}", font=("Segoe UI", 9),
+                         text_color=COLORS["text_muted"]).pack(anchor="w")
+            cgst_entry = _make_search_entry(cgst_f, pre_vals.get("cgst", ""))
+
+            # SGST sub-column
+            sgst_f = ctk.CTkFrame(row_f, fg_color="transparent")
+            sgst_f.grid(row=0, column=2, padx=4, pady=4)
+            ctk.CTkLabel(sgst_f, text=f"SGST {_fmt_rate(sgst_r)}", font=("Segoe UI", 9),
+                         text_color=COLORS["text_muted"]).pack(anchor="w")
+            sgst_entry = _make_search_entry(sgst_f, pre_vals.get("sgst", ""))
+
+            # IGST sub-column
+            igst_f = ctk.CTkFrame(row_f, fg_color="transparent")
+            igst_f.grid(row=0, column=3, padx=4, pady=4)
+            ctk.CTkLabel(igst_f, text=f"IGST {_fmt_rate(total_r)}", font=("Segoe UI", 9),
+                         text_color=COLORS["text_muted"]).pack(anchor="w")
+            igst_entry = _make_search_entry(igst_f, pre_vals.get("igst", ""))
+
+            slab_entries.append({
+                "total_rate": total_r,
+                "cgst_entry": cgst_entry,
+                "sgst_entry": sgst_entry,
+                "igst_entry": igst_entry,
+            })
+
+        # ── Buttons ──
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=16, pady=(8, 14))
+
+        def _on_apply():
+            for sd in slab_entries:
+                tr = sd["total_rate"]
+                cgst_led = sd["cgst_entry"].get().strip()
+                sgst_led = sd["sgst_entry"].get().strip()
+                igst_led = sd["igst_entry"].get().strip()
+                if any([cgst_led, sgst_led, igst_led]):
+                    existing = dict(self.engine.gst_ledger_rate_map.get(tr) or {})
+                    if cgst_led:
+                        existing["cgst"] = cgst_led
+                    if sgst_led:
+                        existing["sgst"] = sgst_led
+                    if igst_led:
+                        existing["igst"] = igst_led
+                    self.engine.gst_ledger_rate_map[tr] = existing
+            # Seed "default" from the first fully-mapped slab
+            cur_def = dict(self.engine.gst_ledger_rate_map.get("default") or {})
+            for sd in slab_entries:
+                if sd["cgst_entry"].get().strip() and not cur_def.get("cgst"):
+                    cur_def["cgst"] = sd["cgst_entry"].get().strip()
+                if sd["sgst_entry"].get().strip() and not cur_def.get("sgst"):
+                    cur_def["sgst"] = sd["sgst_entry"].get().strip()
+                if sd["igst_entry"].get().strip() and not cur_def.get("igst"):
+                    cur_def["igst"] = sd["igst_entry"].get().strip()
+            if cur_def:
+                self.engine.gst_ledger_rate_map["default"] = cur_def
+            self.log_panel.log(
+                f"GST rate→ledger map saved: {len(self.engine.gst_ledger_rate_map)} rate entries.",
+                "success",
+            )
+            dialog.destroy()
+            on_apply_callback()
+
+        ctk.CTkButton(btn_frame, text="Cancel", width=90,
+                      fg_color=COLORS["bg_card"], hover_color=COLORS["bg_card_hover"],
+                      text_color=COLORS["text_secondary"],
+                      command=dialog.destroy).pack(side="right", padx=(4, 0))
+        ctk.CTkButton(btn_frame, text="✓  Apply & Continue", width=160,
+                      fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                      text_color="#FFFFFF",
+                      command=_on_apply).pack(side="right")
+
+        # Seed from cache immediately so the search boxes are usable before the fetch completes
+        if self.gst_all_ledgers:
+            tally_leds_ref[0] = list(self.gst_all_ledgers)
+            status_var.set(f"{len(self.gst_all_ledgers)} cached ledgers loaded. Refreshing from Tally…")
+        # Always trigger a fresh fetch when the dialog opens (same as Resolve Missing Ledgers)
+        dialog.after(150, _do_fetch)
 
     # ─── STOCK ITEM PURCHASE POPUP ───
 
@@ -9299,7 +9757,7 @@ class GSTR2BTallyApp(ctk.CTk):
             def _make_add(ii, cont, r):
                 return lambda: _add_item_row(ii, cont, r)
             ctk.CTkButton(inv_card, text="+ Add Item", font=("Segoe UI", 11), height=26, width=110,
-                          fg_color=("#E2E8F0", "#DC2626"), hover_color=("#CBD5E1", "#B91C1C"),
+                          fg_color=COLORS["bg_card_hover"], hover_color=COLORS["bg_dark"],
                           text_color=COLORS["accent"], corner_radius=4,
                           command=_make_add(inv_idx, item_container, rec),
                           ).pack(anchor="w", padx=12, pady=(0, 6))
@@ -9403,6 +9861,10 @@ class GSTR2BTallyApp(ctk.CTk):
                         "PurchaseLedger": purch_ledger,
                     })
 
+                # Resolve GST ledger names: ITC template columns → GST Ledger Mapping → bare defaults
+                _cgst_ldr = (rec.get("cgst_ledger") or "").strip() or self.engine._get_gst_ledger("cgst", rate_pct) or ""
+                _sgst_ldr = (rec.get("sgst_ledger") or "").strip() or self.engine._get_gst_ledger("sgst", rate_pct) or ""
+                _igst_ldr = (rec.get("igst_ledger") or "").strip() or self.engine._get_gst_ledger("igst", rate_pct) or ""
                 # One row per invoice — items list keeps all items in ONE voucher
                 rows.append({
                     "Date":                rec.get("invoice_date") or rec.get("supplier_invoice_date") or "",
@@ -9411,11 +9873,11 @@ class GSTR2BTallyApp(ctk.CTk):
                     "GSTIN":               rec.get("gstin") or "",
                     "TaxableValue":        taxable_total,
                     "CGSTRate":            cgst_rate,
-                    "CGSTLedger":          "CGST" if cgst_rate > 0 else "",
+                    "CGSTLedger":          _cgst_ldr or ("CGST" if cgst_rate > 0 else ""),
                     "SGSTRate":            sgst_rate,
-                    "SGSTLedger":          "SGST" if sgst_rate > 0 else "",
+                    "SGSTLedger":          _sgst_ldr or ("SGST" if sgst_rate > 0 else ""),
                     "IGSTRate":            igst_rate,
-                    "IGSTLedger":          "IGST" if igst_rate > 0 else "",
+                    "IGSTLedger":          _igst_ldr or ("IGST" if igst_rate > 0 else ""),
                     "Narration":           rec.get("narration") or "",
                     "SupplierInvoiceNo":   rec.get("invoice_no") or "",
                     "SupplierInvoiceDate": rec.get("invoice_date") or "",
@@ -9468,6 +9930,88 @@ class GSTR2BTallyApp(ctk.CTk):
             push_btn.configure(state="disabled", text="Pushing...")
             cancel_btn.configure(state="disabled")
 
+            # ── shared helper: apply a ledger rename map to all data structures ──
+            def _apply_ledger_mapping(ledger_mapping):
+                if not ledger_mapping:
+                    return
+                # Stock item rows
+                for row in rows:
+                    for field in ("CGSTLedger", "SGSTLedger", "IGSTLedger"):
+                        old = row.get(field, "")
+                        if old in ledger_mapping:
+                            row[field] = ledger_mapping[old]
+                # All rate-specific entries + default in gst_ledger_rate_map
+                for rate_key in list(self.engine.gst_ledger_rate_map.keys()):
+                    mapping = self.engine.gst_ledger_rate_map[rate_key]
+                    if isinstance(mapping, dict):
+                        for gst_type in ("cgst", "sgst", "igst"):
+                            old_val = mapping.get(gst_type, "")
+                            if old_val in ledger_mapping:
+                                mapping[gst_type] = ledger_mapping[old_val]
+                cur_def = dict(self.engine.gst_ledger_rate_map.get("default") or {})
+                for old_name, new_name in ledger_mapping.items():
+                    up = old_name.upper().replace(" ", "")
+                    if "CGST" in up or "CENTRALTAX" in up:
+                        cur_def["cgst"] = new_name
+                    elif "SGST" in up or "STATETAX" in up or "UTGST" in up:
+                        cur_def["sgst"] = new_name
+                    elif "IGST" in up or "INTEGRATEDTAX" in up:
+                        cur_def["igst"] = new_name
+                    else:
+                        for gst_type in ("cgst", "sgst", "igst"):
+                            if cur_def.get(gst_type) == old_name:
+                                cur_def[gst_type] = new_name
+                if cur_def:
+                    self.engine.gst_ledger_rate_map["default"] = cur_def
+                # Pre-computed splits in all engine records
+                for rec in (self.engine.records or []):
+                    for raw_field in ("cgst_ledger", "sgst_ledger", "igst_ledger"):
+                        old_val = (rec.get(raw_field) or "").strip()
+                        if old_val in ledger_mapping:
+                            rec[raw_field] = ledger_mapping[old_val]
+                    for splits_field in ("cgst_ledger_splits", "sgst_ledger_splits", "igst_ledger_splits"):
+                        splits = rec.get(splits_field)
+                        if not splits:
+                            continue
+                        new_splits = {}
+                        for k, v in splits.items():
+                            if isinstance(k, tuple):
+                                ldr, rate = k[0], k[1]
+                                new_splits[(ledger_mapping.get(ldr, ldr), rate)] = v
+                            else:
+                                new_splits[ledger_mapping.get(k, k)] = v
+                        rec[splits_field] = new_splits
+
+            # ── show resolution dialog for ALL missing ledgers at once ──────────
+            def _show_resolution_dialog(missing_ledgers, tally_leds, t_url, t_co):
+                push_btn.configure(state="normal", text="🚀  Push to Tally")
+                cancel_btn.configure(state="normal")
+                push_status_var.set(f"⚠ {len(missing_ledgers)} ledger(s) not found in Tally")
+                self.log_panel.log(
+                    f"Missing ledger(s): {', '.join(missing_ledgers)} — showing resolution dialog.",
+                    "warning")
+
+                def _on_apply(ledger_mapping):
+                    _apply_ledger_mapping(ledger_mapping)
+                    push_status_var.set("Retrying with corrected ledger names…")
+                    if dialog.winfo_exists():
+                        push_btn.configure(state="disabled", text="Pushing...")
+                        cancel_btn.configure(state="disabled")
+                    threading.Thread(target=_push_worker, daemon=True).start()
+
+                self._show_missing_ledger_resolution_dialog(
+                    xml_path="",
+                    tally_url=t_url,
+                    timeout=30,
+                    base_xml_content="",
+                    missing_ledgers=missing_ledgers,
+                    tally_ledgers=tally_leds,
+                    usage_map={},
+                    forced_date_count=0,
+                    selected_company=t_co,
+                    on_apply_callback=_on_apply,
+                )
+
             def _push_worker():
                 try:
                     # Apply UI GSTIN to engine so CMPGSTIN block is always populated
@@ -9507,6 +10051,12 @@ class GSTR2BTallyApp(ctk.CTk):
                                     else (self.engine.company_name or co_gstin))
                         gst_regs = [{"name": co_name, "gstin": co_gstin, "state": co_state}]
 
+                    _pi_round_off_ledger = (
+                        self.roundoff_ledger_entry.get().strip()
+                        if (hasattr(self, "roundoff_enabled_var") and self.roundoff_enabled_var.get()
+                            and hasattr(self, "roundoff_ledger_entry"))
+                        else ""
+                    )
                     xml_content = _spe_gen_purchase_item_xml(
                         rows=rows,
                         company=t_co,
@@ -9515,7 +10065,49 @@ class GSTR2BTallyApp(ctk.CTk):
                         company_gst_registrations=gst_regs,
                         company_gstin=self.engine.company_gstin or "",
                         voucher_type="Purchase",
+                        round_off_ledger=_pi_round_off_ledger,
                     )
+
+                    # ── Pre-check: find ALL missing ledgers before posting ──────
+                    # Tally only reports one error per push; pre-checking lets us
+                    # surface all missing names at once in a single dialog.
+                    _check_leds = list(self.gst_all_ledgers)
+                    if not _check_leds:
+                        try:
+                            _fr = _fetch_tally_ledgers(t_url, timeout=15, company_name=t_co)
+                            if _fr.get("success"):
+                                _check_leds = _fr.get("ledgers") or []
+                                self.gst_all_ledgers = _check_leds
+                        except Exception:
+                            pass
+                    if _check_leds:
+                        _existing = {_ledger_key(x) for x in _check_leds}
+                        _xml_leds = set(_extract_ledger_names_from_xml(xml_content))
+                        # Also predict ledger names that regular_recs will require
+                        # so IGST (and any other tax type) is caught in the SAME dialog.
+                        def _safe_float(v):
+                            try:
+                                return float(v) if v not in (None, "") else 0.0
+                            except (TypeError, ValueError):
+                                return 0.0
+                        for _rr in (regular_recs or []):
+                            _rate = _rr.get("rate")
+                            if _safe_float(_rr.get("cgst")):
+                                _cl = (_rr.get("cgst_ledger") or "").strip() or self.engine._get_gst_ledger("cgst", _rate) or "CGST"
+                                _xml_leds.add(_cl)
+                            if _safe_float(_rr.get("sgst")):
+                                _sl = (_rr.get("sgst_ledger") or "").strip() or self.engine._get_gst_ledger("sgst", _rate) or "SGST"
+                                _xml_leds.add(_sl)
+                            if _safe_float(_rr.get("igst")):
+                                _il = (_rr.get("igst_ledger") or "").strip() or self.engine._get_gst_ledger("igst", _rate) or "IGST"
+                                _xml_leds.add(_il)
+                        _missing_pre = [n for n in _xml_leds if _ledger_key(n) not in _existing]
+                        if _missing_pre:
+                            self.after(0, lambda m=list(_missing_pre), leds=list(_check_leds),
+                                       u=t_url, c=t_co:
+                                       _show_resolution_dialog(m, leds, u, c))
+                            return
+
                     result = _post_xml_to_tally(t_url, xml_content, timeout=60)
                 except Exception as exc:
                     result = {"success": False, "error": str(exc)}
@@ -9573,9 +10165,27 @@ class GSTR2BTallyApp(ctk.CTk):
                     err = str(result.get("error") or f"Created={created}, Errors={errors}" or "Unknown")
                     push_status_var.set(f"✗ Push failed (created={created}, errors={errors})")
                     self.log_panel.log(f"Stock item push: {err}", "error")
-                    messagebox.showerror("Push Failed",
-                        f"Tally response (created={created}, errors={errors}):\n\n{err}",
-                        parent=dialog)
+                    _missing = _extract_missing_ledger_names(err)
+                    if _missing:
+                        try:
+                            _t_url = self._get_tally_push_url()
+                            _t_co  = self._get_selected_tally_push_company() or self.engine.company_name or ""
+                        except Exception:
+                            _t_url, _t_co = "http://localhost:9000", ""
+                        _tally_leds = list(self.gst_all_ledgers)
+                        if not _tally_leds:
+                            try:
+                                _fr = _fetch_tally_ledgers(_t_url, timeout=15, company_name=_t_co)
+                                if _fr.get("success"):
+                                    _tally_leds = _fr.get("ledgers") or []
+                                    self.gst_all_ledgers = _tally_leds
+                            except Exception:
+                                pass
+                        _show_resolution_dialog(_missing, _tally_leds, _t_url, _t_co)
+                    else:
+                        messagebox.showerror("Push Failed",
+                            f"Tally response (created={created}, errors={errors}):\n\n{err}",
+                            parent=dialog)
 
             threading.Thread(target=_push_worker, daemon=True).start()
 
@@ -9589,7 +10199,7 @@ class GSTR2BTallyApp(ctk.CTk):
         cancel_btn = ctk.CTkButton(
             btn_bar, text="Cancel",
             font=("Segoe UI", 12), height=42, width=100,
-            fg_color=("#FFFFFF", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_card"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_primary"], corner_radius=8, command=dialog.destroy)
         cancel_btn.pack(side="right", padx=(0, 4))
 
@@ -9885,6 +10495,48 @@ class GSTR2BTallyApp(ctk.CTk):
             st  = str(r.get("sheet_type") or "").upper()
             it  = str(r.get("invoice_type") or "").lower()
             return st == "CDNR" or "credit note" in it or "debit note" in it
+
+        # ─── Multi-GST rate slab mapping ───
+        # When the checkbox is ticked, check if any record still lacks a GST ledger.
+        # If so, show the slab-mapping popup ONCE before routing to stock-item / generate.
+        if (self.current_mode == "gstr2b"
+                and hasattr(self, "multi_gst_rate_var") and self.multi_gst_rate_var.get()):
+            def _has_tax(r, field):
+                try:
+                    return abs(float(r.get(field) or 0)) > 0.001
+                except (TypeError, ValueError):
+                    return False
+            _needs_gst_map = any(
+                (_has_tax(r, "cgst") and not r.get("cgst_ledger"))
+                or (_has_tax(r, "sgst") and not r.get("sgst_ledger"))
+                or (_has_tax(r, "igst") and not r.get("igst_ledger"))
+                for r in records_to_generate
+            )
+            if _needs_gst_map:
+                e_flag, x_flag = excel, xml
+                recs_snap = records_to_generate
+
+                def _after_gst_mapping():
+                    if _SPE_AVAILABLE:
+                        s_recs = [r for r in recs_snap if r.get("has_stock_item") and not _is_note_or_cdnr(r)]
+                        reg_recs = [r for r in recs_snap if not r.get("has_stock_item") or _is_note_or_cdnr(r)]
+                        if s_recs:
+                            self._show_stock_item_popup(s_recs, xml_flag=x_flag,
+                                                        regular_recs=reg_recs, excel_flag=e_flag)
+                            return
+                    self._do_generate(e_flag, x_flag, records_to_generate=recs_snap)
+
+                try:
+                    t_url = (getattr(self, "_pending_push_url", "")
+                             or self._get_tally_push_url())
+                except Exception:
+                    t_url = getattr(self, "_pending_push_url", "") or "http://localhost:9000"
+                t_co = (getattr(self, "_pending_push_company", "")
+                        or self._get_effective_push_company()
+                        or self.engine.company_name or "")
+                self._show_multi_gst_rate_popup(recs_snap, _after_gst_mapping,
+                                                tally_url=t_url, company_name=t_co)
+                return
 
         if self.current_mode == "gstr2b" and _SPE_AVAILABLE:
             stock_recs   = [r for r in records_to_generate if r.get("has_stock_item") and not _is_note_or_cdnr(r)]
