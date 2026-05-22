@@ -206,10 +206,10 @@ import subprocess
 from datetime import datetime
 
 # ── Version & Update Manifest ─────────────────────────────────────────────────
-VERSION            = "1.0.12"
+VERSION            = "1.0.13"
 # !! REPLACE 'YOURNAME' and 'YOURREPO' with your actual GitHub username and
 #    the public releases repo you created (e.g. gst-suite-releases).
-UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/thestudycafesagar/gst-suite-releases/main/latest.json"
+UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/Mr-RohitNooB/gst-suite-releases/main/latest.json"
 
 _MISSING_MODULE_PACKAGES = {
     "fitz": "PyMuPDF",
@@ -325,9 +325,21 @@ if getattr(sys, "frozen", False):
     # Everything (assets + tool sub-folders) is bundled inside the EXE
     _ASSETS_BASE = sys._MEIPASS
     _BASE        = sys._MEIPASS
+    # ── When running as installed EXE, redirect the working directory to
+    # the user's Documents folder so all downloaded files (GST Downloaded,
+    # Income Tax Downloaded, etc.) are saved there instead of the hidden
+    # AppData / temp extraction folder.
+    _docs = os.path.join(os.path.expanduser("~"), "Documents", "AutomationCafe Downloads")
+    os.makedirs(_docs, exist_ok=True)
+    os.chdir(_docs)
 else:
     _ASSETS_BASE = os.path.dirname(os.path.abspath(__file__))
     _BASE        = _ASSETS_BASE
+    
+    # ── Redirect in development mode as well for consistent download locations
+    _docs = os.path.join(os.path.expanduser("~"), "Documents", "AutomationCafe Downloads")
+    os.makedirs(_docs, exist_ok=True)
+    os.chdir(_docs)
 
 _GST_BASE   = os.path.join(_BASE, "GST")
 _IT_BASE    = os.path.join(_BASE, "Income Tax")
@@ -1670,6 +1682,9 @@ class GSTSuite(_RealCTk):
                 if table_name == "it_profiles":
                     try: conn.execute(f"ALTER TABLE {table_name} ADD COLUMN dob TEXT")
                     except: pass
+                if table_name == "gst_profiles":
+                    try: conn.execute(f"ALTER TABLE {table_name} ADD COLUMN filing_frequency TEXT")
+                    except: pass
                 conn.commit()
                 return conn
 
@@ -1742,16 +1757,20 @@ class GSTSuite(_RealCTk):
                                           border_color=("#e2e8f0", "#334155"))
                     row_f.pack(fill="x", padx=6, pady=4)
                     row_f.grid_columnconfigure(0, weight=1)
+                    freq = rdata.get("filing_frequency") or "Monthly"
                     disp_text = f"  {cname} ({uname})" if cname else f"  {uname}"
+                    if not is_it:
+                        disp_text += f" [{freq}]"
                     ctk.CTkLabel(row_f, text=disp_text,
                                  font=("Segoe UI", 13, "bold"),
                                  anchor="w").grid(row=0, column=0, sticky="w", padx=12, pady=10)
 
-                    def _edit(u=uname, p=pwd, c=cname, d=dob):
+                    def _edit(u=uname, p=pwd, c=cname, d=dob, f=freq):
                         ent_u.delete(0, "end"); ent_u.insert(0, u)
                         ent_p.delete(0, "end"); ent_p.insert(0, p)
                         ent_client.delete(0, "end"); ent_client.insert(0, c)
                         if ent_dob: ent_dob.delete(0, "end"); ent_dob.insert(0, d)
+                        if not is_it and cb_freq: cb_freq.set(f)
                     ctk.CTkButton(row_f, text="Edit", width=60, height=30, fg_color="#2563EB", hover_color="#1D4ED8",
                                   font=("Segoe UI", 11, "bold"), command=_edit).grid(row=0, column=2, padx=(0, 5))
                     def _del(r=rid, u=uname):
@@ -1787,21 +1806,35 @@ class GSTSuite(_RealCTk):
             ent_client = ctk.CTkEntry(f_client, placeholder_text="Enter Client Name", height=36)
             ent_client.pack(fill="x", pady=(2, 0))
 
-            user_field_label = "PAN / User ID" if is_it else "Username / GST ID"
-            user_placeholder = "Enter PAN/User ID" if is_it else "Enter GST username"
-            
-            f_u = ctk.CTkFrame(row1, fg_color="transparent")
-            f_u.grid(row=0, column=1, sticky="ew", padx=(5, 0))
-            ctk.CTkLabel(f_u, text=user_field_label, font=("Segoe UI", 12)).pack(anchor="w")
-            ent_u = ctk.CTkEntry(f_u, placeholder_text=user_placeholder, height=36)
-            ent_u.pack(fill="x", pady=(2, 0))
+            ent_dob = None
+            cb_freq = None
+            f_dob = ctk.CTkFrame(row1, fg_color="transparent")
+            f_dob.grid(row=0, column=1, sticky="ew", padx=(5, 0))
+            if is_it:
+                ctk.CTkLabel(f_dob, text="Date of Birth", font=("Segoe UI", 12)).pack(anchor="w")
+                ent_dob = ctk.CTkEntry(f_dob, placeholder_text="DD/MM/YYYY", height=36)
+                ent_dob.pack(fill="x", pady=(2, 0))
+            else:
+                ctk.CTkLabel(f_dob, text="Filing Frequency", font=("Segoe UI", 12)).pack(anchor="w")
+                cb_freq = ctk.CTkComboBox(f_dob, values=["Monthly", "Quarterly"], height=36)
+                cb_freq.pack(fill="x", pady=(2, 0))
+                cb_freq.set("Monthly")
 
             row2 = ctk.CTkFrame(rf, fg_color="transparent")
             row2.pack(fill="x", pady=(0, 10))
             row2.grid_columnconfigure((0, 1), weight=1)
 
+            user_field_label = "PAN / User ID" if is_it else "Username / GST ID"
+            user_placeholder = "Enter PAN/User ID" if is_it else "Enter GST username"
+            
+            f_u = ctk.CTkFrame(row2, fg_color="transparent")
+            f_u.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+            ctk.CTkLabel(f_u, text=user_field_label, font=("Segoe UI", 12)).pack(anchor="w")
+            ent_u = ctk.CTkEntry(f_u, placeholder_text=user_placeholder, height=36)
+            ent_u.pack(fill="x", pady=(2, 0))
+
             f_p = ctk.CTkFrame(row2, fg_color="transparent")
-            f_p.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+            f_p.grid(row=0, column=1, sticky="ew", padx=(5, 0))
             ctk.CTkLabel(f_p, text="Password", font=("Segoe UI", 12)).pack(anchor="w")
             pr = ctk.CTkFrame(f_p, fg_color="transparent")
             pr.pack(fill="x", pady=(2, 0))
@@ -1813,16 +1846,6 @@ class GSTSuite(_RealCTk):
                           fg_color="transparent", text_color=("#475569", "#94a3b8"),
                           hover_color=("#e2e8f0", "#334155"), command=_tog).pack(side="right", padx=(2, 0))
 
-            ent_dob = None
-            f_dob = ctk.CTkFrame(row2, fg_color="transparent")
-            f_dob.grid(row=0, column=1, sticky="ew", padx=(5, 0))
-            if is_it:
-                ctk.CTkLabel(f_dob, text="Date of Birth", font=("Segoe UI", 12)).pack(anchor="w")
-                ent_dob = ctk.CTkEntry(f_dob, placeholder_text="DD/MM/YYYY", height=36)
-                ent_dob.pack(fill="x", pady=(2, 0))
-            else:
-                ctk.CTkLabel(f_dob, text=" ", font=("Segoe UI", 12)).pack(anchor="w")
-
             if is_it:
                 ctk.CTkLabel(rf, text="* DOB is only required for AIS and TIS tools.", font=("Segoe UI", 10), text_color=("#64748b", "#94a3b8")).pack(anchor="w", pady=(0, 5))
 
@@ -1832,6 +1855,7 @@ class GSTSuite(_RealCTk):
                 u = ent_u.get().strip()
                 p = ent_p.get().strip()
                 d = ent_dob.get().strip() if ent_dob else ""
+                f = cb_freq.get() if not is_it and cb_freq else "Monthly"
                 if not u or not p:
                     _mb3.showerror("Missing", "Enter both username and password.")
                     return
@@ -1842,12 +1866,12 @@ class GSTSuite(_RealCTk):
                         if is_it:
                             conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, dob=? WHERE username=?", (p, c, d, u))
                         else:
-                            conn.execute(f"UPDATE {table_name} SET password=?, client_name=? WHERE username=?", (p, c, u))
+                            conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, filing_frequency=? WHERE username=?", (p, c, f, u))
                     else:
                         if is_it:
                             conn.execute(f"INSERT INTO {table_name} (username, password, client_name, dob) VALUES (?,?,?,?)", (u, p, c, d))
                         else:
-                            conn.execute(f"INSERT INTO {table_name} (username, password, client_name) VALUES (?,?,?)", (u, p, c))
+                            conn.execute(f"INSERT INTO {table_name} (username, password, client_name, filing_frequency) VALUES (?,?,?,?)", (u, p, c, f))
                     conn.commit()
                     conn.close()
                 except Exception as e:
@@ -1857,10 +1881,81 @@ class GSTSuite(_RealCTk):
                 ent_u.delete(0, "end")
                 ent_p.delete(0, "end")
                 if ent_dob: ent_dob.delete(0, "end")
+                if cb_freq: cb_freq.set("Monthly")
                 _ov_refresh()
             ctk.CTkButton(rf, text="✅  Save Profile", command=_ov_save,
                           fg_color="#059669", hover_color="#047857",
                           height=50, font=("Segoe UI", 16, "bold")).pack(fill="x", pady=(15, 0))
+
+            # -- Import / Export Feature --
+            import_frame = ctk.CTkFrame(rf, fg_color="transparent")
+            import_frame.pack(fill="x", pady=(15, 0))
+            import_frame.grid_columnconfigure((0,1), weight=1)
+
+            def _dl_sample():
+                from tkinter import filedialog as fd
+                import pandas as pd
+                from tkinter import messagebox as mb
+                path = fd.asksaveasfilename(defaultextension=".xlsx", initialfile=f"Sample_{cat_label}_Profiles.xlsx", filetypes=[("Excel", "*.xlsx")])
+                if not path: return
+                if is_it:
+                    df = pd.DataFrame([{"Client Name": "John Doe", "Username (PAN)": "ABCDE1234F", "Password": "Pass123", "Date of Birth (DD/MM/YYYY)": "01/01/1990"}])
+                else:
+                    df = pd.DataFrame([{"Client Name": "Studycafe", "Username (GSTIN)": "07AAAAA0000A1Z5", "Password": "Pass123", "Filing Frequency": "Monthly"}])
+                try:
+                    df.to_excel(path, index=False)
+                    mb.showinfo("Success", f"Sample downloaded successfully to:\n{path}")
+                except Exception as e:
+                    mb.showerror("Error", str(e))
+
+            def _import_excel():
+                from tkinter import filedialog as fd
+                import pandas as pd
+                from tkinter import messagebox as mb
+                path = fd.askopenfilename(title="Import Excel File", filetypes=[("Excel", "*.xlsx"), ("Excel", "*.xls")])
+                if not path: return
+                try:
+                    df = pd.read_excel(path)
+                    conn = _get_ov_db()
+                    count = 0
+                    for _, row in df.iterrows():
+                        row = row.fillna("")
+                        c = str(row.get("Client Name", "")).strip()
+                        u = str(row.iloc[1] if "Username" not in str(df.columns[1]) else row.get(df.columns[1], "")).strip() 
+                        if not u: u = str(row.get("Username (GSTIN)", str(row.get("Username (PAN)", "")))).strip()
+                        p = str(row.get("Password", "")).strip()
+                        
+                        if not u or not p: continue
+                        
+                        if is_it:
+                            d = str(row.get("Date of Birth (DD/MM/YYYY)", "")).strip()
+                            existing = conn.execute(f"SELECT id FROM {table_name} WHERE username=?", (u,)).fetchone()
+                            if existing:
+                                conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, dob=? WHERE username=?", (p, c, d, u))
+                            else:
+                                conn.execute(f"INSERT INTO {table_name} (username, password, client_name, dob) VALUES (?,?,?,?)", (u, p, c, d))
+                        else:
+                            f = str(row.get("Filing Frequency", "Monthly")).strip()
+                            if not f: f = "Monthly"
+                            existing = conn.execute(f"SELECT id FROM {table_name} WHERE username=?", (u,)).fetchone()
+                            if existing:
+                                conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, filing_frequency=? WHERE username=?", (p, c, f, u))
+                            else:
+                                conn.execute(f"INSERT INTO {table_name} (username, password, client_name, filing_frequency) VALUES (?,?,?,?)", (u, p, c, f))
+                        count += 1
+                    conn.commit()
+                    conn.close()
+                    _ov_refresh()
+                    mb.showinfo("Success", f"Imported {count} profiles successfully!")
+                except Exception as e:
+                    mb.showerror("Error", f"Failed to import:\n{e}")
+
+            btn_dl = ctk.CTkButton(import_frame, text="Download Sample", command=_dl_sample, 
+                                   fg_color="#334155", hover_color="#475569", height=38, font=("Segoe UI", 12, "bold"))
+            btn_dl.grid(row=0, column=0, sticky="ew", padx=(0,5))
+            btn_imp = ctk.CTkButton(import_frame, text="Import Excel", command=_import_excel, 
+                                    fg_color="#2563EB", hover_color="#1D4ED8", height=38, font=("Segoe UI", 12, "bold"))
+            btn_imp.grid(row=0, column=1, sticky="ew", padx=(5,0))
 
     # ══════════════════════════════════════════════════════════════════════════
     def _open_gst_profiles_manager(self):
@@ -1874,12 +1969,14 @@ class GSTSuite(_RealCTk):
             conn.execute("CREATE TABLE IF NOT EXISTS gst_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
             try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN client_name TEXT")
             except: pass
+            try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN filing_frequency TEXT")
+            except: pass
             conn.commit()
             return conn
 
         win = ctk.CTkToplevel(self)
         win.title("Manage GST ID / Password")
-        win.geometry("480x540")
+        win.geometry("480x620")
         win.resizable(False, False)
         win.transient(self)
         win.grab_set()
@@ -1922,16 +2019,18 @@ class GSTSuite(_RealCTk):
                 uname = rdata.get("username", "")
                 pwd = rdata.get("password", "")
                 cname = rdata.get("client_name") or ""
+                freq = rdata.get("filing_frequency") or "Monthly"
                 row = ctk.CTkFrame(list_frame, fg_color=("#ffffff", "#273549"), corner_radius=8, border_width=1, border_color=("#e2e8f0", "#334155"))
                 row.pack(fill="x", padx=4, pady=3)
                 row.grid_columnconfigure(0, weight=1)
-                disp_text = f"  {cname} ({uname})" if cname else f"  {uname}"
+                disp_text = f"  {cname} ({uname}) [{freq}]" if cname else f"  {uname} [{freq}]"
                 ctk.CTkLabel(row, text=disp_text, font=("Segoe UI", 12, "bold"), anchor="w").grid(row=0, column=0, sticky="w", padx=8, pady=6)
                 ctk.CTkLabel(row, text="••••••••", font=("Segoe UI", 11), text_color=("#94a3b8", "#64748b")).grid(row=0, column=1, padx=8)
-                def _edit(u=uname, p=pwd, c=cname):
+                def _edit(u=uname, p=pwd, c=cname, f=freq):
                     ent_user.delete(0, "end"); ent_user.insert(0, u)
                     ent_pass.delete(0, "end"); ent_pass.insert(0, p)
                     ent_client.delete(0, "end"); ent_client.insert(0, c)
+                    cb_freq.set(f)
                 ctk.CTkButton(row, text="Edit", width=50, height=28, fg_color="#2563EB", hover_color="#1D4ED8", font=("Segoe UI", 11, "bold"), command=_edit).grid(row=0, column=2, padx=(0, 5))
                 def _del(r=rid, u=uname):
                     from tkinter import messagebox as _mb
@@ -1955,6 +2054,11 @@ class GSTSuite(_RealCTk):
         ent_client = ctk.CTkEntry(add_frame, placeholder_text="Enter Client Name", height=34)
         ent_client.pack(fill="x", pady=(2, 8))
 
+        ctk.CTkLabel(add_frame, text="Filing Frequency", font=("Segoe UI", 11)).pack(anchor="w")
+        cb_freq = ctk.CTkComboBox(add_frame, values=["Monthly", "Quarterly"], height=34)
+        cb_freq.set("Monthly")
+        cb_freq.pack(fill="x", pady=(2, 8))
+
         ctk.CTkLabel(add_frame, text="Username / GST ID", font=("Segoe UI", 11)).pack(anchor="w")
         ent_user = ctk.CTkEntry(add_frame, placeholder_text="Enter GST username", height=34)
         ent_user.pack(fill="x", pady=(2, 8))
@@ -1975,6 +2079,7 @@ class GSTSuite(_RealCTk):
             c = ent_client.get().strip()
             u = ent_user.get().strip()
             p = ent_pass.get().strip()
+            f = cb_freq.get()
             if not u or not p:
                 _mb.showerror("Missing", "Please enter both username and password.", parent=win)
                 return
@@ -1982,9 +2087,9 @@ class GSTSuite(_RealCTk):
                 conn = _get_db()
                 existing = conn.execute("SELECT id FROM gst_profiles WHERE username=?", (u,)).fetchone()
                 if existing:
-                    conn.execute("UPDATE gst_profiles SET password=?, client_name=? WHERE username=?", (p, c, u))
+                    conn.execute("UPDATE gst_profiles SET password=?, client_name=?, filing_frequency=? WHERE username=?", (p, c, f, u))
                 else:
-                    conn.execute("INSERT INTO gst_profiles (username, password, client_name) VALUES (?, ?, ?)", (u, p, c))
+                    conn.execute("INSERT INTO gst_profiles (username, password, client_name, filing_frequency) VALUES (?, ?, ?, ?)", (u, p, c, f))
                 conn.commit()
                 conn.close()
             except Exception as e:
@@ -1993,6 +2098,7 @@ class GSTSuite(_RealCTk):
             ent_client.delete(0, "end")
             ent_user.delete(0, "end")
             ent_pass.delete(0, "end")
+            cb_freq.set("Monthly")
             _refresh_list()
 
         btn_row = ctk.CTkFrame(win, fg_color="transparent")

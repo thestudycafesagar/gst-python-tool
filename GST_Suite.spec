@@ -75,7 +75,6 @@ for _tool_dir, _dest in [
     ('GST', 'GST'),
     ('Income Tax', 'Income Tax'),
     ('PDF_Utilities', 'PDF_Utilities'),
-    ('Bank Statement To Excel', 'Bank Statement To Excel'),
     ('Outlook Email Tools', 'Outlook Email Tools'),
     ('Gmail-Tools', 'Gmail-Tools'),
     ('tally tool', 'tally tool'),

@@ -233,33 +233,74 @@ class App(ctk.CTk):
             return
         dialog = ctk.CTkToplevel(self)
         dialog.title("Load ID Password")
-        dialog.geometry("400x460")
+        dialog.geometry("440x580")
         dialog.resizable(False, False)
         dialog.transient(self)
         dialog.grab_set()
         dialog.attributes("-topmost", True)
-        ctk.CTkLabel(dialog, text="Select Profiles to Load", font=("Segoe UI", 14, "bold")).pack(pady=(16, 8))
+
+        ctk.CTkLabel(dialog, text="Select Profiles to Load", font=("Segoe UI", 14, "bold")).pack(pady=(16, 6))
+
+        search_var = ctk.StringVar()
+        search_entry = ctk.CTkEntry(dialog, placeholder_text="🔍  Search by name or username...",
+                                    textvariable=search_var, height=34)
+        search_entry.pack(fill="x", padx=16, pady=(0, 6))
+
+        top_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        top_row.pack(fill="x", padx=16, pady=(0, 4))
         sel_all_var = ctk.BooleanVar()
+        counter_var = ctk.StringVar(value="0 selected")
+        ctk.CTkLabel(top_row, textvariable=counter_var,
+                     font=("Segoe UI", 11, "bold"), text_color="#059669").pack(side="right")
+
+        scroll = ctk.CTkScrollableFrame(dialog, height=240)
+        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 6))
         vars_ = {}
-        def _toggle_all():
-            state = sel_all_var.get()
-            for v in vars_.values():
-                v.set(state)
-        ctk.CTkCheckBox(dialog, text="Select All", variable=sel_all_var, command=_toggle_all,
-                        font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20, pady=(0, 4))
-        scroll = ctk.CTkScrollableFrame(dialog, height=300)
-        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        widgets_ = {}
+
         for rdata in rows:
             u = rdata.get("username", "")
             p = rdata.get("password", "")
             c = rdata.get("client_name") or ""
             v = ctk.BooleanVar()
             disp = f"{c} ({u})" if c else u
-            ctk.CTkCheckBox(scroll, text=disp, variable=v).pack(anchor="w", padx=10, pady=3)
+            chk = ctk.CTkCheckBox(scroll, text=disp, variable=v,
+                                  command=lambda: _refresh_counter())
+            chk.pack(anchor="w", padx=10, pady=3)
             vars_[(u, p, c)] = v
+            widgets_[(u, p, c)] = (chk, disp)
+
+        def _refresh_counter():
+            n = sum(1 for v in vars_.values() if v.get())
+            counter_var.set(f"{n} selected")
+            visible = [w for w, _ in widgets_.values() if w.winfo_ismapped()]
+            sel_all_var.set(n > 0 and n == len(visible))
+
+        def _toggle_all():
+            state = sel_all_var.get()
+            for key, (chk, _) in widgets_.items():
+                if chk.winfo_ismapped():
+                    vars_[key].set(state)
+            _refresh_counter()
+
+        def _on_search(*_):
+            q = search_var.get().strip().lower()
+            for key, (chk, disp) in widgets_.items():
+                if q == "" or q in disp.lower():
+                    chk.pack(anchor="w", padx=10, pady=3)
+                else:
+                    chk.pack_forget()
+            _refresh_counter()
+
+        ctk.CTkCheckBox(top_row, text="Select All", variable=sel_all_var, command=_toggle_all,
+                        font=("Segoe UI", 12, "bold")).pack(side="left")
+        search_var.trace_add("write", _on_search)
+        search_entry.focus_set()
+
         def _load():
             selected = [{"Username": u, "Password": p, "ClientName": c} for (u, p, c), v in vars_.items() if v.get()]
             if not selected:
+                messagebox.showwarning("No Selection", "Please select at least one profile.", parent=dialog)
                 return
             self.manual_credentials = selected
             n = len(selected)
@@ -267,7 +308,12 @@ class App(ctk.CTk):
             self.ent_file.delete(0, "end")
             self.ent_file.insert(0, label)
             dialog.destroy()
-        ctk.CTkButton(dialog, text="Load Selected", fg_color="#4338ca", command=_load).pack(pady=8)
+
+        foot = ctk.CTkFrame(dialog, fg_color="transparent")
+        foot.pack(fill="x", padx=16, pady=(0, 14))
+        ctk.CTkButton(foot, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(foot, text="Load Selected", width=140, fg_color="#059669",
+                      hover_color="#047857", command=_load).pack(side="right", padx=(0, 8))
 
     def add_id_password(self):
         dialog = ctk.CTkToplevel(self)

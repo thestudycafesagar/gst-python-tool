@@ -258,21 +258,25 @@ class GSTWorker:
                 "Quarter 4 (Jan - Mar)": ["January", "February", "March"]
             }
 
-            selected_q = self.settings['quarter']
-            period_mode = self.settings.get('period_mode', 'Monthly')
-            if selected_q not in q_map:
-                return "Config Error", "Invalid Month/Quarter Selection"
-
-            if period_mode == "Quarterly":
-                selected_m = q_map[selected_q][-1]
-                tasks = [{"q": selected_q, "m": selected_m}]
-                self.log(f"   📅 Mode: Quarterly ({selected_q} -> {selected_m})")
+            if "tasks" in self.settings:
+                tasks = self.settings["tasks"]
+                self.log(f"   📅 Bulk Mode: processing {len(tasks)} periods")
             else:
-                selected_m = self.settings['month']
-                if selected_m not in q_map[selected_q]:
+                selected_q = self.settings['quarter']
+                period_mode = self.settings.get('period_mode', 'Monthly')
+                if selected_q not in q_map:
                     return "Config Error", "Invalid Month/Quarter Selection"
-                tasks = [{"q": selected_q, "m": selected_m}]
-                self.log(f"   📅 Mode: Monthly ({selected_m})")
+
+                if period_mode == "Quarterly":
+                    selected_m = q_map[selected_q][-1]
+                    tasks = [{"q": selected_q, "m": selected_m}]
+                    self.log(f"   📅 Mode: Quarterly ({selected_q} -> {selected_m})")
+                else:
+                    selected_m = self.settings['month']
+                    if selected_m not in q_map[selected_q]:
+                        return "Config Error", "Invalid Month/Quarter Selection"
+                    tasks = [{"q": selected_q, "m": selected_m}]
+                    self.log(f"   📅 Mode: Monthly ({selected_m})")
             
             # 3. EXECUTE LOOP
             self.human_delay()
@@ -633,28 +637,11 @@ class App(ctk.CTk):
         )
         self.mode_tabs.pack(side="right", expand=True, fill="x")
 
-        # Quarter & Month
-        self.frm_qtr = ctk.CTkFrame(self.card_period, fg_color="transparent")
-        self.frm_qtr.pack(fill="x", padx=15, pady=2)
-        ctk.CTkLabel(self.frm_qtr, text="Quarter:", width=140, anchor="w").pack(side="left")
-        self.cb_qtr = ctk.CTkComboBox(self.frm_qtr, 
-                                      values=["Quarter 1 (Apr - Jun)", "Quarter 2 (Jul - Sep)", 
-                                              "Quarter 3 (Oct - Dec)", "Quarter 4 (Jan - Mar)"],
-                                      command=self.update_months_based_on_qtr, width=150)
-        self.cb_qtr.set("Quarter 1 (Apr - Jun)")
-        self.cb_qtr.pack(side="right", expand=True, fill="x")
-
-        # Month
-        self.frm_mon = ctk.CTkFrame(self.card_period, fg_color="transparent")
-        self.frm_mon.pack(fill="x", padx=15, pady=(2, 15))
-        ctk.CTkLabel(self.frm_mon, text="Month:", width=140, anchor="w").pack(side="left")
+        # Checkboxes Frame (replaces dropdowns)
+        self.frm_checkboxes = ctk.CTkFrame(self.card_period, fg_color="transparent")
+        self.frm_checkboxes.pack(fill="both", expand=True, padx=15, pady=5)
+        self.period_checkbox_vars = {}
         
-        all_months = ["April", "May", "June", "July", "August", "September", 
-                      "October", "November", "December", "January", "February", "March"]
-        self.cb_month = ctk.CTkComboBox(self.frm_mon, values=all_months, 
-                                        command=self.update_qtr_based_on_month, width=150)
-        self.cb_month.set("April")
-        self.cb_month.pack(side="right", expand=True, fill="x")
         self.toggle_inputs()
 
         # LOGS
@@ -694,49 +681,45 @@ class App(ctk.CTk):
         
         mode = self.period_mode_var.get() if hasattr(self, "period_mode_var") else "Monthly"
         
-        if mode == "Monthly":
-            self.cb_qtr.configure(state="disabled")
-            self.cb_month.configure(state="normal")
-            self.cb_month.configure(values=["April", "May", "June", "July", "August", "September", 
-                                          "October", "November", "December", "January", "February", "March"])
-            self.update_qtr_based_on_month(self.cb_month.get())
-        else:
-            self.cb_qtr.configure(state="normal")
-            self.cb_month.configure(state="disabled")
-            self.update_months_based_on_qtr(self.cb_qtr.get())
+        if hasattr(self, "frm_checkboxes"):
+            for w in self.frm_checkboxes.winfo_children():
+                w.destroy()
+            self.period_checkbox_vars.clear()
+
+            def toggle_select_all():
+                state = select_all_var.get()
+                for var in self.period_checkbox_vars.values():
+                    var.set(state)
+
+            top_bar = ctk.CTkFrame(self.frm_checkboxes, fg_color="transparent")
+            top_bar.pack(fill="x", pady=(0, 5))
+            
+            select_all_var = ctk.BooleanVar(value=False)
+            ctk.CTkCheckBox(top_bar, text="Select All", variable=select_all_var, command=toggle_select_all, font=("Segoe UI", 12, "bold"), text_color="#10B981").pack(side="left")
+
+            chk_grid = ctk.CTkFrame(self.frm_checkboxes, fg_color="transparent")
+            chk_grid.pack(fill="both", expand=True)
+
+            if mode == "Monthly":
+                items = ["Apr", "May", "Jun", "Jul", "Aug", "Sep",
+                         "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
+                cols = 6
+            else:
+                items = ["Q1 (Apr-Jun)", "Q2 (Jul-Sep)",
+                         "Q3 (Oct-Dec)", "Q4 (Jan-Mar)"]
+                cols = 4
+            
+            for i, item in enumerate(items):
+                var = ctk.BooleanVar(value=False)
+                self.period_checkbox_vars[item] = var
+                chk = ctk.CTkCheckBox(chk_grid, text=item, variable=var, font=("Segoe UI", 12))
+                chk.grid(row=i // cols, column=i % cols, padx=5, pady=5, sticky="w")
 
     def update_qtr_based_on_month(self, choice):
-        mapping = {
-            "April": "Quarter 1 (Apr - Jun)", "May": "Quarter 1 (Apr - Jun)", "June": "Quarter 1 (Apr - Jun)",
-            "July": "Quarter 2 (Jul - Sep)", "August": "Quarter 2 (Jul - Sep)", "September": "Quarter 2 (Jul - Sep)",
-            "October": "Quarter 3 (Oct - Dec)", "November": "Quarter 3 (Oct - Dec)", "December": "Quarter 3 (Oct - Dec)",
-            "January": "Quarter 4 (Jan - Mar)", "February": "Quarter 4 (Jan - Mar)", "March": "Quarter 4 (Jan - Mar)"
-        }
-        qtr_val = mapping.get(choice, "Quarter 1 (Apr - Jun)")
-        
-        # Temporarily enable to set value, then restore state
-        curr_state = self.cb_qtr.cget("state")
-        self.cb_qtr.configure(state="normal")
-        self.cb_qtr.set(qtr_val)
-        self.cb_qtr.configure(state=curr_state)
+        pass
 
     def update_months_based_on_qtr(self, choice):
-        if "Quarter 1" in choice: vals = ["April", "May", "June"]
-        elif "Quarter 2" in choice: vals = ["July", "August", "September"]
-        elif "Quarter 3" in choice: vals = ["October", "November", "December"]
-        elif "Quarter 4" in choice: vals = ["January", "February", "March"]
-        else: vals = ["April", "May", "June"]
-        if not hasattr(self, "cb_month"):
-            return
-        
-        prev_month_state = self.cb_month.cget("state")
-        if prev_month_state != "normal":
-            self.cb_month.configure(state="normal")
-        self.cb_month.configure(values=vals)
-        mode = self.period_mode_var.get() if hasattr(self, "period_mode_var") else "Monthly"
-        self.cb_month.set(vals[-1] if mode == "Quarterly" else vals[0])
-        if prev_month_state != "normal":
-            self.cb_month.configure(state=prev_month_state)
+        pass
 
     def _get_saved_user_id(self):
         if not self.manual_credentials:
@@ -820,43 +803,75 @@ class App(ctk.CTk):
             return
         dialog = ctk.CTkToplevel(self)
         dialog.title("Load ID Password")
-        dialog.geometry("400x460")
+        dialog.geometry("440x560")
         dialog.resizable(False, False)
         dialog.transient(self)
         dialog.grab_set()
         dialog.attributes("-topmost", True)
-        ctk.CTkLabel(dialog, text="Select Profiles to Load", font=("Segoe UI", 14, "bold")).pack(pady=(16, 8))
-        sel_all_var = ctk.BooleanVar()
-        def _toggle_all():
-            state = sel_all_var.get()
-            for v in vars_.values():
-                v.set(state)
-        ctk.CTkCheckBox(dialog, text="Select All", variable=sel_all_var, command=_toggle_all,
-                        font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=20, pady=(0, 4))
-        scroll = ctk.CTkScrollableFrame(dialog, height=300)
-        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
-        vars_ = {}
-        for rdata in rows:
+        ctk.CTkLabel(dialog, text="Select Profiles to Load", font=("Segoe UI", 14, "bold")).pack(pady=(16, 6))
+
+        # ── Search box ────────────────────────────────────────────────────────
+        search_var = ctk.StringVar()
+        search_entry = ctk.CTkEntry(dialog, placeholder_text="🔍  Search by name or username...",
+                                    textvariable=search_var, height=34)
+        search_entry.pack(fill="x", padx=16, pady=(0, 6))
+
+        # Scrollable profile list
+        scroll = ctk.CTkScrollableFrame(dialog, height=260)
+        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 6))
+        
+        selected_var = ctk.StringVar(value="")
+        data_map = {}
+        widgets_ = {}
+
+        for i, rdata in enumerate(rows):
             u = rdata.get("username", "")
             p = rdata.get("password", "")
             c = rdata.get("client_name") or ""
-            v = ctk.BooleanVar()
-            disp = f"{c} ({u})" if c else u
-            ctk.CTkCheckBox(scroll, text=disp, variable=v).pack(anchor="w", padx=10, pady=3)
-            vars_[(u, p, c)] = v
+            f_freq = rdata.get("filing_frequency") or "Monthly"
+            
+            disp = f"{c} ({u}) [{f_freq}]" if c else f"{u} [{f_freq}]"
+            uid = f"prof_{i}"
+            data_map[uid] = (u, p, c, f_freq)
+            
+            chk = ctk.CTkRadioButton(scroll, text=disp, variable=selected_var, value=uid)
+            chk.pack(anchor="w", padx=10, pady=5)
+            widgets_[uid] = (chk, disp)
+
+        def _on_search(*_):
+            q = search_var.get().strip().lower()
+            for key, (chk, disp) in widgets_.items():
+                if q == "" or q in disp.lower():
+                    chk.pack(anchor="w", padx=10, pady=5)
+                else:
+                    chk.pack_forget()
+
+        search_var.trace_add("write", _on_search)
+        search_entry.focus_set()
+
         foot = ctk.CTkFrame(dialog, fg_color="transparent")
         foot.pack(fill="x", padx=16, pady=(0, 16))
         def _load():
-            selected = [{"Username": u, "Password": p, "ClientName": c} for (u, p, c), v in vars_.items() if v.get()]
-            if not selected:
-                messagebox.showwarning("No Selection", "Please select at least one profile.", parent=dialog)
+            uid = selected_var.get()
+            if not uid or uid not in data_map:
+                messagebox.showwarning("No Selection", "Please select a profile.", parent=dialog)
                 return
+            
+            u, p, c, f_freq = data_map[uid]
+            selected = [{"Username": u, "Password": p, "ClientName": c, "FilingFrequency": f_freq}]
+            
             self.manual_credentials = selected
             n = len(selected)
             label = selected[0]["Username"] if n == 1 else f"Loaded {n} profiles"
             self.ent_file.delete(0, "end")
             self.ent_file.insert(0, label)
             self.btn_view_id.configure(state="normal")
+            if n > 0 and hasattr(self, "period_mode_var"):
+                self.period_mode_var.set(selected[0].get("FilingFrequency", "Monthly"))
+                if hasattr(self, "toggle_inputs"):
+                    self.toggle_inputs()
+                if hasattr(self, "mode_tabs"):
+                    self.mode_tabs.configure(state="disabled")
             dialog.destroy()
         ctk.CTkButton(foot, text="Cancel", width=110, command=dialog.destroy).pack(side="right")
         ctk.CTkButton(foot, text="Load Selected", width=130, fg_color="#059669", hover_color="#047857", command=_load).pack(side="right", padx=(0, 8))
@@ -974,10 +989,42 @@ class App(ctk.CTk):
         if not credentials and not self.excel_file:
             messagebox.showerror("Error", "Please add ID/Password first")
             return
+        mode = self.period_mode_var.get() if hasattr(self, "period_mode_var") else "Monthly"
+        selected_periods = [lbl for lbl, var in getattr(self, "period_checkbox_vars", {}).items() if var.get()]
+        if not selected_periods:
+            messagebox.showerror("Error", "Please select at least one period.")
+            return
+
+        tasks = []
+        ui_m = {"Apr": "April", "May": "May", "Jun": "June", "Jul": "July", "Aug": "August", "Sep": "September",
+                "Oct": "October", "Nov": "November", "Dec": "December", "Jan": "January", "Feb": "February", "Mar": "March"}
+        ui_q = {"Q1 (Apr-Jun)": "Quarter 1 (Apr - Jun)", "Q2 (Jul-Sep)": "Quarter 2 (Jul - Sep)", 
+                "Q3 (Oct-Dec)": "Quarter 3 (Oct - Dec)", "Q4 (Jan-Mar)": "Quarter 4 (Jan - Mar)"}
+        
+        q_map_rev = {
+            "April": "Quarter 1 (Apr - Jun)", "May": "Quarter 1 (Apr - Jun)", "June": "Quarter 1 (Apr - Jun)",
+            "July": "Quarter 2 (Jul - Sep)", "August": "Quarter 2 (Jul - Sep)", "September": "Quarter 2 (Jul - Sep)",
+            "October": "Quarter 3 (Oct - Dec)", "November": "Quarter 3 (Oct - Dec)", "December": "Quarter 3 (Oct - Dec)",
+            "January": "Quarter 4 (Jan - Mar)", "February": "Quarter 4 (Jan - Mar)", "March": "Quarter 4 (Jan - Mar)"
+        }
+        q_last_month = {
+            "Quarter 1 (Apr - Jun)": "June", "Quarter 2 (Jul - Sep)": "September",
+            "Quarter 3 (Oct - Dec)": "December", "Quarter 4 (Jan - Mar)": "March"
+        }
+
+        if mode == "Monthly":
+            for m in selected_periods:
+                full_m = ui_m.get(m, m)
+                tasks.append({"q": q_map_rev.get(full_m, ""), "m": full_m})
+        else:
+            for q in selected_periods:
+                full_q = ui_q.get(q, q)
+                tasks.append({"q": full_q, "m": q_last_month.get(full_q, "")})
+
         settings = {
             "year": self.cb_year.get(),
-            "month": self.cb_month.get(),
-            "quarter": self.cb_qtr.get(),
+            "period_mode": mode,
+            "tasks": tasks,
             "all_quarters": False
         }
         self.btn_stop.configure(state="normal", text="⏹ STOP")

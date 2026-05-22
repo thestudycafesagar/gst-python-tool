@@ -1,21 +1,24 @@
-import re
+import os
 
-with open("GST_Suite.py", "r", encoding="utf-8") as f:
-    text = f.read()
+files = [
+    r"GST\GST R1 Downloader\mai.py",
+    r"GST\R1 PDF Downloader\main.py"
+]
 
-# Fix the broken array
-text = text.replace(
-    'Payment Reminder."}, "is_card_only": True, "action_cat": "email",',
-    'Payment Reminder.", "is_card_only": True, "action_cat": "email"},'
-)
+target = 'self.log(f"   dY". Bulk Mode: processing {len(tasks)} periods")'
+target2 = 'self.log(f"   dY". Mode: Quarterly ({selected_q} -> {selected_m})")'
+target3 = 'self.log(f"   dY". Mode: Monthly ({selected_m})")'
 
-text = text.replace(
-    'Payment Reminder."}, "is_card_only": True, "action_cat": "gmail",',
-    'Payment Reminder.", "is_card_only": True, "action_cat": "gmail"},'
-)
+for f in files:
+    if not os.path.exists(f): continue
+    with open(f, "r", encoding="utf-8") as file:
+        content = file.read()
+    
+    c1 = content.replace(target, 'self.log(f"   dY Bulk Mode: processing {len(tasks)} periods")')
+    c1 = c1.replace(target2, 'self.log(f"   dY Mode: Quarterly ({selected_q} -> {selected_m})")')
+    c1 = c1.replace(target3, 'self.log(f"   dY Mode: Monthly ({selected_m})")')
+    
+    with open(f, "w", encoding="utf-8") as file:
+        file.write(c1)
+    print(f"Patched {f}")
 
-
-with open("GST_Suite.py", "w", encoding="utf-8") as f:
-    f.write(text)
-
-print("Patch syntax fix complete")

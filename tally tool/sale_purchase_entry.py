@@ -1,4 +1,4 @@
-﻿"""
+"""
 TallySalesPro - Professional Sales Voucher & Master Creator for TallyPrime
 Converts Excel sales data to Tally XML (Accounting & Inventory voucher modes)
 Also creates Ledger Masters and Stock Item Masters.
@@ -2252,10 +2252,10 @@ def generate_accounting_xml(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  GENERATE SALES EXPORT XML  –  ACCOUNTING MODE (INR + FOREX)
+#  GENERATE SALES EXPORT XML  –  ACCOUNTING MODE (INR)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def generate_export_accounting_xml(
+def generate_sales_export_accounting_xml(
     rows: list,
     company: str,
     use_today_date: bool = False,
@@ -2263,12 +2263,12 @@ def generate_export_accounting_xml(
     custom_tally_date: str = "",
     start_voucher_number=None,
     voucher_type: str = "Sales Export",
+    round_off_ledger: str = "",
 ) -> str:
-    """
-    Export sales accounting voucher (VCHTYPE = Sales Export).
-    Supports both INR entries (Amount column) and foreign-currency entries
-    (ForeignCurrency + ForeignAmount + ExchangeRate columns).
-    Dollar AMOUNT format: '$100.00 @ ₹ 95/$ = ₹ 9500.00'
+    """Sales Export accounting voucher — no GST (exempt), INR only.
+
+    Excel columns: Date, InvoiceNo, PartyLedger, PartyName, Country,
+                   SalesLedger, Amount, HSNCode, HSNDescription, Narration
     """
     lines = []
     a = lines.append
@@ -2288,6 +2288,9 @@ def generate_export_accounting_xml(
         resolved_mode = "current" if use_today_date else "excel"
     resolved_custom_date = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
 
+    effective_vch_type = str(voucher_type or "Sales Export").strip() or "Sales Export"
+    _vch_type_esc = xml_escape(effective_vch_type)
+
     for idx, r in enumerate(rows):
         if resolved_mode == "current":
             source_date = datetime.today()
@@ -2305,121 +2308,153 @@ def generate_export_accounting_xml(
         else:
             vno_raw = ""
         vno = xml_escape(vno_raw)
-        invoice_ref_raw = _row_invoice_reference(r, vno_raw)
-        invoice_ref = xml_escape(invoice_ref_raw)
 
         party_raw = _ledger_or_suspense(_resolve_party_ledger(r, is_purchase_mode=False))
         party = xml_escape(party_raw)
-        sales_raw = _ledger_or_suspense(_row_text(r, "SalesLedger"))
-        sales_esc = xml_escape(sales_raw)
-        country_raw = xml_escape((_row_text(r, "CountryOfResidence") or "").strip())
+        party_name_raw = _row_text_any(
+            r, ["PartyName", "BuyerName", "PartyMailingName"], default=party_raw
+        )
+        party_name = xml_escape(party_name_raw or party_raw)
+
+        sales_ledger_raw = _ledger_or_suspense(_row_text(r, "SalesLedger"))
+        sales_ledger = xml_escape(sales_ledger_raw)
+
+        country_raw = _row_text_any(
+            r, ["Country", "CountryOfResidence", "PartyCountry"], default="Outside India"
+        )
+        country = xml_escape(country_raw or "Outside India")
+
+        hsn_code = xml_escape(_row_text_any(r, ["HSNCode", "HSN", "SACCode", "SAC"], default="9983"))
+        hsn_desc = xml_escape(
+            _row_text_any(r, ["HSNDescription", "HSNDesc", "Description", "ServiceDescription"], default="Advertisement")
+        )
         narr = xml_escape(_row_text(r, "Narration"))
 
-        # ── Currency handling ──────────────────────────────────────────────
-        foreign_currency = str(_row_get(r, "ForeignCurrency", "") or "").strip()
-        foreign_amount_s = str(_row_get(r, "ForeignAmount", "") or "").strip()
-        exchange_rate_s  = str(_row_get(r, "ExchangeRate", "") or "").strip()
-        inr_amount_s     = str(_row_get(r, "INRAmount", "") or "").strip()
-        amount_inr_s     = str(_row_get(r, "Amount", "") or "").strip()
+        inr_total = round(abs(_row_float(r, "Amount", 0.0)), 2)
+        _ro_amt = round(round(inr_total, 0) - inr_total, 2) if round_off_ledger else 0.0
+        _ro_total = round(inr_total + _ro_amt, 2)
 
-        is_forex = bool(foreign_currency and foreign_amount_s)
-        if is_forex:
-            try:
-                fa = float(foreign_amount_s)
-                er = float(exchange_rate_s) if exchange_rate_s else 0.0
-                if inr_amount_s:
-                    ia = float(inr_amount_s)
-                elif er:
-                    ia = round(fa * er, 2)
-                else:
-                    ia = fa
-                cur = foreign_currency.lstrip("-").strip() or "$"
-                fa_fmt = f"{fa:.2f}"
-                er_fmt = str(int(er)) if er == int(er) else str(er)
-                ia_fmt = f"{ia:.2f}"
-                _party_amt = f"-{cur}{fa_fmt} @ ₹ {er_fmt}/{cur} = -₹ {ia_fmt}"
-                _sales_amt = f"{cur}{fa_fmt} @ ₹ {er_fmt}/{cur} = ₹ {ia_fmt}"
-                # INR equivalents used wherever Tally rejects the forex format
-                _bill_party_amt = f"-{ia_fmt}"
-                _sales_inr_amt  = ia_fmt
-            except (ValueError, ZeroDivisionError):
-                is_forex = False
-
-        if not is_forex:
-            try:
-                inr_val = float(amount_inr_s) if amount_inr_s else 0.0
-            except ValueError:
-                inr_val = 0.0
-            _party_amt      = f"-{fmt_amt(inr_val)}"
-            _sales_amt      = fmt_amt(inr_val)
-            _bill_party_amt = _party_amt
-            _sales_inr_amt  = fmt_amt(inr_val)
-
-        _row_vtype = str(_row_get(r, "VoucherType", "") or "").strip()
-        effective_vch_type = _row_vtype or str(voucher_type or "Sales Export").strip() or "Sales Export"
-        _vch_type_esc = xml_escape(effective_vch_type)
+        party_amt_str = f"-{fmt_amt(_ro_total)}"
+        sales_amt_str = fmt_amt(inr_total)
 
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
         a(f'    <VOUCHER VCHTYPE="{_vch_type_esc}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
         a(f'     <DATE>{dt}</DATE>')
+        a(f'     <GSTREGISTRATIONTYPE>&#4; Unknown</GSTREGISTRATIONTYPE>')
+        a('     <VATDEALERTYPE>Regular</VATDEALERTYPE>')
+        a(f'     <COUNTRYOFRESIDENCE>{country}</COUNTRYOFRESIDENCE>')
         a(f'     <VOUCHERTYPENAME>{_vch_type_esc}</VOUCHERTYPENAME>')
-        a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
+        a(f'     <PARTYNAME>{party}</PARTYNAME>')
         a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
-        a(f'     <PARTYMAILINGNAME>{party}</PARTYMAILINGNAME>')
-        a(f'     <BASICBUYERNAME>{party}</BASICBUYERNAME>')
-        a(f'     <BASICBASEPARTYNAME>{party}</BASICBASEPARTYNAME>')
-        a(f'     <CONSIGNEEMAILINGNAME>{party}</CONSIGNEEMAILINGNAME>')
-        if country_raw:
-            a(f'     <COUNTRYOFRESIDENCE>{country_raw}</COUNTRYOFRESIDENCE>')
-            a(f'     <CONSIGNEECOUNTRYNAME>{country_raw}</CONSIGNEECOUNTRYNAME>')
-        a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
+        a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
+        a(f'     <BASICBUYERNAME>{party_name}</BASICBUYERNAME>')
+        a(f'     <PARTYMAILINGNAME>{party_name}</PARTYMAILINGNAME>')
+        a(f'     <CONSIGNEEMAILINGNAME>{party_name}</CONSIGNEEMAILINGNAME>')
+        a(f'     <CONSIGNEECOUNTRYNAME>{country}</CONSIGNEECOUNTRYNAME>')
+        a(f'     <BASICBASEPARTYNAME>{party_name}</BASICBASEPARTYNAME>')
         a('     <NUMBERINGSTYLE>Manual</NUMBERINGSTYLE>')
-        a('     <ISINVOICE>Yes</ISINVOICE>')
+        a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
         a('     <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>')
         a('     <VCHENTRYMODE>Accounting Invoice</VCHENTRYMODE>')
+        a('     <ISINVOICE>Yes</ISINVOICE>')
         a('     <ISGSTOVERRIDDEN>No</ISGSTOVERRIDDEN>')
         a('     <VCHSTATUSISREACCEPHSNSIXONEDONE>Yes</VCHSTATUSISREACCEPHSNSIXONEDONE>')
         a('     <VCHGSTSTATUSISUNCERTAIN>No</VCHGSTSTATUSISUNCERTAIN>')
         a('     <VCHGSTSTATUSISINCLUDED>Yes</VCHGSTSTATUSISINCLUDED>')
         a('     <VCHGSTSTATUSISAPPLICABLE>Yes</VCHGSTSTATUSISAPPLICABLE>')
-        a('     <GSTREGISTRATIONTYPE>\x04 Unknown</GSTREGISTRATIONTYPE>')
-        if invoice_ref:
-            a(f'     <REFERENCE>{invoice_ref}</REFERENCE>')
         if narr:
             a(f'     <NARRATION>{narr}</NARRATION>')
 
-        # ── Party ledger – Debit ───────────────────────────────────────────
+        a('     <EWAYBILLDETAILS.LIST>      </EWAYBILLDETAILS.LIST>')
+        a('     <EXCLUDEDTAXATIONS.LIST>      </EXCLUDEDTAXATIONS.LIST>')
+        a('     <OLDAUDITENTRIES.LIST>      </OLDAUDITENTRIES.LIST>')
+        a('     <ACCOUNTAUDITENTRIES.LIST>      </ACCOUNTAUDITENTRIES.LIST>')
+        a('     <AUDITENTRIES.LIST>      </AUDITENTRIES.LIST>')
+        a('     <DUTYHEADDETAILS.LIST>      </DUTYHEADDETAILS.LIST>')
+        a('     <GSTADVADJDETAILS.LIST>      </GSTADVADJDETAILS.LIST>')
+        a('     <ALLINVENTORYENTRIES.LIST>      </ALLINVENTORYENTRIES.LIST>')
+        a('     <CONTRITRANS.LIST>      </CONTRITRANS.LIST>')
+        a('     <EWAYBILLERRORLIST.LIST>      </EWAYBILLERRORLIST.LIST>')
+        a('     <IRNERRORLIST.LIST>      </IRNERRORLIST.LIST>')
+        a('     <HARYANAVAT.LIST>      </HARYANAVAT.LIST>')
+        a('     <SUPPLEMENTARYDUTYHEADDETAILS.LIST>      </SUPPLEMENTARYDUTYHEADDETAILS.LIST>')
+        a('     <INVOICEDELNOTES.LIST>      </INVOICEDELNOTES.LIST>')
+        a('     <INVOICEORDERLIST.LIST>      </INVOICEORDERLIST.LIST>')
+        a('     <INVOICEINDENTLIST.LIST>      </INVOICEINDENTLIST.LIST>')
+        a('     <ATTENDANCEENTRIES.LIST>      </ATTENDANCEENTRIES.LIST>')
+        a('     <ORIGINVOICEDETAILS.LIST>      </ORIGINVOICEDETAILS.LIST>')
+        a('     <INVOICEEXPORTLIST.LIST>      </INVOICEEXPORTLIST.LIST>')
+
+        # Party ledger — debit (ISDEEMEDPOSITIVE=Yes, negative AMOUNT)
         a('     <LEDGERENTRIES.LIST>')
         a(f'      <LEDGERNAME>{party}</LEDGERNAME>')
+        a('      <GSTCLASS>&#4; Not Applicable</GSTCLASS>')
         a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
+        a('      <LEDGERFROMITEM>No</LEDGERFROMITEM>')
+        a('      <REMOVEZEROENTRIES>No</REMOVEZEROENTRIES>')
         a('      <ISPARTYLEDGER>Yes</ISPARTYLEDGER>')
-        a(f'      <AMOUNT>{_party_amt}</AMOUNT>')
-        if not is_forex and (invoice_ref or vno):
-            # Forex ledgers reject bill references — skip BILLALLOCATIONS for forex entries
-            a('      <BILLALLOCATIONS.LIST>')
-            a(f'       <NAME>{invoice_ref or vno}</NAME>')
-            a('       <BILLTYPE>New Ref</BILLTYPE>')
-            a(f'       <AMOUNT>{_bill_party_amt}</AMOUNT>')
-            a('      </BILLALLOCATIONS.LIST>')
+        a('      <GSTOVERRIDDEN>No</GSTOVERRIDDEN>')
+        a(f'      <AMOUNT>{party_amt_str}</AMOUNT>')
+        a('      <SERVICETAXDETAILS.LIST>       </SERVICETAXDETAILS.LIST>')
+        a('      <BANKALLOCATIONS.LIST>       </BANKALLOCATIONS.LIST>')
+        a('      <BILLALLOCATIONS.LIST>       </BILLALLOCATIONS.LIST>')
+        a('      <INTERESTCOLLECTION.LIST>       </INTERESTCOLLECTION.LIST>')
+        a('      <OLDAUDITENTRIES.LIST>       </OLDAUDITENTRIES.LIST>')
+        a('      <ACCOUNTAUDITENTRIES.LIST>       </ACCOUNTAUDITENTRIES.LIST>')
+        a('      <AUDITENTRIES.LIST>       </AUDITENTRIES.LIST>')
+        a('      <INPUTCRALLOCS.LIST>       </INPUTCRALLOCS.LIST>')
+        a('      <DUTYHEADDETAILS.LIST>       </DUTYHEADDETAILS.LIST>')
+        a('      <EXCISEDUTYHEADDETAILS.LIST>       </EXCISEDUTYHEADDETAILS.LIST>')
+        a('      <RATEDETAILS.LIST>       </RATEDETAILS.LIST>')
+        a('      <SUMMARYALLOCS.LIST>       </SUMMARYALLOCS.LIST>')
+        a('      <CENVATDUTYALLOCATIONS.LIST>       </CENVATDUTYALLOCATIONS.LIST>')
+        a('      <STPYMTDETAILS.LIST>       </STPYMTDETAILS.LIST>')
+        a('      <EXCISEPAYMENTALLOCATIONS.LIST>       </EXCISEPAYMENTALLOCATIONS.LIST>')
+        a('      <TAXBILLALLOCATIONS.LIST>       </TAXBILLALLOCATIONS.LIST>')
+        a('      <TAXOBJECTALLOCATIONS.LIST>       </TAXOBJECTALLOCATIONS.LIST>')
+        a('      <TDSEXPENSEALLOCATIONS.LIST>       </TDSEXPENSEALLOCATIONS.LIST>')
+        a('      <VATSTATUTORYDETAILS.LIST>       </VATSTATUTORYDETAILS.LIST>')
+        a('      <COSTTRACKALLOCATIONS.LIST>       </COSTTRACKALLOCATIONS.LIST>')
+        a('      <REFVOUCHERDETAILS.LIST>       </REFVOUCHERDETAILS.LIST>')
+        a('      <INVOICEWISEDETAILS.LIST>       </INVOICEWISEDETAILS.LIST>')
+        a('      <VATITCDETAILS.LIST>       </VATITCDETAILS.LIST>')
+        a('      <ADVANCETAXDETAILS.LIST>       </ADVANCETAXDETAILS.LIST>')
+        a('      <TAXTYPEALLOCATIONS.LIST>       </TAXTYPEALLOCATIONS.LIST>')
         a('     </LEDGERENTRIES.LIST>')
 
-        # ── Sales / Income ledger – Credit (export exempt) ─────────────────
+        # Sales/Income ledger — credit (ISDEEMEDPOSITIVE=No, positive AMOUNT)
         a('     <LEDGERENTRIES.LIST>')
-        a(f'      <LEDGERNAME>{sales_esc}</LEDGERNAME>')
-        a('      <GSTOVRDNISREVCHARGEAPPL>\x04 Not Applicable</GSTOVRDNISREVCHARGEAPPL>')
+        a(f'      <LEDGERNAME>{sales_ledger}</LEDGERNAME>')
+        a('      <GSTCLASS>&#4; Not Applicable</GSTCLASS>')
+        a('      <GSTOVRDNISREVCHARGEAPPL>&#4; Not Applicable</GSTOVRDNISREVCHARGEAPPL>')
         a('      <GSTOVRDNTAXABILITY>Exempt</GSTOVRDNTAXABILITY>')
         a('      <GSTSOURCETYPE>Ledger</GSTSOURCETYPE>')
-        a(f'      <GSTLEDGERSOURCE>{sales_esc}</GSTLEDGERSOURCE>')
+        a(f'      <GSTLEDGERSOURCE>{sales_ledger}</GSTLEDGERSOURCE>')
         a('      <HSNSOURCETYPE>Ledger</HSNSOURCETYPE>')
-        a(f'      <HSNLEDGERSOURCE>{sales_esc}</HSNLEDGERSOURCE>')
+        a(f'      <HSNLEDGERSOURCE>{sales_ledger}</HSNLEDGERSOURCE>')
         a('      <GSTOVRDNSTOREDNATURE/>')
         a('      <GSTOVRDNTYPEOFSUPPLY>Services</GSTOVRDNTYPEOFSUPPLY>')
         a('      <GSTRATEINFERAPPLICABILITY>As per Masters/Company</GSTRATEINFERAPPLICABILITY>')
+        a(f'      <GSTHSNNAME>{hsn_code}</GSTHSNNAME>')
+        a(f'      <GSTHSNDESCRIPTION>{hsn_desc}</GSTHSNDESCRIPTION>')
         a('      <GSTHSNINFERAPPLICABILITY>As per Masters/Company</GSTHSNINFERAPPLICABILITY>')
         a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
+        a('      <LEDGERFROMITEM>No</LEDGERFROMITEM>')
+        a('      <REMOVEZEROENTRIES>No</REMOVEZEROENTRIES>')
         a('      <ISPARTYLEDGER>No</ISPARTYLEDGER>')
-        a(f'      <AMOUNT>{_sales_amt}</AMOUNT>')
-        a(f'      <VATEXPAMOUNT>{_sales_inr_amt}</VATEXPAMOUNT>')
+        a('      <GSTOVERRIDDEN>No</GSTOVERRIDDEN>')
+        a(f'      <AMOUNT>{sales_amt_str}</AMOUNT>')
+        a(f'      <VATEXPAMOUNT>{sales_amt_str}</VATEXPAMOUNT>')
+        a('      <SERVICETAXDETAILS.LIST>       </SERVICETAXDETAILS.LIST>')
+        a('      <BANKALLOCATIONS.LIST>       </BANKALLOCATIONS.LIST>')
+        a('      <BILLALLOCATIONS.LIST>       </BILLALLOCATIONS.LIST>')
+        a('      <INTERESTCOLLECTION.LIST>       </INTERESTCOLLECTION.LIST>')
+        a('      <OLDAUDITENTRIES.LIST>       </OLDAUDITENTRIES.LIST>')
+        a('      <ACCOUNTAUDITENTRIES.LIST>       </ACCOUNTAUDITENTRIES.LIST>')
+        a('      <AUDITENTRIES.LIST>       </AUDITENTRIES.LIST>')
+        a('      <INPUTCRALLOCS.LIST>       </INPUTCRALLOCS.LIST>')
+        a('      <DUTYHEADDETAILS.LIST>       </DUTYHEADDETAILS.LIST>')
+        a('      <EXCISEDUTYHEADDETAILS.LIST>       </EXCISEDUTYHEADDETAILS.LIST>')
         a('      <RATEDETAILS.LIST>')
         a('       <GSTRATEDUTYHEAD>CGST</GSTRATEDUTYHEAD>')
         a('       <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>')
@@ -2434,14 +2469,47 @@ def generate_export_accounting_xml(
         a('      </RATEDETAILS.LIST>')
         a('      <RATEDETAILS.LIST>')
         a('       <GSTRATEDUTYHEAD>Cess</GSTRATEDUTYHEAD>')
-        a('       <GSTRATEVALUATIONTYPE>\x04 Not Applicable</GSTRATEVALUATIONTYPE>')
+        a('       <GSTRATEVALUATIONTYPE>&#4; Not Applicable</GSTRATEVALUATIONTYPE>')
         a('      </RATEDETAILS.LIST>')
         a('      <RATEDETAILS.LIST>')
         a('       <GSTRATEDUTYHEAD>State Cess</GSTRATEDUTYHEAD>')
         a('       <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>')
         a('      </RATEDETAILS.LIST>')
+        a('      <SUMMARYALLOCS.LIST>       </SUMMARYALLOCS.LIST>')
+        a('      <CENVATDUTYALLOCATIONS.LIST>       </CENVATDUTYALLOCATIONS.LIST>')
+        a('      <STPYMTDETAILS.LIST>       </STPYMTDETAILS.LIST>')
+        a('      <EXCISEPAYMENTALLOCATIONS.LIST>       </EXCISEPAYMENTALLOCATIONS.LIST>')
+        a('      <TAXBILLALLOCATIONS.LIST>       </TAXBILLALLOCATIONS.LIST>')
+        a('      <TAXOBJECTALLOCATIONS.LIST>       </TAXOBJECTALLOCATIONS.LIST>')
+        a('      <TDSEXPENSEALLOCATIONS.LIST>       </TDSEXPENSEALLOCATIONS.LIST>')
+        a('      <VATSTATUTORYDETAILS.LIST>       </VATSTATUTORYDETAILS.LIST>')
+        a('      <COSTTRACKALLOCATIONS.LIST>       </COSTTRACKALLOCATIONS.LIST>')
+        a('      <REFVOUCHERDETAILS.LIST>       </REFVOUCHERDETAILS.LIST>')
+        a('      <INVOICEWISEDETAILS.LIST>       </INVOICEWISEDETAILS.LIST>')
+        a('      <VATITCDETAILS.LIST>       </VATITCDETAILS.LIST>')
+        a('      <ADVANCETAXDETAILS.LIST>       </ADVANCETAXDETAILS.LIST>')
+        a('      <TAXTYPEALLOCATIONS.LIST>       </TAXTYPEALLOCATIONS.LIST>')
         a('     </LEDGERENTRIES.LIST>')
 
+        _append_round_off_entry(a, round_off_ledger, _ro_amt, is_purchase_mode=False)
+
+        a('     <GST.LIST>')
+        a('      <PURPOSETYPE>GST</PURPOSETYPE>')
+        a('      <STAT.LIST>')
+        a('       <PURPOSETYPE>GST</PURPOSETYPE>')
+        a('       <ISFETCHEDONLY>No</ISFETCHEDONLY>')
+        a('       <ISDELETED>No</ISDELETED>')
+        a('      </STAT.LIST>')
+        a('     </GST.LIST>')
+        a('     <STKJRNLADDLCOSTDETAILS.LIST>      </STKJRNLADDLCOSTDETAILS.LIST>')
+        a('     <PAYROLLMODEOFPAYMENT.LIST>      </PAYROLLMODEOFPAYMENT.LIST>')
+        a('     <ATTDRECORDS.LIST>      </ATTDRECORDS.LIST>')
+        a('     <GSTEWAYCONSIGNORADDRESS.LIST>      </GSTEWAYCONSIGNORADDRESS.LIST>')
+        a('     <GSTEWAYCONSIGNEEADDRESS.LIST>      </GSTEWAYCONSIGNEEADDRESS.LIST>')
+        a('     <TEMPGSTRATEDETAILS.LIST>      </TEMPGSTRATEDETAILS.LIST>')
+        a('     <TEMPGSTADVADJUSTED.LIST>      </TEMPGSTADVADJUSTED.LIST>')
+        a('     <GSTBUYERADDRESS.LIST>      </GSTBUYERADDRESS.LIST>')
+        a('     <GSTCONSIGNEEADDRESS.LIST>      </GSTCONSIGNEEADDRESS.LIST>')
         a('    </VOUCHER>')
         a('   </TALLYMESSAGE>')
 
@@ -5383,9 +5451,7 @@ class _GSTFetchDialog(ctk.CTkToplevel):
                                            fg_color=("#059669", "#10B981"),
                                            command=self._on_confirm, state="disabled")
         self._confirm_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray60", "#DC2626"),
-                       hover_color=("gray50", "#B91C1C"),
-                       text_color=("#1F2937", "#FFFFFF"),
+        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray60", "gray30"),
                        command=self._on_cancel, width=90).pack(side="left")
 
     def _on_load_captcha(self):
@@ -5558,9 +5624,8 @@ class _MissingLedgerDialog(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_frame,
             text="✏  Create Manually (Basic Info Only)",
-            fg_color=("gray70", "#DC2626"),
-            hover_color=("gray60", "#B91C1C"),
-            text_color=("#1F2937", "#FFFFFF"),
+            fg_color=("gray70", "gray30"),
+            hover_color=("gray60", "gray40"),
             height=44,
             font=("Segoe UI", 12),
             command=self._choose_manual,
@@ -5720,6 +5785,7 @@ class TallySalesApp(ctk.CTk):
             "item": "Template_Sales Item Invoice.xlsx",
             "purchase_accounting": "Template_Purchase Accounting Voucher.xlsx",
             "purchase_item": "Template_Purchase Item Voucher.xlsx",
+            "sales_export_accounting": "Template_Sales Export Accounting.xlsx",
         }
 
         self._build_ui()
@@ -5861,8 +5927,8 @@ class TallySalesApp(ctk.CTk):
             width=96,
             height=34,
             font=("Segoe UI", 10, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._fetch_tally_companies_thread,
@@ -5958,7 +6024,7 @@ class TallySalesApp(ctk.CTk):
         _panel_options = [
             "📋  Sales Accounting Invoice",
             "📦  Sales Item Invoice",
-            # "🌍  Sales Export Accounting",  # DISABLED
+            "🌍  Sales Export Accounting",
             "🧾  Purchase Accounting Invoice",
             "🛒  Purchase Item Invoice",
             "📝  Credit Note (Accounting)",
@@ -5972,7 +6038,7 @@ class TallySalesApp(ctk.CTk):
         self._panel_option_to_key = {
             "📋  Sales Accounting Invoice": "accounting",
             "📦  Sales Item Invoice": "item",
-            # "🌍  Sales Export Accounting": "export_accounting",  # DISABLED
+            "🌍  Sales Export Accounting": "sales_export_accounting",
             "🧾  Purchase Accounting Invoice": "purchase_accounting",
             "🛒  Purchase Item Invoice": "purchase_item",
             "📝  Credit Note (Accounting)": "credit_note_accounting",
@@ -6013,7 +6079,7 @@ class TallySalesApp(ctk.CTk):
         _content_outer.grid_columnconfigure(0, weight=1)
 
         self._panels = {}
-        for _key in ("accounting", "item", "purchase_accounting", "purchase_item", "ledger", "stock"):  # "export_accounting" DISABLED
+        for _key in ("accounting", "item", "purchase_accounting", "purchase_item", "ledger", "stock", "sales_export_accounting"):
             _pf = ctk.CTkFrame(_content_outer, fg_color="transparent")
             _pf.grid(row=0, column=0, sticky="nsew")
             self._panels[_key] = _pf
@@ -6036,17 +6102,17 @@ class TallySalesApp(ctk.CTk):
 
         self.tab_acct = self._panels["accounting"]
         self.tab_item = self._panels["item"]
-        # self.tab_export_acct = self._panels["export_accounting"]  # DISABLED
         self.tab_purchase_acct = self._panels["purchase_accounting"]
         self.tab_purchase_item = self._panels["purchase_item"]
         self.tab_ledger = self._panels["ledger"]
         self.tab_stock = self._panels["stock"]
+        self.tab_export_acct = self._panels["sales_export_accounting"]
 
         self._build_voucher_tab(self.tab_acct, mode="accounting")
         self._build_voucher_tab(self.tab_item, mode="item")
-        # self._build_voucher_tab(self.tab_export_acct, mode="export_accounting")  # DISABLED
         self._build_voucher_tab(self.tab_purchase_acct, mode="purchase_accounting")
         self._build_voucher_tab(self.tab_purchase_item, mode="purchase_item")
+        self._build_voucher_tab(self.tab_export_acct, mode="sales_export_accounting")
         self._build_note_panel(self._panels["note"])
         self._build_journal_panel(self._panels["journal"])
         self._build_ledger_tab()
@@ -6100,27 +6166,21 @@ class TallySalesApp(ctk.CTk):
         return mode, custom_tally_date
 
     def _view_workflow_demo(self):
-        _demo_urls = {
-            "accounting":             "https://youtu.be/SlVhqglVSzU",
-            "item":                   "https://youtu.be/bERcC0uTVws",
-            "purchase_accounting":    "https://youtu.be/9FSOjQoHmk8",
-            "purchase_item":          "https://youtu.be/DbXzZsqb9q8",
-            "debit_note_accounting":  "https://youtu.be/g1VX4NCLJHg",
-            "credit_note_accounting": "https://youtu.be/8zgUBTDyCzY",
-            "journal":                "https://youtu.be/jgt5eQiBjZM",
-        }
-        current_option = self._panel_var.get() if hasattr(self, "_panel_var") else ""
-        mode_key = self._panel_option_to_key.get(current_option, "") if hasattr(self, "_panel_option_to_key") else ""
-        demo_url = _demo_urls.get(mode_key, "")
+        demo_url = (self.workflow_demo_url or "").strip()
         if demo_url:
             try:
                 opened = webbrowser.open(demo_url)
-                if not opened:
-                    messagebox.showwarning("View Demo", "Could not open demo link in your default browser.")
             except webbrowser.Error as exc:
                 messagebox.showwarning("View Demo", f"Could not open demo link.\n\n{exc}")
-        else:
-            messagebox.showinfo("View Demo", "No demo available for the selected mode.")
+                return
+            if not opened:
+                messagebox.showwarning("View Demo", "Could not open demo link in your default browser.")
+            return
+
+        messagebox.showinfo(
+            "View Demo",
+            "Demo link is not set yet.\n\nSet self.workflow_demo_url in code to your YouTube link later.",
+        )
 
     def _append_debug_log(self, mode, target_company, xml_payload, response_text, parsed, note=""):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -6271,7 +6331,7 @@ class TallySalesApp(ctk.CTk):
         template_row.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
         template_btn = ctk.CTkButton(
             template_row, text="📥  Download Template",
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"], width=170,
             command=lambda: self._download_template_for_mode(mode),
         )
@@ -6329,29 +6389,32 @@ class TallySalesApp(ctk.CTk):
 
         xml_browse_btn = ctk.CTkButton(
             xml_row, text="Browse XML", command=browse_xml, width=90,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"])
         xml_browse_btn.pack(side="left", padx=(0, 8))
         self._voucher_xml_browse_buttons[mode] = xml_browse_btn
         ctk.CTkLabel(xml_row, text="Browse an existing XML to preview & push it directly to Tally",
                      font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left")
 
-        # Row 3: Voucher Type selector (purchase modes only)
-        # Sales modes (accounting / item) use per-row VoucherType column from the Excel file.
-        _SALES_MODES = {"accounting", "item"}  # "export_accounting" DISABLED
-        _default_vtype = "Sales" if mode in _SALES_MODES else "Purchase"
+        # Row 3: Voucher Type selector (purchase and export modes); sales modes use per-row column.
+        if mode in {"accounting", "item"}:
+            _default_vtype = "Sales"
+        elif mode == "sales_export_accounting":
+            _default_vtype = "Sales Export"
+        else:
+            _default_vtype = "Purchase"
         vtype_var = ctk.StringVar(value=_default_vtype)
         self._voucher_type_vars[mode] = vtype_var
 
-        if mode not in _SALES_MODES:
+        if mode not in {"accounting", "item"}:
             vtype_row = ctk.CTkFrame(parent, fg_color="transparent")
             vtype_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(6, 0))
             ctk.CTkLabel(vtype_row, text="Voucher Type:", font=("Segoe UI", 12)).pack(side="left", padx=(0, 8))
             vtype_cb = ctk.CTkComboBox(vtype_row, variable=vtype_var, values=[_default_vtype],
-                                        width=230, state="readonly")
+                                        width=200, state="readonly")
             vtype_cb.pack(side="left", padx=(0, 8))
             self._voucher_type_cbs[mode] = vtype_cb
-            _vtype_prefix = "Purchase"
+            _vtype_prefix = "Sales" if mode == "sales_export_accounting" else "Purchase"
 
             def _do_fetch_vtypes(_m=mode, _cb=vtype_cb, _var=vtype_var, _pfx=_vtype_prefix):
                 _btn = self._voucher_type_fetch_buttons.get(_m)
@@ -6378,18 +6441,22 @@ class TallySalesApp(ctk.CTk):
                 threading.Thread(target=_worker, daemon=True).start()
 
             fetch_vtype_btn = ctk.CTkButton(
-                vtype_row, text="Fetch", width=70,
-                fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                vtype_row, text="Fetch", width=60,
+                fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                 text_color=COLORS["text_secondary"],
                 command=_do_fetch_vtypes,
             )
             fetch_vtype_btn.pack(side="left")
             self._voucher_type_fetch_buttons[mode] = fetch_vtype_btn
-            ctk.CTkLabel(vtype_row, text="Fetch voucher types from Tally",
-                         font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=8)
 
-        # Row 4 (or 3 for sales modes): Auto Round Off
-        _roundoff_grid_row = 3 if mode in {"accounting", "item"} else 4  # "export_accounting" DISABLED
+            if False:
+                pass
+            else:
+                ctk.CTkLabel(vtype_row, text="Fetch voucher types from Tally",
+                             font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="left", padx=8)
+
+        # Row 4 (or 3 for sales/item modes): Auto Round Off
+        _roundoff_grid_row = 3 if mode in {"accounting", "item"} else 4
         roundoff_row = ctk.CTkFrame(parent, fg_color="transparent")
         roundoff_row.grid(row=_roundoff_grid_row, column=0, sticky="ew", padx=10, pady=(4, 0))
 
@@ -6410,7 +6477,7 @@ class TallySalesApp(ctk.CTk):
         ro_entry.pack(side="left", padx=(0, 6))
 
         ro_fetch_btn = ctk.CTkButton(roundoff_row, text="Fetch Ledgers", width=110,
-                                     fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                                     fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                                      text_color=COLORS["text_secondary"], state="disabled")
         ro_fetch_btn.pack(side="left", padx=(0, 6))
         self._roundoff_fetch_btns[mode] = ro_fetch_btn
@@ -6477,8 +6544,8 @@ class TallySalesApp(ctk.CTk):
 
         xml_toggle_btn = ctk.CTkButton(
             toggle_row, text="📄 XML Preview", width=150, height=30,
-            font=("Segoe UI", 10, "bold"), fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_muted"], corner_radius=6)
+            font=("Segoe UI", 10, "bold"), fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_muted"], corner_radius=6)
         xml_toggle_btn.pack(side="left", padx=(0, 8))
 
         info_lbl = ctk.CTkLabel(toggle_row, text="", font=("Segoe UI", 11),
@@ -6793,25 +6860,15 @@ class TallySalesApp(ctk.CTk):
                      "CGST", 900, "SGST", 900, "IGST", 0, "Testing"],
                 ],
             },
-            # "export_accounting": { ... },  # DISABLED
             "purchase_accounting": {
                 "sheet_name": "Sheet1",
                 "headers": [
+                    "VoucherType",
                     "Date",
                     "InvoiceNo",
                     "VoucherNo",
-                    "SupplierInvoiceNo",
                     "PartyLedger",
-                    "PartyName",
-                    "PartyMailingName",
-                    "PartyAddress1",
-                    "PartyAddress2",
-                    "PartyPincode",
-                    "PartyState",
                     "PlaceOfSupply",
-                    "PartyCountry",
-                    "GSTApplicable",
-                    "GSTRegistrationType",
                     "GSTIN/UIN",
                     "PurchaseLedger",
                     "TaxableValue",
@@ -6822,30 +6879,21 @@ class TallySalesApp(ctk.CTk):
                     "IGSTLedger",
                     "IGST Amount",
                     "Narration",
-                    "TDSLedger",
-                    "TDSRate",
-                    "TDSAmount",
                 ],
                 "sample_rows": [
-                    ["01/04/2024", "SINV-001", "1", "SINV-001", "PQR Suppliers", "PQR Suppliers", "PQR Suppliers",
-                     "789 MIDC Road", "", "411001", "Maharashtra", "Maharashtra", "India",
-                     "Applicable", "Regular", "27AAAPQ1234B1Z3", "Purchase Account", 10000,
-                     "CGST", 900, "SGST", 900, "IGST", 0, "Being goods purchased from PQR Suppliers",
-                     "TDS Payable on Professional", 10, ""],
-                    ["02/04/2024", "SINV-002", "2", "SINV-002", "LMN Industries", "LMN Industries", "LMN Industries",
-                     "321 Ring Road", "", "302001", "Rajasthan", "Maharashtra", "India",
-                     "Applicable", "Regular", "08AAELM9876C1Z1", "Purchase Account", 20000,
-                     "CGST", 0, "SGST", 0, "IGST", 3600, "Being goods purchased from LMN Industries",
-                     "", "", ""],
+                    ["Purchase", "20-04-2026", "SINV-001", "1", "PQR Suppliers", "Maharashtra",
+                     "27AAAPQ1234B1Z3", "Purchase Account", 10000, "CGST", 900,
+                     "SGST", 900, "IGST", 0, "Being goods purchased from PQR Suppliers"],
                 ],
             },
             "purchase_item": {
                 "sheet_name": "Sheet1",
                 "headers": [
+                    "VoucherType",
                     "Date",
-                    "Supplier Invoice No",
-                    "GSTIN",
+                    "InvoiceNo",
                     "VoucherNo",
+                    "GSTIN",
                     "PartyLedger",
                     "Purchase Ledger",
                     "Item Name",
@@ -6854,18 +6902,38 @@ class TallySalesApp(ctk.CTk):
                     "Rate",
                     "TaxableValue",
                     "CGSTLedger",
-                    "CGSTRate",
+                    "CGST Amount",
                     "SGSTLedger",
-                    "SGSTRate",
+                    "SGST Amount",
                     "IGSTLedger",
-                    "IGSTRate",
+                    "IGST Amount",
                     "Narration",
                 ],
                 "sample_rows": [
-                    ["06-04-2026", 1, "06BPXPK4098H1Z", 1, "PRAKASH SACHDEVA", "Purchase IGST",
-                     "Mouse", "pcs", 100, 1000, 100000, 0, 0, 0, 0, "IGST", 18, "Testing"],
-                    ["06-04-2026", 1, "06BPXPK4098H1Z", 1, "PRAKASH SACHDEVA", "Purchase IGST",
-                     "Keyboard", "pcs", 100, 1000, 100000, 0, 0, 0, 0, "IGST", 18, "Testing"],
+                    ["Purchase", "20-04-2026", "SINV-001", "1", "27AAAPQ1234B1Z3", "Party Ledger Name",
+                     "Purchase Account", "Item Name", "Nos", 10, 1000, 10000,
+                     "CGST", 900, "SGST", 900, "IGST", 0, "Testing"],
+                ],
+            },
+            "sales_export_accounting": {
+                "sheet_name": "Sheet1",
+                "headers": [
+                    "Date",
+                    "InvoiceNo",
+                    "PartyLedger",
+                    "PartyName",
+                    "Country",
+                    "SalesLedger",
+                    "Amount",
+                    "HSNCode",
+                    "HSNDescription",
+                    "Narration",
+                ],
+                "sample_rows": [
+                    ["06/04/2026", "SPL/2025-26/006", "Paypal Pte Ltd", "Paypal Pte Ltd",
+                     "Singapore", "Advertisement Export", 1000, "9983", "Advertisement", ""],
+                    ["06/04/2026", "SPL/2025-26/007", "Paypal Pte Ltd", "Paypal Pte Ltd",
+                     "Singapore", "Advertisement Export", 100, "9983", "Advertisement", ""],
                 ],
             },
         }
@@ -7173,12 +7241,17 @@ class TallySalesApp(ctk.CTk):
             )
             return
 
-        _default_vtype = "Sales" if mode in {"accounting", "item"} else "Purchase"  # "export_accounting" DISABLED
+        if mode in {"accounting", "item"}:
+            _default_vtype = "Sales"
+        elif mode == "sales_export_accounting":
+            _default_vtype = "Sales Export"
+        else:
+            _default_vtype = "Purchase"
         voucher_type = (self._voucher_type_vars.get(mode) or ctk.StringVar(value=_default_vtype)).get() or _default_vtype
 
         # For sales modes pushing to Tally: validate per-row VoucherType against live Tally types.
         # Only show mismatch popup if a type is not found in Tally — never popup when all match.
-        if mode in {"accounting", "item"} and action == "push":  # "export_accounting" DISABLED
+        if mode in {"accounting", "item"} and action == "push":
             unique_vtypes = sorted({
                 str(_row_get(r, "VoucherType", "") or "").strip()
                 for r in rows_to_use
@@ -7197,9 +7270,9 @@ class TallySalesApp(ctk.CTk):
         mode_to_file_name = {
             "accounting": "Tally_Sales_Accounting.xml",
             "item": "Tally_Sales_Item.xml",
-            # "export_accounting": "Tally_Sales_Export.xml",  # DISABLED
             "purchase_accounting": "Tally_Purchase_Accounting.xml",
             "purchase_item": "Tally_Purchase_Item.xml",
+            "sales_export_accounting": "Tally_Sales_Export_Accounting.xml",
         }
 
         def build_voucher_xml(
@@ -7234,14 +7307,6 @@ class TallySalesApp(ctk.CTk):
                     voucher_type=voucher_type,
                     round_off_ledger=round_off_ledger,
                 )
-            # if selected_mode == "export_accounting":  # DISABLED
-            #     return generate_export_accounting_xml(
-            #         rows_data, company,
-            #         date_mode=selected_date_mode,
-            #         custom_tally_date=selected_custom_date,
-            #         start_voucher_number=voucher_start,
-            #         voucher_type=voucher_type,
-            #     )
             if selected_mode == "purchase_accounting":
                 return generate_purchase_accounting_xml(
                     rows_data,
@@ -7264,12 +7329,22 @@ class TallySalesApp(ctk.CTk):
                     voucher_type=voucher_type,
                     round_off_ledger=round_off_ledger,
                 )
+            if selected_mode == "sales_export_accounting":
+                return generate_sales_export_accounting_xml(
+                    rows_data,
+                    company,
+                    date_mode=selected_date_mode,
+                    custom_tally_date=selected_custom_date,
+                    start_voucher_number=voucher_start,
+                    voucher_type=voucher_type,
+                    round_off_ledger=round_off_ledger,
+                )
             raise ValueError(f"Unsupported mode: {selected_mode}")
 
         try:
             if action == "save":
                 rows_for_save = list(rows_to_use)
-                if mode in {"accounting", "item"}:  # "export_accounting" DISABLED
+                if mode in {"accounting", "item"}:
                     try:
                         _save_url = self._get_tally_url()
                         _save_state_map = _fetch_party_ledger_states(
@@ -7410,7 +7485,7 @@ class TallySalesApp(ctk.CTk):
                         # For sales modes: fetch party ledger states from Tally so that
                         # unregistered parties (no GSTIN, no State in Excel) get a valid
                         # PlaceOfSupply — preventing "Uncertain" in GSTR-1.
-                        if mode in {"accounting", "item"}:  # "export_accounting" DISABLED
+                        if mode in {"accounting", "item"}:
                             self.after(0, lambda: self._push_message_var.set(
                                 "Fetching party states from Tally for unregistered parties..."))
                             _party_state_map = _fetch_party_ledger_states(
@@ -8181,12 +8256,11 @@ class TallySalesApp(ctk.CTk):
         btn2_row.grid_columnconfigure(0, weight=1)
         btn2_row.grid_columnconfigure(1, weight=1)
         ctk.CTkButton(btn2_row, text="✏️  Edit Selected",
-                       fg_color=("#94A3B8","#DC2626"), hover_color=("#64748B","#B91C1C"),
+                       fg_color=("#94A3B8","#475569"), hover_color=("#64748B","#334155"),
                        text_color="#FFFFFF", command=_gst_edit_selected
                        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
         ctk.CTkButton(btn2_row, text="🔄  Clear Fields",
-                       fg_color=("gray65","#DC2626"), hover_color=("gray55","#B91C1C"),
-                       text_color=("#1F2937", "#FFFFFF"),
+                       fg_color=("gray65","gray35"), hover_color=("gray55","gray45"),
                        command=_gst_reset_form_state
                        ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
@@ -9052,6 +9126,11 @@ class TallySalesApp(ctk.CTk):
         "Quantity", "Rate", "TaxableValue", "CGSTLedger", "CGSTRate", "SGSTLedger",
         "SGSTRate", "IGSTLedger", "IGSTRate", "Narration"
     ]
+    NOTE_TEMPLATE_HEADERS_ACCOUNTING = [
+        "Date", "GSTIN", "VoucherNo", "PartyLedger", "Particular",
+        "TaxableValue", "CGSTLedger", "CGSTRate", "SGSTLedger",
+        "SGSTRate", "IGSTLedger", "IGSTRate", "Narration"
+    ]
 
     def _build_note_panel(self, parent):
         """Build the shared Credit / Debit Note panel (tabbed: Excel Upload, Manual Entry, Create Party)."""
@@ -9075,7 +9154,7 @@ class TallySalesApp(ctk.CTk):
 
         note_template_btn = ctk.CTkButton(
             top_row, text="📥  Download Template",
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"], width=170,
             command=self._download_note_template)
         note_template_btn.pack(side="right")
@@ -9084,11 +9163,11 @@ class TallySalesApp(ctk.CTk):
         self._note_source_tabs = ctk.CTkTabview(
             parent,
             fg_color="transparent",
-            segmented_button_fg_color=("#F1F5F9", "#7F1D1D"),
+            segmented_button_fg_color=COLORS["bg_input"],
             segmented_button_selected_color=COLORS["accent"],
             segmented_button_selected_hover_color=COLORS["accent_hover"],
-            segmented_button_unselected_color=("#F1F5F9", "#DC2626"),
-            segmented_button_unselected_hover_color=("#E2E8F0", "#B91C1C"),
+            segmented_button_unselected_color=COLORS["bg_input"],
+            segmented_button_unselected_hover_color=COLORS["bg_card_hover"],
         )
         self._note_source_tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 4))
 
@@ -9118,7 +9197,7 @@ class TallySalesApp(ctk.CTk):
         note_ro_entry.pack(side="left", padx=(0, 6))
 
         note_ro_fetch_btn = ctk.CTkButton(note_ro_row, text="Fetch Ledgers", width=110,
-                                          fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                                          fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                                           text_color=COLORS["text_secondary"], state="disabled")
         note_ro_fetch_btn.pack(side="left", padx=(0, 6))
 
@@ -9289,7 +9368,7 @@ class TallySalesApp(ctk.CTk):
                 self._note_manual_fetch_ledger_btn = ctk.CTkButton(
                     top_line, text="Fetch", width=70, height=26,
                     font=("Segoe UI", 10, "bold"),
-                    fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                     text_color=COLORS["text_secondary"],
                     command=self._note_fetch_party_ledgers_thread)
                 self._note_manual_fetch_ledger_btn.pack(side="right")
@@ -9305,7 +9384,7 @@ class TallySalesApp(ctk.CTk):
 
                 self._note_manual_party_search_clear_btn = ctk.CTkButton(
                     search_row, text="Clear", width=58, height=30,
-                    fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                     text_color=COLORS["text_secondary"], font=("Segoe UI", 9, "bold"),
                     command=lambda: (self._note_manual_party_search_var.set(""), self._on_note_party_search_change()))
                 self._note_manual_party_search_clear_btn.pack(side="right")
@@ -9353,8 +9432,8 @@ class TallySalesApp(ctk.CTk):
             text_color="#FFFFFF", height=34, state="disabled", command=self._note_update_manual_entry)
         self._note_manual_update_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0), pady=(0, 6))
 
-        ctk.CTkButton(btn_row, text="Clear Form", fg_color=("#F1F5F9", "#DC2626"),
-                      hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_secondary"],
+        ctk.CTkButton(btn_row, text="Clear Form", fg_color=COLORS["bg_input"],
+                      hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_secondary"],
                       height=34, command=self._note_clear_manual_form).grid(row=1, column=0, sticky="ew", padx=(0, 6))
 
         ctk.CTkButton(btn_row, text="Remove Selected", fg_color=COLORS["warning"], hover_color="#B45309",
@@ -9491,13 +9570,13 @@ class TallySalesApp(ctk.CTk):
 
         self._note_create_party_fetch_btn = ctk.CTkButton(
             btn_row, text="Fetch Party Ledgers", width=160, height=34,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"], command=self._note_fetch_party_ledgers_thread)
         self._note_create_party_fetch_btn.pack(side="left", padx=(0, 8))
 
         self._note_create_party_clear_btn = ctk.CTkButton(
             btn_row, text="Clear", width=90, height=34,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"], command=self._note_clear_create_party_form)
         self._note_create_party_clear_btn.pack(side="left", padx=(0, 8))
 
@@ -9889,8 +9968,15 @@ class TallySalesApp(ctk.CTk):
 
     def _download_note_template(self):
         note_type = self._note_type_var.get() or "Credit Note"
-        headers = self.NOTE_TEMPLATE_HEADERS
-        sample = ["22-04-2026", "18AABCI8307G1ZM", "1", "ABC Corp Pvt Ltd", "Sales Account", 20000, "", 0, "", 0, "IGST", 18, "Test Entry for ABC Corp"]
+        is_accounting = "Accounting" in note_type
+        if is_accounting:
+            headers = self.NOTE_TEMPLATE_HEADERS_ACCOUNTING
+            sample = ["22-04-2026", "18AABCI8307G1ZM", "1", "ABC Corp Pvt Ltd", "Sales Account",
+                      20000, "CGST", 0, "SGST", 0, "IGST", 18, "Test Entry for ABC Corp"]
+        else:
+            headers = self.NOTE_TEMPLATE_HEADERS
+            sample = ["22-04-2026", "18AABCI8307G1ZM", "1", "ABC Corp Pvt Ltd", "Sales Account",
+                      "Item Name", "Nos", 10, 1000, 10000, "CGST", 0, "SGST", 0, "IGST", 18, "Test Entry"]
         out = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             initialfile=f"Template_{note_type.replace(' ', '_')}.xlsx",
@@ -9945,7 +10031,7 @@ class TallySalesApp(ctk.CTk):
 
         ctk.CTkButton(
             inner, text="📥  Download Template",
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"], width=170,
             command=self._download_journal_template).pack(side="right")
 
@@ -9953,11 +10039,11 @@ class TallySalesApp(ctk.CTk):
         self._jnl_source_tabs = ctk.CTkTabview(
             parent,
             fg_color="transparent",
-            segmented_button_fg_color=("#F1F5F9", "#7F1D1D"),
+            segmented_button_fg_color=COLORS["bg_input"],
             segmented_button_selected_color=COLORS["accent"],
             segmented_button_selected_hover_color=COLORS["accent_hover"],
-            segmented_button_unselected_color=("#F1F5F9", "#DC2626"),
-            segmented_button_unselected_hover_color=("#E2E8F0", "#B91C1C"),
+            segmented_button_unselected_color=COLORS["bg_input"],
+            segmented_button_unselected_hover_color=COLORS["bg_card_hover"],
         )
         self._jnl_source_tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 2))
 
@@ -9985,7 +10071,7 @@ class TallySalesApp(ctk.CTk):
         jnl_ro_entry.pack(side="left", padx=(0, 6))
 
         jnl_ro_fetch_btn = ctk.CTkButton(jnl_ro_row, text="Fetch Ledgers", width=110,
-                                          fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                                          fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                                           text_color=COLORS["text_secondary"], state="disabled")
         jnl_ro_fetch_btn.pack(side="left", padx=(0, 6))
 
@@ -10152,7 +10238,7 @@ class TallySalesApp(ctk.CTk):
                 self._jnl_manual_fetch_ledger_btn = ctk.CTkButton(
                     top_line, text="Fetch", width=70, height=26,
                     font=("Segoe UI", 10, "bold"),
-                    fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                     text_color=COLORS["text_secondary"],
                     command=self._jnl_fetch_party_ledgers_thread)
                 self._jnl_manual_fetch_ledger_btn.pack(side="right")
@@ -10168,7 +10254,7 @@ class TallySalesApp(ctk.CTk):
 
                 self._jnl_manual_party_search_clear_btn = ctk.CTkButton(
                     search_row, text="Clear", width=58, height=30,
-                    fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                     text_color=COLORS["text_secondary"], font=("Segoe UI", 9, "bold"),
                     command=lambda: (self._jnl_manual_party_search_var.set(""), self._on_jnl_party_search_change()))
                 self._jnl_manual_party_search_clear_btn.pack(side="right")
@@ -10216,8 +10302,8 @@ class TallySalesApp(ctk.CTk):
             text_color="#FFFFFF", height=28, font=("Segoe UI", 10, "bold"), state="disabled", command=self._jnl_update_manual_entry)
         self._jnl_manual_update_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0), pady=(0, 4))
 
-        ctk.CTkButton(btn_row, text="Clear Form", fg_color=("#F1F5F9", "#DC2626"),
-                      hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_secondary"],
+        ctk.CTkButton(btn_row, text="Clear Form", fg_color=COLORS["bg_input"],
+                      hover_color=COLORS["bg_card_hover"], text_color=COLORS["text_secondary"],
                       height=28, font=("Segoe UI", 10, "bold"), command=self._jnl_clear_manual_form).grid(row=1, column=0, sticky="ew", padx=(0, 6))
 
         ctk.CTkButton(btn_row, text="Remove Selected", fg_color=COLORS["warning"], hover_color="#B45309",
