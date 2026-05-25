@@ -571,10 +571,13 @@ class GSTApp(ctk.CTk):
         ctk.CTkLabel(self.frame_gstin, text="📋 GSTIN List", font=("Segoe UI", 13, "bold")).pack(anchor="center", padx=15, pady=(14, 8))
         gstin_row = ctk.CTkFrame(self.frame_gstin, fg_color="transparent")
         gstin_row.pack(anchor="center", pady=(0, 12))
-        ctk.CTkButton(gstin_row, text="➕ Add GSTIN", width=130, height=34,
+        ctk.CTkButton(gstin_row, text="📂 Browse Excel", width=130, height=34,
                       fg_color="#059669", hover_color="#047857",
-                      font=("Segoe UI", 11, "bold"), command=self.add_gstin).pack(side="left", padx=6)
-        ctk.CTkButton(gstin_row, text="📂 Load Data", width=120, height=34,
+                      font=("Segoe UI", 11, "bold"), command=self.browse_excel).pack(side="left", padx=6)
+        ctk.CTkButton(gstin_row, text="📥 Download Sample", width=145, height=34,
+                      fg_color="#475569", hover_color="#334155",
+                      font=("Segoe UI", 11, "bold"), command=self.download_sample_excel).pack(side="left", padx=6)
+        ctk.CTkButton(gstin_row, text="💾 Load Data (DB)", width=130, height=34,
                       fg_color="#4338ca", hover_color="#3730a3",
                       font=("Segoe UI", 11, "bold"), command=self.load_gstins_from_db).pack(side="left", padx=6)
         ctk.CTkButton(gstin_row, text="✏️ View / Edit Data", width=140, height=34,
@@ -665,15 +668,19 @@ class GSTApp(ctk.CTk):
             _os.makedirs(_os.path.dirname(db_path), exist_ok=True)
             try:
                 conn = _sq.connect(db_path)
-                conn.execute("CREATE TABLE IF NOT EXISTS gst_gstin_list (id INTEGER PRIMARY KEY AUTOINCREMENT, gstin TEXT UNIQUE)")
-                try: conn.execute("ALTER TABLE gst_gstin_list ADD COLUMN client_name TEXT")
+                conn.execute("CREATE TABLE IF NOT EXISTS gst_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
+                try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN client_name TEXT")
+                except: pass
+                try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN filing_frequency TEXT")
+                except: pass
+                try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN gstin TEXT")
                 except: pass
                 
-                existing = conn.execute("SELECT id FROM gst_gstin_list WHERE gstin=?", (g,)).fetchone()
+                existing = conn.execute("SELECT id, username FROM gst_profiles WHERE gstin=? OR username=?", (g, g)).fetchone()
                 if existing:
-                    conn.execute("UPDATE gst_gstin_list SET client_name=? WHERE gstin=?", (c, g))
+                    conn.execute("UPDATE gst_profiles SET client_name=?, gstin=? WHERE username=?", (c, g, existing[1]))
                 else:
-                    conn.execute("INSERT INTO gst_gstin_list (gstin, client_name) VALUES (?, ?)", (g, c))
+                    conn.execute("INSERT INTO gst_profiles (username, password, client_name, filing_frequency, gstin) VALUES (?, ?, ?, ?, ?)", (g, "", c, "Monthly", g))
                 conn.commit()
                 conn.close()
             except Exception as e:
@@ -694,13 +701,97 @@ class GSTApp(ctk.CTk):
         ctk.CTkButton(btn_row, text="Save GSTIN", width=110, fg_color="#059669", hover_color="#047857", command=_save).pack(side="right", padx=(0, 8))
         dialog.bind("<Return>", lambda _e: _save())
 
+    def browse_excel(self):
+        from tkinter import filedialog
+        import pandas as pd
+        path = filedialog.askopenfilename(title="Select Excel File", filetypes=[("Excel Files", "*.xlsx;*.xls")])
+        if not path:
+            return
+        try:
+            df = pd.read_excel(path)
+            # Normalize column names case-sensitively and strip whitespace
+            orig_cols = {str(c).strip().upper(): c for c in df.columns}
+            
+            # Look for GSTIN column
+            gstin_col = None
+            for key in ['GSTIN', 'GSTIN/UIN', 'GSTIN NUMBER']:
+                if key in orig_cols:
+                    gstin_col = orig_cols[key]
+                    break
+            if not gstin_col and len(df.columns) > 0:
+                # Fallback to any column containing "GSTIN"
+                for c in df.columns:
+                    if 'GSTIN' in str(c).upper():
+                        gstin_col = c
+                        break
+            if not gstin_col and len(df.columns) > 0:
+                # Second fallback to the second column or first column
+                gstin_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+                
+            cname_col = None
+            for key in ['CLIENT NAME', 'CLIENTNAME', 'NAME', 'CLIENT']:
+                if key in orig_cols:
+                    cname_col = orig_cols[key]
+                    break
+            if not cname_col and len(df.columns) > 0:
+                for c in df.columns:
+                    if 'NAME' in str(c).upper() or 'CLIENT' in str(c).upper():
+                        cname_col = c
+                        break
+            if not cname_col and len(df.columns) > 0:
+                cname_col = df.columns[0]
+                
+            loaded = []
+            seen = set()
+            for _, r in df.iterrows():
+                g = str(r[gstin_col]).strip() if gstin_col is not None else ""
+                if g and g.upper() != 'NAN' and g not in seen:
+                    seen.add(g)
+                    c = str(r[cname_col]).strip() if cname_col is not None else ""
+                    if c.lower() == 'nan': c = ""
+                    loaded.append({"GSTIN": g.upper(), "ClientName": c})
+            
+            if not loaded:
+                messagebox.showwarning("No GSTINs Found", "No valid GSTINs found in the Excel file.")
+                return
+                
+            self.gstin_list = loaded
+            self._refresh_gstin_count()
+            self.log_message(f"📂 Loaded {len(loaded)} GSTIN(s) from Excel file:\n{path}", "success")
+            for idx, item in enumerate(loaded):
+                self.log_message(f"  [{idx+1}] Client: {item['ClientName']} | GSTIN: {item['GSTIN']}", "normal")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to read Excel file:\n{e}")
+
+    def download_sample_excel(self):
+        from tkinter import filedialog
+        import pandas as pd
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="Sample_GST_Verification.xlsx", filetypes=[("Excel Files", "*.xlsx")])
+        if not path:
+            return
+        try:
+            df = pd.DataFrame([{"Client Name": "Studycafe", "GSTIN": "07AAAAA0000A1Z5"}])
+            df.to_excel(path, index=False)
+            messagebox.showinfo("Success", f"Sample Excel saved successfully at:\n{path}")
+            self.log_message(f"📥 Sample Excel downloaded: {path}", "info")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save sample Excel:\n{e}")
+
     def load_gstins_from_db(self):
         import sqlite3 as _sq, os as _os
         db_path = _os.path.join(_os.environ.get("APPDATA", _os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
         try:
             conn = _sq.connect(db_path)
+            conn.execute("CREATE TABLE IF NOT EXISTS gst_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
+            try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN client_name TEXT")
+            except: pass
+            try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN filing_frequency TEXT")
+            except: pass
+            try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN gstin TEXT")
+            except: pass
+            
             cur = conn.cursor()
-            cur.execute("SELECT * FROM gst_gstin_list ORDER BY gstin")
+            cur.execute("SELECT * FROM gst_profiles ORDER BY client_name, username")
             cols = [d[0] for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
             conn.close()
@@ -731,6 +822,7 @@ class GSTApp(ctk.CTk):
         scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
         for rdata in rows:
             g = rdata.get("gstin", "")
+            if not g: g = rdata.get("username", "")
             c = rdata.get("client_name") or ""
             v = ctk.BooleanVar()
             disp = f"{c} ({g})" if c else g
@@ -744,6 +836,8 @@ class GSTApp(ctk.CTk):
             self.gstin_list = selected
             self._refresh_gstin_count()
             self.log_message(f"📂 Loaded {len(selected)} GSTIN(s) from DB", "info")
+            for idx, item in enumerate(selected):
+                self.log_message(f"  [{idx+1}] Client: {item['ClientName']} | GSTIN: {item['GSTIN']}", "normal")
             dialog.destroy()
         foot = ctk.CTkFrame(dialog, fg_color="transparent")
         foot.pack(fill="x", padx=16, pady=(0, 12))
@@ -762,7 +856,14 @@ class GSTApp(ctk.CTk):
         db_path = _os.path.join(_os.environ.get("APPDATA", _os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
         try:
             conn = _sq.connect(db_path)
-            rows = conn.execute("SELECT id, gstin FROM gst_gstin_list ORDER BY gstin").fetchall()
+            conn.execute("CREATE TABLE IF NOT EXISTS gst_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
+            try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN client_name TEXT")
+            except: pass
+            try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN filing_frequency TEXT")
+            except: pass
+            try: conn.execute("ALTER TABLE gst_profiles ADD COLUMN gstin TEXT")
+            except: pass
+            rows = conn.execute("SELECT id, gstin, username, client_name FROM gst_profiles ORDER BY client_name, username").fetchall()
             conn.close()
         except Exception:
             rows = []
@@ -783,7 +884,7 @@ class GSTApp(ctk.CTk):
             try:
                 c = _sq.connect(db_path)
                 cur = c.cursor()
-                cur.execute("SELECT * FROM gst_gstin_list ORDER BY gstin")
+                cur.execute("SELECT * FROM gst_profiles ORDER BY client_name, username")
                 cols = [d[0] for d in cur.description]
                 rs = [dict(zip(cols, r)) for r in cur.fetchall()]
                 c.close()
@@ -796,6 +897,7 @@ class GSTApp(ctk.CTk):
             for rdata in rs:
                 rid = rdata.get("id")
                 gnum = rdata.get("gstin", "")
+                if not gnum: gnum = rdata.get("username", "")
                 cname = rdata.get("client_name") or ""
                 row_f = ctk.CTkFrame(scroll, fg_color=("#f8fafc", "#273549"),
                                      corner_radius=8, border_width=1,
@@ -814,11 +916,11 @@ class GSTApp(ctk.CTk):
                               font=("Segoe UI", 11, "bold"),
                               command=_edit).grid(row=0, column=1, padx=(0, 5))
                 def _del(r=rid, n=gnum):
-                    if not messagebox.askyesno("Delete", f"Delete GSTIN '{n}'?", parent=dialog):
+                    if not messagebox.askyesno("Delete", f"Delete profile for '{n}'?", parent=dialog):
                         return
                     try:
                         c2 = _sq.connect(db_path)
-                        c2.execute("DELETE FROM gst_gstin_list WHERE id=?", (r,))
+                        c2.execute("DELETE FROM gst_profiles WHERE id=?", (r,))
                         c2.commit()
                         c2.close()
                     except Exception:

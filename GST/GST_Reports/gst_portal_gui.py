@@ -55,7 +55,7 @@ QUARTERLY_FY_ORDER = ["6","9","12","3"]
 MONTH_NAMES   = {m[1]: m[0] for m in MONTHS}
 QUARTER_NAMES = {q[1]: q[0] for q in QUARTERS}
 CURRENT_YEAR  = datetime.now().year
-YEARS         = [str(y) for y in range(CURRENT_YEAR, CURRENT_YEAR - 6, -1)]
+YEARS         = [f"{y}-{str(y+1)[2:]}" for y in range(CURRENT_YEAR - 5, CURRENT_YEAR + 1)]
 
 # =============================================================================
 # Theme — Modern Dark
@@ -114,35 +114,23 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         self._logged_in   = False
         self._otp_pending = False
         self._yearly_stop = False
-        self._output_dir  = str(Path(__file__).parent)
+        # Default to the current user's Documents folder
+        _default_out = os.path.join(
+            os.path.expanduser("~"), "Documents"
+        )
+        os.makedirs(_default_out, exist_ok=True)
+        self._output_dir  = _default_out
         self._profile     = {}
-        self._app_config_path = str(Path(__file__).parent / "app_config.json")
+        _cfg_dir = os.path.join(
+            os.environ.get("APPDATA", os.path.expanduser("~")), "GSTSuite"
+        )
+        os.makedirs(_cfg_dir, exist_ok=True)
+        self._app_config_path = os.path.join(_cfg_dir, "gst_reports_config.json")
         self._app_config  = self._load_app_config()
 
         self._loaded_credentials = None   # {"Username": ..., "Password": ..., "ClientName": ...}
         self._build_ui()
-        self._setup_traces()
         self._set_state("idle")
-
-    def _setup_traces(self):
-        """Monitor tab scopes to show/hide consolidated option."""
-        for var in [self.var_1_scope, self.var_2a_scope, 
-                    self.var_2b_scope, self.var_3b_scope]:
-            var.trace_add("write", lambda *a: self._update_excel_mode_visibility())
-        self._update_excel_mode_visibility()
-
-    def _update_excel_mode_visibility(self):
-        """Shows consolidated option only if 'Full Year' is selected in any tab."""
-        any_yearly = any(v.get() == "year" for v in [
-            self.var_1_scope, self.var_2a_scope, 
-            self.var_2b_scope, self.var_3b_scope
-        ])
-        if any_yearly:
-            self.excel_mode_row.pack(anchor="w", pady=(5, 0), padx=10)
-        else:
-            self.excel_mode_row.pack_forget()
-            self.var_excel_mode.set("individual")
-
     # =========================================================================
     # UI Components
     # =========================================================================
@@ -153,25 +141,32 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         self.grid_columnconfigure(0, weight=0)   # left sidebar
         self.grid_columnconfigure(1, weight=1)   # right panel
 
-        # ── Left sidebar (login + captcha) ────────────────────────────────────
-        self._left = ctk.CTkScrollableFrame(self, width=310, corner_radius=0,
+        self._left = ctk.CTkScrollableFrame(self, width=330, corner_radius=0,
                                              fg_color=("#f8fafc", "#111827"))
         self._left.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
 
-        self._build_login_section()
-        self._build_format_section()
-        self._build_captcha_section()
-        self._build_otp_section()
-        self._build_action_buttons()
+        self.card_cred = ctk.CTkFrame(self._left, border_color=("#e2e8f0", "#334155"), border_width=1, corner_radius=6, fg_color=("gray98", "#1e293b"))
+        self.card_cred.pack(fill="x", pady=15, padx=15)
+        
+        ctk.CTkLabel(self.card_cred, text="📂 Credentials Source", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=15, pady=(15, 10))
+
+        # Silently initialize format vars
+        self.var_fmt_excel = tk.BooleanVar(value=True)
+        self.var_excel_mode = tk.StringVar(value="individual")
+
+        self._build_login_section(self.card_cred)
+        self._build_captcha_section(self.card_cred)
+        self._build_otp_section(self.card_cred)
+        self._build_action_buttons(self.card_cred)
 
         # ── Right panel (tabs + log) ──────────────────────────────────────────
         self._right = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
         self._right.grid(row=0, column=1, sticky="nsew", padx=8, pady=6)
 
         self._right.grid_columnconfigure(0, weight=1)
-        self._right.grid_rowconfigure(0, weight=5)   # Tabview expands most
+        self._right.grid_rowconfigure(0, weight=1)   # Tabview expands most
         self._right.grid_rowconfigure(1, weight=0)   # Status/Progress — fixed
-        self._right.grid_rowconfigure(2, weight=1)   # Log — compact
+        self._right.grid_rowconfigure(2, weight=0)   # Log — fixed height
 
         # Tabview (no fixed height — expands to fill space)
         self.tabview = ctk.CTkTabview(self._right,
@@ -183,7 +178,7 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
                                        segmented_button_selected_hover_color=("#7c3aed", "#6d28d9"),
                                        segmented_button_unselected_color=("gray90", "#111827"),
                                        segmented_button_unselected_hover_color=("gray85", "#1e293b"))
-        self.tabview.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+        self.tabview.grid(row=0, column=0, sticky="nsew", pady=(0, 2))
         
         self._tab_1 = self.tabview.add("GSTR-1")
         self._tab_2a = self.tabview.add("GSTR-2A")
@@ -197,7 +192,7 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
 
         # Progress / Status Area
         status_frame = ctk.CTkFrame(self._right, fg_color="transparent")
-        status_frame.grid(row=1, column=0, sticky="ew", pady=(0, 4))
+        status_frame.grid(row=1, column=0, sticky="ew", pady=(0, 2))
         
         self.lbl_status = ctk.CTkLabel(status_frame, text="Ready", font=ctk.CTkFont(weight="bold"))
         self.lbl_status.pack(side="left", padx=5)
@@ -209,20 +204,16 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         # Log Panel
         self._build_log_panel()
 
-    def _build_login_section(self):
+    def _build_login_section(self, parent):
         # Hidden StringVars — populated when a profile is loaded; used by existing login logic
         self.var_username = tk.StringVar()
         self.var_password = tk.StringVar()
 
-        box = ctk.CTkFrame(self._left, fg_color="transparent")
-        box.pack(fill="x", pady=(10, 6), padx=16)
-
-        ctk.CTkLabel(box, text="CREDENTIALS",
-                     font=ctk.CTkFont(size=12, weight="bold"),
-                     text_color=("#334155", "#94a3b8")).pack(anchor="w", pady=(0, 6))
+        box = ctk.CTkFrame(parent, fg_color="transparent")
+        box.pack(fill="x", pady=(0, 10), padx=15)
 
         # Profile display (read-only, shows loaded profile name / username)
-        self._cred_display_var = tk.StringVar(value="No profile loaded")
+        self._cred_display_var = tk.StringVar(value="Add ID/Password manually...")
         cred_disp = ctk.CTkEntry(box, textvariable=self._cred_display_var,
                                   state="readonly", height=32,
                                   fg_color=("gray93", "#1e293b"),
@@ -246,26 +237,10 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
                       hover_color=("#B91C1C", "#991B1B"),
                       command=self._open_demo_link).pack(side="right")
 
-        # View loaded cred
-        self._btn_view_cred = ctk.CTkButton(
-            box, text="👁  View Loaded Profile",
-            height=26, width=140,
-            fg_color="transparent", border_width=1,
-            border_color=("gray75", "#334155"),
-            text_color=("#475569", "#94a3b8"),
-            font=ctk.CTkFont(size=11),
-            state="disabled",
-            command=self._view_loaded_cred)
-        self._btn_view_cred.pack(anchor="w", pady=(0, 4))
+        # View loaded cred removed per user request
 
-        # Save To
-        ctk.CTkLabel(box, text="Save To", font=ctk.CTkFont(size=12)).pack(anchor="w", pady=(4, 0))
-        out_row = ctk.CTkFrame(box, fg_color="transparent")
-        out_row.pack(fill="x", pady=(2, 0))
+        # Save To (Programmatically set to user's Documents folder, removed from UI)
         self.var_output = tk.StringVar(value=self._output_dir)
-        ctk.CTkEntry(out_row, textvariable=self.var_output, height=32).pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(out_row, text="...", width=35, height=32,
-                      command=self._browse_output).pack(side="right", padx=(5, 0))
 
     # ── Credential helpers ────────────────────────────────────────────────────
 
@@ -274,16 +249,26 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         c = self._loaded_credentials
         if not c:
             self._cred_display_var.set("No profile loaded")
-            self._btn_view_cred.configure(state="disabled")
             return
         name = c.get("ClientName") or c.get("Username", "")
         user = c.get("Username", "")
         disp = f"{name} ({user})" if name and name != user else user
         self._cred_display_var.set(disp)
-        self._btn_view_cred.configure(state="normal")
         # Push into hidden vars so login logic works without changes
         self.var_username.set(c.get("Username", ""))
         self.var_password.set(c.get("Password", ""))
+
+        # Dynamically set and freeze filing frequency based on DB profile
+        freq = c.get("FilingFrequency")
+        if freq in ["Monthly", "Quarterly"]:
+            for prefix in ["1", "2a", "2b", "3b"]:
+                var_mode = getattr(self, f"var_{prefix}_mode", None)
+                tabs = getattr(self, f"_{prefix}_mode_tabs", None)
+                toggle = getattr(self, f"_{prefix}_toggle_inputs", None)
+                if var_mode and tabs and toggle:
+                    var_mode.set(freq)
+                    toggle()
+                    tabs.configure(state="disabled")
 
     def _view_loaded_cred(self):
         c = self._loaded_credentials
@@ -354,7 +339,8 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
             p  = r.get("password", "")
             c  = r.get("client_name") or ""
             ff = r.get("filing_frequency") or "Monthly"
-            disp = f"{c}  ({u})" if c else u
+            base_disp = f"{c}  ({u})" if c else u
+            disp = f"{base_disp} [{ff}]"
             uid  = f"p{i}"
             data_map[uid] = {"Username": u, "Password": p, "ClientName": c, "FilingFrequency": ff}
             rb = ctk.CTkRadioButton(scroll, text=disp, variable=selected_var, value=uid)
@@ -436,21 +422,22 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
                      text_color=("#334155", "#94a3b8")).pack(anchor="w", padx=15, pady=(10, 5))
 
         self.var_fmt_excel = tk.BooleanVar(value=True)
-        ctk.CTkCheckBox(box, text="Generate Excel (.xlsx)", variable=self.var_fmt_excel).pack(anchor="w", padx=15, pady=5)
+        # Checkbox removed; Excel is generated by default
 
         self.var_excel_mode = tk.StringVar(value="individual")
         self.excel_mode_row = ctk.CTkFrame(box, fg_color="transparent")
+        self.excel_mode_row.pack(anchor="w", pady=(0, 10), padx=10)
         ctk.CTkRadioButton(self.excel_mode_row, text="Individual", variable=self.var_excel_mode, value="individual").pack(side="left")
         ctk.CTkRadioButton(self.excel_mode_row, text="Consolidated", variable=self.var_excel_mode, value="consolidated").pack(side="left", padx=15)
 
-    def _build_captcha_section(self):
-        box = ctk.CTkFrame(self._left, fg_color="transparent")
-        box.pack(fill="x", pady=(5, 10), padx=20)
+    def _build_captcha_section(self, parent):
+        box = ctk.CTkFrame(parent, fg_color="transparent")
+        box.pack(fill="x", pady=(5, 10), padx=15)
 
         self.btn_captcha = ctk.CTkButton(box, text="GET CAPTCHA", command=self._on_get_captcha, height=35, font=ctk.CTkFont(weight="bold"))
         self.btn_captcha.pack(fill="x", pady=(0, 8))
 
-        self.captcha_label = ctk.CTkLabel(box, text="[ Captcha Image ]", height=65, fg_color=("gray85", "#1a1a1a"), corner_radius=5)
+        self.captcha_label = ctk.CTkLabel(box, text="[ Captcha Image ]", height=65, fg_color=("gray85", "#111827"), corner_radius=5)
         self.captcha_label.pack(fill="x", pady=(0, 8))
 
         row = ctk.CTkFrame(box, fg_color="transparent")
@@ -460,8 +447,8 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         self.entry_captcha = ctk.CTkEntry(row, textvariable=self.var_captcha, height=32, placeholder_text="CODE", font=ctk.CTkFont(size=14, weight="bold"), justify="center")
         self.entry_captcha.pack(side="right", fill="x", expand=True, padx=(10, 0))
 
-    def _build_otp_section(self):
-        self.otp_frame = ctk.CTkFrame(self._left, fg_color=("gray93", "#3e3b2e"), border_width=1, border_color="#d4ac0d")
+    def _build_otp_section(self, parent):
+        self.otp_frame = ctk.CTkFrame(parent, fg_color=("gray93", "#3e3b2e"), border_width=1, border_color="#d4ac0d")
         # Pack/forget dynamically
         
         ctk.CTkLabel(self.otp_frame, text="OTP Verification Required", text_color="#d4ac0d", font=ctk.CTkFont(weight="bold")).pack(pady=5)
@@ -471,9 +458,9 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         self.entry_otp = ctk.CTkEntry(row, textvariable=self.var_otp, width=120, height=35, justify="center", font=ctk.CTkFont(size=18, weight="bold"))
         self.entry_otp.pack(side="left", padx=5)
 
-    def _build_action_buttons(self):
-        self._action_frame = ctk.CTkFrame(self._left, fg_color="transparent")
-        self._action_frame.pack(fill="x", pady=(5, 20), padx=20)
+    def _build_action_buttons(self, parent):
+        self._action_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self._action_frame.pack(fill="x", pady=(5, 15), padx=15)
         
         self.btn_login = ctk.CTkButton(self._action_frame, text="LOGIN", command=self._on_login, height=40, fg_color=GREEN, hover_color="#268635", font=ctk.CTkFont(weight="bold"))
         self.btn_login.pack(fill="x", pady=(0, 8))
@@ -481,66 +468,136 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         self.btn_logout = ctk.CTkButton(self._action_frame, text="LOGOUT", command=self._on_logout, height=35, fg_color="#444", hover_color="#555")
         self.btn_logout.pack(fill="x")
 
+    def _build_period_selection(self, tab, prefix):
+        card = ctk.CTkFrame(tab, border_color=("#e2e8f0", "#334155"), border_width=1, corner_radius=6, fg_color=("gray95", "#1e293b"))
+        
+        ctk.CTkLabel(card, text="📅 Period Selection", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=15, pady=(4, 1))
+
+        # Single Row for Parameters
+        frm_params = ctk.CTkFrame(card, fg_color="transparent")
+        frm_params.pack(fill="x", padx=15, pady=(1, 2))
+
+        # Financial Year
+        ctk.CTkLabel(frm_params, text="Financial Year:", width=110, anchor="w").pack(side="left")
+        var_year = tk.StringVar(value=YEARS[-1])
+        setattr(self, f"var_{prefix}_year", var_year)
+        ctk.CTkOptionMenu(frm_params, values=YEARS, variable=var_year, width=160).pack(side="left", padx=(0, 30))
+        
+        # Filing Frequency
+        var_mode = tk.StringVar(value="Monthly")
+        setattr(self, f"var_{prefix}_mode", var_mode)
+        ctk.CTkLabel(frm_params, text="Filing Frequency:", width=120, anchor="w").pack(side="left")
+        
+        # Dynamic Checkbox Frame
+        frm_checkboxes = ctk.CTkFrame(card, fg_color="transparent")
+        frm_checkboxes.pack(fill="both", expand=True, padx=15, pady=1)
+        
+        checkbox_vars = {}
+        setattr(self, f"_{prefix}_period_vars", checkbox_vars)
+
+        def toggle_inputs(mode_choice=None):
+            mode = var_mode.get()
+            for w in frm_checkboxes.winfo_children():
+                w.destroy()
+            checkbox_vars.clear()
+
+            top_bar = ctk.CTkFrame(frm_checkboxes, fg_color="transparent")
+            top_bar.pack(fill="x", pady=(0, 1))
+            
+            select_all_var = tk.BooleanVar(value=False)
+            def toggle_select_all():
+                state = select_all_var.get()
+                for v in checkbox_vars.values():
+                    v.set(state)
+                # Toggle visibility of the external opt_frame
+                external_opt = getattr(self, f"_opt_frame_{prefix}", None)
+                if external_opt:
+                    if state:
+                        external_opt.grid(row=2, column=0, sticky="ew", padx=10, pady=(2, 0))
+                    else:
+                        external_opt.grid_forget()
+                        self.var_excel_mode.set("individual")
+            
+            ctk.CTkCheckBox(top_bar, text="Select All", variable=select_all_var, command=toggle_select_all, font=("Segoe UI", 12, "bold"), text_color="#10B981").pack(side="left")
+
+            chk_grid = ctk.CTkFrame(frm_checkboxes, fg_color="transparent")
+            chk_grid.pack(fill="both", expand=True)
+
+            if mode == "Monthly":
+                items = ["4", "5", "6", "7", "8", "9", "10", "11", "12", "1", "2", "3"]
+                labels = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
+                cols = 6
+            else:
+                items = ["6", "9", "12", "3"]
+                labels = ["Q1 (Apr-Jun)", "Q2 (Jul-Sep)", "Q3 (Oct-Dec)", "Q4 (Jan-Mar)"]
+                cols = 4
+            
+            for i, (item, label) in enumerate(zip(items, labels)):
+                var = tk.BooleanVar(value=False)
+                checkbox_vars[item] = var
+                chk = ctk.CTkCheckBox(chk_grid, text=label, variable=var, font=("Segoe UI", 12))
+                chk.grid(row=i // cols, column=i % cols, padx=5, pady=1, sticky="w")
+
+        mode_tabs = ctk.CTkSegmentedButton(
+            frm_params,
+            values=["Monthly", "Quarterly"],
+            variable=var_mode,
+            command=toggle_inputs,
+            width=180
+        )
+        mode_tabs.pack(side="left", padx=10)
+        
+        setattr(self, f"_{prefix}_mode_tabs", mode_tabs)
+        setattr(self, f"_{prefix}_toggle_inputs", toggle_inputs)
+
+        toggle_inputs()
+        return card
+
     def _fill_tab_1(self):
         tab = self.tabview.tab("GSTR-1")
-        tab.grid_columnconfigure((1,3), weight=1)
+        tab.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(tab, text="Select Period", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, sticky="w", pady=(8,4), padx=10)
+        # --- 1. Period Selection Card ---
+        self._build_period_selection(tab, "1").grid(row=0, column=0, sticky="ew", pady=(4, 2), padx=10)
 
-        ctk.CTkLabel(tab, text="Month").grid(row=1, column=0, sticky="e", padx=10)
-        self.var_1_month = tk.StringVar(value="April")
-        self.cb_1_month = ctk.CTkOptionMenu(tab, values=[m[0] for m in MONTHS], variable=self.var_1_month)
-        self.cb_1_month.grid(row=1, column=1, sticky="ew", pady=3)
-
-        ctk.CTkLabel(tab, text="Year").grid(row=1, column=2, sticky="e", padx=10)
-        self.var_1_year = tk.StringVar(value=str(CURRENT_YEAR))
-        ctk.CTkOptionMenu(tab, values=YEARS, variable=self.var_1_year).grid(row=1, column=3, sticky="ew", pady=3)
-
-        ctk.CTkLabel(tab, text="GSTIN (Optional)").grid(row=2, column=0, sticky="e", padx=10)
+        # Silent initialization for backend compatibility
         self.var_1_gstin = tk.StringVar()
-        ctk.CTkEntry(tab, textvariable=self.var_1_gstin, placeholder_text="Lookup B2B Detail").grid(row=2, column=1, columnspan=3, sticky="ew", pady=3)
 
-        sf = ctk.CTkFrame(tab, fg_color="transparent")
-        sf.grid(row=3, column=0, columnspan=4, pady=6)
-        self.var_1_scope = tk.StringVar(value="single")
-        ctk.CTkRadioButton(sf, text="Single Month", variable=self.var_1_scope, value="single").pack(side="left", padx=10)
-        ctk.CTkRadioButton(sf, text="Full Financial Year", variable=self.var_1_scope, value="year", text_color="#ffcc00").pack(side="left", padx=10)
+        # --- Refresh Names Button ---
+        # self.btn_refresh_names = ctk.CTkButton(tab, text="Refresh Party Names", command=self._on_refresh_names, width=150, height=28, fg_color=("gray75", "#333333"))
+        # self.btn_refresh_names.grid(row=2, column=0, sticky="e", padx=10, pady=5)
 
+        # --- Output Options Row ---
+        self._opt_frame_1 = ctk.CTkFrame(tab, fg_color="transparent")
+        ctk.CTkLabel(self._opt_frame_1, text="Output Mode:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#94a3b8").pack(side="left", padx=5)
+        ctk.CTkRadioButton(self._opt_frame_1, text="Consolidated", variable=self.var_excel_mode, value="consolidated", font=ctk.CTkFont(size=12)).pack(side="left", padx=10)
+        ctk.CTkRadioButton(self._opt_frame_1, text="Individual", variable=self.var_excel_mode, value="individual", font=ctk.CTkFont(size=12)).pack(side="left", padx=10)
+
+        # --- 4. Standard Action Row ---
         btn_row = ctk.CTkFrame(tab, fg_color="transparent")
-        btn_row.grid(row=4, column=0, columnspan=4, pady=6)
+        btn_row.grid(row=3, column=0, sticky="ew", pady=(2, 2))
+        btn_row_center = ctk.CTkFrame(btn_row, fg_color="transparent")
+        btn_row_center.pack(anchor="center")
 
-        self.btn_dl_1 = ctk.CTkButton(btn_row, text="DOWNLOAD GSTR-1", command=self._on_download_gstr1, width=200, height=38, font=ctk.CTkFont(weight="bold"))
-        self.btn_dl_1.pack(side="left", padx=5)
-        self.btn_stop_1 = ctk.CTkButton(btn_row, text="STOP", command=self._on_stop, fg_color=DANGER, hover_color="#a01a23", width=80, height=38)
-        self.btn_stop_1.pack(side="left", padx=5)
+        self.btn_dl_1 = ctk.CTkButton(btn_row_center, text="DOWNLOAD GSTR-1", command=self._on_download_gstr1, width=220, height=38, font=ctk.CTkFont(weight="bold"))
+        self.btn_dl_1.pack(side="left", padx=10)
+        self.btn_stop_1 = ctk.CTkButton(btn_row_center, text="STOP", command=self._on_stop, fg_color=DANGER, hover_color="#a01a23", width=80, height=38)
+        self.btn_stop_1.pack(side="left", padx=10)
+        self.btn_open_1 = ctk.CTkButton(btn_row_center, text="📂 OPEN FOLDER", command=lambda: self._open_output_folder("GSTR-1", self.var_1_year), width=120, height=38, fg_color="#475569", hover_color="#334155")
+        self.btn_open_1.pack(side="left", padx=10)
 
+        # --- Progress Label ---
         self.lbl_1_progress = ctk.CTkLabel(tab, text="", text_color=PURPLE)
-        self.lbl_1_progress.grid(row=5, column=0, columnspan=2, sticky="w", padx=10)
-
-        self.btn_refresh_names = ctk.CTkButton(tab, text="Refresh Party Names", command=self._on_refresh_names, width=150, height=28, fg_color=("gray75", "#333333"))
-        self.btn_refresh_names.grid(row=5, column=2, columnspan=2, sticky="e", padx=10)
+        self.lbl_1_progress.grid(row=4, column=0, sticky="w", padx=10)
 
     def _fill_tab_2a(self):
         tab = self.tabview.tab("GSTR-2A")
-        tab.grid_columnconfigure((1,3), weight=1)
+        tab.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(tab, text="Month").grid(row=0, column=0, sticky="e", padx=10, pady=(4,2))
-        self.var_2a_month = tk.StringVar(value="April")
-        ctk.CTkOptionMenu(tab, values=[m[0] for m in MONTHS], variable=self.var_2a_month).grid(row=0, column=1, sticky="ew", pady=(4,2))
+        # --- 1. Period Selection Card ---
+        self._build_period_selection(tab, "2a").grid(row=0, column=0, sticky="ew", pady=(4, 2), padx=10)
 
-        ctk.CTkLabel(tab, text="Year").grid(row=0, column=2, sticky="e", padx=10)
-        self.var_2a_year = tk.StringVar(value=str(CURRENT_YEAR))
-        ctk.CTkOptionMenu(tab, values=YEARS, variable=self.var_2a_year).grid(row=0, column=3, sticky="ew", pady=(4,2))
-
-        sf = ctk.CTkFrame(tab, fg_color="transparent")
-        sf.grid(row=1, column=0, columnspan=4, pady=2)
-        self.var_2a_scope = tk.StringVar(value="single")
-        ctk.CTkRadioButton(sf, text="Single Month", variable=self.var_2a_scope, value="single").pack(side="left", padx=10)
-        ctk.CTkRadioButton(sf, text="Full Financial Year", variable=self.var_2a_scope, value="year", text_color="#ffcc00").pack(side="left", padx=10)
-
-        sec_box = ctk.CTkFrame(tab, fg_color=("gray93", "#1a1a1a"), corner_radius=8)
-        sec_box.grid(row=2, column=0, columnspan=4, sticky="nsew", padx=10, pady=2)
-
+        # --- 3. Checkbox Logic (Hidden, default True) ---
         self._2a_section_vars = {}
         sections_2a = [
             ("B2B","b2b"),   ("B2BA","b2ba"),  ("CDN","cdn"),
@@ -548,95 +605,95 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
             ("ISD","isd"),   ("ISDA","isda"),   ("TDSA","tdsa"),
             ("IMPG","impg"), ("IMPGSEZ","impgsez"),
         ]
-        for i, (label, key) in enumerate(sections_2a):
-            v = tk.BooleanVar(value=True)
-            self._2a_section_vars[key] = v
-            ctk.CTkCheckBox(sec_box, text=label, variable=v, font=ctk.CTkFont(size=11)).grid(row=i//4, column=i%4, sticky="w", padx=6, pady=1)
+        for _, key in sections_2a:
+            self._2a_section_vars[key] = tk.BooleanVar(value=True)
 
+        # --- Output Options Row ---
+        self._opt_frame_2a = ctk.CTkFrame(tab, fg_color="transparent")
+        ctk.CTkLabel(self._opt_frame_2a, text="Output Mode:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#94a3b8").pack(side="left", padx=5)
+        ctk.CTkRadioButton(self._opt_frame_2a, text="Consolidated", variable=self.var_excel_mode, value="consolidated", font=ctk.CTkFont(size=12)).pack(side="left", padx=10)
+        ctk.CTkRadioButton(self._opt_frame_2a, text="Individual", variable=self.var_excel_mode, value="individual", font=ctk.CTkFont(size=12)).pack(side="left", padx=10)
+
+        # --- 4. Standard Action Row ---
         btn_row = ctk.CTkFrame(tab, fg_color="transparent")
-        btn_row.grid(row=3, column=0, columnspan=4, pady=4)
-        self.btn_dl_2a = ctk.CTkButton(btn_row, text="DOWNLOAD GSTR-2A", command=self._on_download_gstr2a, width=200, height=34, fg_color=TEAL, hover_color="#047a96")
-        self.btn_dl_2a.pack(side="left", padx=5)
-        self.btn_stop_2a = ctk.CTkButton(btn_row, text="STOP", command=self._on_stop, fg_color=DANGER, width=80, height=34)
-        self.btn_stop_2a.pack(side="left", padx=5)
+        btn_row.grid(row=3, column=0, sticky="ew", pady=(2, 2))
+        btn_row_center = ctk.CTkFrame(btn_row, fg_color="transparent")
+        btn_row_center.pack(anchor="center")
 
+        self.btn_dl_2a = ctk.CTkButton(btn_row_center, text="DOWNLOAD GSTR-2A", command=self._on_download_gstr2a, width=220, height=38, fg_color=TEAL, hover_color="#047a96", font=ctk.CTkFont(weight="bold"))
+        self.btn_dl_2a.pack(side="left", padx=10)
+        self.btn_stop_2a = ctk.CTkButton(btn_row_center, text="STOP", command=self._on_stop, fg_color=DANGER, hover_color="#a01a23", width=80, height=38)
+        self.btn_stop_2a.pack(side="left", padx=10)
+        self.btn_open_2a = ctk.CTkButton(btn_row_center, text="📂 OPEN FOLDER", command=lambda: self._open_output_folder("GSTR-2A", self.var_2a_year), width=120, height=38, fg_color="#475569", hover_color="#334155")
+        self.btn_open_2a.pack(side="left", padx=10)
+
+        # --- Progress Label ---
         self.lbl_2a_progress = ctk.CTkLabel(tab, text="", text_color=PURPLE)
-        self.lbl_2a_progress.grid(row=4, column=0, columnspan=4, sticky="w", padx=10)
+        self.lbl_2a_progress.grid(row=4, column=0, sticky="w", padx=10)
 
     def _fill_tab_2b(self):
         tab = self.tabview.tab("GSTR-2B")
-        tab.grid_columnconfigure((1,3), weight=1)
+        tab.grid_columnconfigure(0, weight=1)
 
-        mf = ctk.CTkFrame(tab, fg_color="transparent")
-        mf.grid(row=0, column=0, columnspan=4, pady=(8,3))
-        self.var_2b_mode = tk.StringVar(value="M")
-        ctk.CTkRadioButton(mf, text="Monthly", variable=self.var_2b_mode, value="M", command=self._on_2b_mode_change).pack(side="left", padx=10)
-        ctk.CTkRadioButton(mf, text="Quarterly (QRMP)", variable=self.var_2b_mode, value="Q", command=self._on_2b_mode_change).pack(side="left", padx=10)
+        # --- 1. Period Selection Card ---
+        self._build_period_selection(tab, "2b").grid(row=0, column=0, sticky="ew", pady=(4, 2), padx=10)
 
-        sf = ctk.CTkFrame(tab, fg_color="transparent")
-        sf.grid(row=1, column=0, columnspan=4, pady=3)
-        self.var_2b_scope = tk.StringVar(value="single")
-        ctk.CTkRadioButton(sf, text="Single Period", variable=self.var_2b_scope, value="single").pack(side="left", padx=10)
-        ctk.CTkRadioButton(sf, text="Full Financial Year", variable=self.var_2b_scope, value="year", text_color="#ffcc00").pack(side="left", padx=10)
-
-        self._2b_period_host = ctk.CTkFrame(tab, fg_color="transparent")
-        self._2b_period_host.grid(row=2, column=0, columnspan=4, sticky="ew")
-
-        self._2b_month_f = ctk.CTkFrame(self._2b_period_host, fg_color="transparent")
-        ctk.CTkLabel(self._2b_month_f, text="Month").pack(side="left", padx=10)
-        self.var_2b_month = tk.StringVar(value="April")
-        ctk.CTkOptionMenu(self._2b_month_f, values=[m[0] for m in MONTHS], variable=self.var_2b_month).pack(side="left", fill="x", expand=True)
-
-        self._2b_quarter_f = ctk.CTkFrame(self._2b_period_host, fg_color="transparent")
-        ctk.CTkLabel(self._2b_quarter_f, text="Quarter").pack(side="left", padx=10)
-        self.var_2b_quarter = tk.StringVar(value=QUARTERS[0][0])
-        ctk.CTkOptionMenu(self._2b_quarter_f, values=[q[0] for q in QUARTERS], variable=self.var_2b_quarter).pack(side="left", fill="x", expand=True)
-
-        ctk.CTkLabel(tab, text="Year").grid(row=3, column=0, sticky="e", padx=10, pady=3)
-        self.var_2b_year = tk.StringVar(value=str(CURRENT_YEAR))
-        ctk.CTkOptionMenu(tab, values=YEARS, variable=self.var_2b_year).grid(row=3, column=1, sticky="ew", pady=3)
-
+        # Skip Checkbox (Specific to GSTR-2B)
         self.var_2b_skip = tk.BooleanVar(value=True)
-        ctk.CTkCheckBox(tab, text="Skip existing files", variable=self.var_2b_skip, font=ctk.CTkFont(size=11)).grid(row=3, column=2, columnspan=2, padx=10)
+        ctk.CTkCheckBox(tab, text="Skip if JSON exists", variable=self.var_2b_skip).grid(row=1, column=0, sticky="w", padx=20, pady=(0, 4))
 
+        # --- Output Options Row ---
+        self._opt_frame_2b = ctk.CTkFrame(tab, fg_color="transparent")
+        ctk.CTkLabel(self._opt_frame_2b, text="Output Mode:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#94a3b8").pack(side="left", padx=5)
+        ctk.CTkRadioButton(self._opt_frame_2b, text="Consolidated", variable=self.var_excel_mode, value="consolidated", font=ctk.CTkFont(size=12)).pack(side="left", padx=10)
+        ctk.CTkRadioButton(self._opt_frame_2b, text="Individual", variable=self.var_excel_mode, value="individual", font=ctk.CTkFont(size=12)).pack(side="left", padx=10)
+
+        # --- 4. Standard Action Row ---
         btn_row = ctk.CTkFrame(tab, fg_color="transparent")
-        btn_row.grid(row=4, column=0, columnspan=4, pady=6)
-        self.btn_dl_2b = ctk.CTkButton(btn_row, text="DOWNLOAD GSTR-2B", command=self._on_download_gstr2b, width=200, height=38, fg_color=ORANGE, hover_color="#b83201")
-        self.btn_dl_2b.pack(side="left", padx=5)
-        self.btn_stop_2b = ctk.CTkButton(btn_row, text="STOP", command=self._on_stop, fg_color=DANGER, width=80, height=38)
-        self.btn_stop_2b.pack(side="left", padx=5)
+        btn_row.grid(row=3, column=0, sticky="ew", pady=(2, 2))
+        btn_row_center = ctk.CTkFrame(btn_row, fg_color="transparent")
+        btn_row_center.pack(anchor="center")
 
+        self.btn_dl_2b = ctk.CTkButton(btn_row_center, text="DOWNLOAD GSTR-2B", command=self._on_download_gstr2b, width=220, height=38, fg_color=ORANGE, hover_color="#b83201", font=ctk.CTkFont(weight="bold"))
+        self.btn_dl_2b.pack(side="left", padx=10)
+        self.btn_stop_2b = ctk.CTkButton(btn_row_center, text="STOP", command=self._on_stop, fg_color=DANGER, hover_color="#a01a23", width=80, height=38)
+        self.btn_stop_2b.pack(side="left", padx=10)
+        self.btn_open_2b = ctk.CTkButton(btn_row_center, text="📂 OPEN FOLDER", command=lambda: self._open_output_folder("GSTR-2B", self.var_2b_year), width=120, height=38, fg_color="#475569", hover_color="#334155")
+        self.btn_open_2b.pack(side="left", padx=10)
+
+        # --- Progress Label ---
         self.lbl_2b_progress = ctk.CTkLabel(tab, text="", text_color=PURPLE)
-        self.lbl_2b_progress.grid(row=5, column=0, columnspan=4, sticky="w", padx=10)
-        self._on_2b_mode_change()
+        self.lbl_2b_progress.grid(row=4, column=0, sticky="w", padx=10)
 
     def _fill_tab_3b(self):
         tab = self.tabview.tab("GSTR-3B")
-        tab.grid_columnconfigure((1,3), weight=1)
+        tab.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(tab, text="Month").grid(row=0, column=0, sticky="e", padx=10, pady=(8,3))
-        self.var_3b_month = tk.StringVar(value="April")
-        ctk.CTkOptionMenu(tab, values=[m[0] for m in MONTHS], variable=self.var_3b_month).grid(row=0, column=1, sticky="ew", pady=(8,3))
+        # --- 1. Period Selection Card ---
+        self._build_period_selection(tab, "3b").grid(row=0, column=0, sticky="ew", pady=(4, 2), padx=10)
 
-        ctk.CTkLabel(tab, text="Year").grid(row=0, column=2, sticky="e", padx=10)
-        self.var_3b_year = tk.StringVar(value=str(CURRENT_YEAR))
-        ctk.CTkOptionMenu(tab, values=YEARS, variable=self.var_3b_year).grid(row=0, column=3, sticky="ew", pady=(8,3))
+        # --- Output Options Row ---
+        self._opt_frame_3b = ctk.CTkFrame(tab, fg_color="transparent")
+        ctk.CTkLabel(self._opt_frame_3b, text="Output Mode:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#94a3b8").pack(side="left", padx=5)
+        ctk.CTkRadioButton(self._opt_frame_3b, text="Consolidated", variable=self.var_excel_mode, value="consolidated", font=ctk.CTkFont(size=12)).pack(side="left", padx=10)
+        ctk.CTkRadioButton(self._opt_frame_3b, text="Individual", variable=self.var_excel_mode, value="individual", font=ctk.CTkFont(size=12)).pack(side="left", padx=10)
 
-        sf = ctk.CTkFrame(tab, fg_color="transparent")
-        sf.grid(row=1, column=0, columnspan=4, pady=6)
-        self.var_3b_scope = tk.StringVar(value="single")
-        ctk.CTkRadioButton(sf, text="Single Month", variable=self.var_3b_scope, value="single").pack(side="left", padx=10)
-        ctk.CTkRadioButton(sf, text="Full Financial Year", variable=self.var_3b_scope, value="year", text_color="#ffcc00").pack(side="left", padx=10)
-
+        # --- 4. Standard Action Row ---
         btn_row = ctk.CTkFrame(tab, fg_color="transparent")
-        btn_row.grid(row=2, column=0, columnspan=4, pady=8)
-        self.btn_dl_3b = ctk.CTkButton(btn_row, text="DOWNLOAD GSTR-3B", command=self._on_download_gstr3b, width=200, height=38, fg_color=GREEN, hover_color="#268635")
-        self.btn_dl_3b.pack(side="left", padx=5)
-        self.btn_stop_3b = ctk.CTkButton(btn_row, text="STOP", command=self._on_stop, fg_color=DANGER, width=80, height=38)
-        self.btn_stop_3b.pack(side="left", padx=5)
+        btn_row.grid(row=3, column=0, sticky="ew", pady=(2, 2))
+        btn_row_center = ctk.CTkFrame(btn_row, fg_color="transparent")
+        btn_row_center.pack(anchor="center")
 
+        self.btn_dl_3b = ctk.CTkButton(btn_row_center, text="DOWNLOAD GSTR-3B", command=self._on_download_gstr3b, width=220, height=38, fg_color=GREEN, hover_color="#268635", font=ctk.CTkFont(weight="bold"))
+        self.btn_dl_3b.pack(side="left", padx=10)
+        self.btn_stop_3b = ctk.CTkButton(btn_row_center, text="STOP", command=self._on_stop, fg_color=DANGER, hover_color="#a01a23", width=80, height=38)
+        self.btn_stop_3b.pack(side="left", padx=10)
+        self.btn_open_3b = ctk.CTkButton(btn_row_center, text="📂 OPEN FOLDER", command=lambda: self._open_output_folder("GSTR-3B", self.var_3b_year), width=120, height=38, fg_color="#475569", hover_color="#334155")
+        self.btn_open_3b.pack(side="left", padx=10)
+
+        # --- Progress Label ---
         self.lbl_3b_progress = ctk.CTkLabel(tab, text="", text_color=PURPLE)
-        self.lbl_3b_progress.grid(row=3, column=0, columnspan=4, sticky="w", padx=10)
+        self.lbl_3b_progress.grid(row=4, column=0, sticky="w", padx=10)
 
     def _build_log_panel(self):
         log_frame = ctk.CTkFrame(self._right,
@@ -651,13 +708,12 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
 
         ctk.CTkLabel(log_frame, text="ACTIVITY LOG",
                      font=ctk.CTkFont(size=12, weight="bold"),
-                     text_color=("#475569", "#94a3b8")).grid(row=0, column=0, sticky="w", padx=15, pady=5)
+                     text_color=("#475569", "#94a3b8")).grid(row=0, column=0, sticky="w", padx=15, pady=(3, 1))
         
-        self.txt_log = ctk.CTkTextbox(log_frame, font=("Consolas", 12), border_width=1, border_color=("gray75", "#333333"))
-        self.txt_log.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.txt_log = ctk.CTkTextbox(log_frame, font=("Consolas", 12), border_width=1, border_color=("gray75", "#333333"), height=100)
+        self.txt_log.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 6))
         self.txt_log.configure(state="disabled")
 
-        # Tags in CTK Textbox? CTK Textbox is based on tk.Text but might need access to underlying widget
         self.txt_log._textbox.tag_configure("info",    foreground="#888")
         self.txt_log._textbox.tag_configure("success", foreground="#4eacff", font=("Consolas", 12, "bold"))
         self.txt_log._textbox.tag_configure("error",   foreground="#ff5252", font=("Consolas", 12, "bold"))
@@ -665,7 +721,10 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         self.txt_log._textbox.tag_configure("step",    foreground="#4eacff", font=("Consolas", 12, "bold"))
         self.txt_log._textbox.tag_configure("skip",    foreground="#555")
 
-        ctk.CTkButton(log_frame, text="Clear Log", width=100, height=25, fg_color="transparent", border_width=1, command=self._clear_log).grid(row=0, column=0, sticky="e", padx=15)
+    def _clear_log(self):
+        self.txt_log.configure(state="normal")
+        self.txt_log.delete("1.0", "end")
+        self.txt_log.configure(state="disabled")
 
     # =========================================================================
     # State machine
@@ -876,6 +935,9 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
             self._set_state("captcha_ok")
 
     def _on_logout(self):
+        from tkinter import messagebox as _mb
+        if not _mb.askyesno("Confirm Logout", "Are you sure you want to log out?", parent=self):
+            return
         if self._login_dl:
             try:
                 self._login_dl.logout()
@@ -908,14 +970,6 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
             if label == sel: return val
         return "6"
 
-    def _on_2b_mode_change(self):
-        if self.var_2b_mode.get() == "M":
-            self._2b_quarter_f.pack_forget()
-            self._2b_month_f.pack(fill="x", padx=10)
-        else:
-            self._2b_month_f.pack_forget()
-            self._2b_quarter_f.pack(fill="x", padx=10)
-
     def _set_det_progress(self, val):
         if hasattr(self, 'progress'):
             max_val = self.progress.cget("maximum") if hasattr(self.progress, "cget") else 12
@@ -923,8 +977,10 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
 
     def _finish_yearly(self, progress_lbl, ok, skip, fail, total):
         progress_lbl.configure(text=f"Done — {ok} downloaded, {skip} skipped, {fail} failed")
-        self._log(f"Yearly process finished. ({ok} OK, {skip} Skipped, {fail} Failed)", "success" if fail == 0 else "warn")
+        self._log(f"Batch process finished. ({ok} OK, {skip} Skipped, {fail} Failed)", "success" if fail == 0 else "warn")
         self._set_state("done")
+        from tkinter import messagebox
+        messagebox.showinfo("Process Complete", f"Batch download completed.\n\nSuccessfully downloaded: {ok}\nSkipped: {skip}\nFailed: {fail}")
 
     # ── Folder Helpers ────────────────────────────────────────────────────────
     
@@ -941,6 +997,17 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         d    = os.path.join(base, self._user(), form, fy, "Excel")
         os.makedirs(d, exist_ok=True)
         return d
+
+    def _open_output_folder(self, form: str, year_var):
+        year_str = year_var.get().split("-")[0].strip()
+        if not year_str.isdigit(): return
+        d = self._json_dir(form, int(year_str))
+        if os.path.exists(d):
+            os.startfile(d)
+        else:
+            base = self.var_output.get().strip() or str(Path(__file__).parent)
+            out_base = os.path.join(base, self._user(), form)
+            if os.path.exists(out_base): os.startfile(out_base)
 
     # ── Excel & Conversion ───────────────────────────────────────────────────
 
@@ -1086,7 +1153,7 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         self._log("Refreshing party names...", "step")
         def _task():
             try:
-                year = self.var_1_year.get()
+                year = self.var_1_year.get().split("-")[0]
                 json_dir = self._json_dir("GSTR-1", int(year))
                 if not os.path.exists(json_dir): return
                 all_ctins = set()
@@ -1138,52 +1205,33 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
     # ── GSTR-1 Downloads ──────────────────────────────────────────────────────
 
     def _on_download_gstr1(self):
-        year = self.var_1_year.get().strip()
-        if not year or not year.isdigit():
-            messagebox.showwarning("Input Error", "Please select a valid Financial Year.")
-            return
+        year = self.var_1_year.get().split("-")[0].strip()
+        if not year.isdigit(): return
         
+        periods = [p for p, v in self._1_period_vars.items() if v.get()]
+        if not periods:
+            from tkinter import messagebox
+            messagebox.showwarning("Input Error", "Please select at least one period.")
+            return
+
         self._log(f"Initiating GSTR-1 Download for FY {year}...", "step")
-        if self.var_1_scope.get() == "year": 
-            self._start_gstr1_yearly(int(year))
-        else: 
-            self._start_gstr1_single(self._month_val(self.var_1_month), int(year))
+        self._start_gstr1_batch(int(year), periods)
 
-    def _start_gstr1_single(self, period, year):
-        self._set_state("downloading")
-        self._log(f"GSTR-1 — {MONTH_NAMES.get(period,period)} {year}", "step")
-        actual_year = year + 1 if int(period) <= 3 else year
-        threading.Thread(target=self._worker_gstr1, args=(period, actual_year, self.var_1_gstin.get().strip()), daemon=True).start()
-
-    def _worker_gstr1(self, period, year, gstin):
-        try:
-            d = Gstr1Downloader(session=self._session, log_callback=lambda m: self.after(0, self._log, m, "info"))
-            res = d.download_gstr1(period, year, gstin=gstin)
-            self.after(0, self._on_gstr1_done, res, period, year)
-        except Exception as e: self.after(0, self._log, f"Error: {e}", "error"); self.after(0, self._set_state, "done")
-
-    def _on_gstr1_done(self, result, period, year):
-        try:
-            paths = save_gstr1(result, self._json_dir("GSTR-1", year), self._user())
-            self._log(f"Saved {len(paths)} files.", "success")
-            self._maybe_excel("GSTR-1", year, paths)
-        except Exception as e: self._log(f"Save error: {e}", "error")
-        self._set_state("done")
-
-    def _start_gstr1_yearly(self, year):
+    def _start_gstr1_batch(self, year, periods):
         self._yearly_stop = False; self._set_state("yearly")
-        self._log(f"GSTR-1 Full Year — FY {year}", "step")
-        threading.Thread(target=self._worker_gstr1_yearly, args=(year, self.var_1_gstin.get().strip()), daemon=True).start()
+        self._log(f"GSTR-1 Batch ({len(periods)} periods) — FY {year}", "step")
+        import threading
+        threading.Thread(target=self._worker_gstr1_batch, args=(year, periods, self.var_1_gstin.get().strip()), daemon=True).start()
 
-    def _worker_gstr1_yearly(self, year, gstin):
+    def _worker_gstr1_batch(self, year, periods, gstin):
         from concurrent.futures import ThreadPoolExecutor, as_completed
         out = self._json_dir("GSTR-1", year); user = self._user()
         ok = fail = skip = 0; saved_jsons = []
         
-        self._log(f"Starting GSTR-1 Yearly pipeline for {user} (FY {year})...", "info")
+        self._log(f"Starting GSTR-1 Batch pipeline for {user} (FY {year})...", "info")
 
-        # Phase 1: Pre-triggering (Mass Trigger)
-        self._log("Phase 1/2: Triggering offline ZIP generation for all 12 months...", "step")
+        # Phase 1: Pre-triggering
+        self._log(f"Phase 1/2: Triggering offline ZIP generation for {len(periods)} periods...", "step")
         trigger_sess = make_session()
         trigger_sess.cookies.update(self._session.cookies)
         trigger_dl = Gstr1Downloader(session=trigger_sess, log_callback=None)
@@ -1194,9 +1242,9 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
             except: return False
             
         with ThreadPoolExecutor(max_workers=6) as trigger_exec:
-            trigger_exec.map(_trigger_task, MONTHLY_FY_ORDER)
+            trigger_exec.map(_trigger_task, periods)
         
-        self._log("All months triggered. Moving to download phase...", "success")
+        self._log("Trigger phase complete. Moving to download phase...", "success")
 
         # Phase 2: Concurrent Download
         def _download_month_task(period, idx):
@@ -1215,12 +1263,12 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
                 self.after(0, self._log, f"[{name}] Fatal error: {e}", "error")
                 return {"status": "fail", "name": name, "error": str(e), "idx": idx}
 
-        self._log("Phase 2/2: Starting concurrent downloads (4 parallel months)...", "info")
+        self._log("Phase 2/2: Starting concurrent downloads...", "info")
         with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [executor.submit(_download_month_task, p, i) for i, p in enumerate(MONTHLY_FY_ORDER, 1)]
+            futures = [executor.submit(_download_month_task, p, i) for i, p in enumerate(periods, 1)]
             for future in as_completed(futures):
                 if self._yearly_stop: 
-                    self._log("Yearly download stop requested by user.", "warn")
+                    self._log("Batch download stop requested by user.", "warn")
                     break
                 try:
                     res = future.result()
@@ -1237,56 +1285,41 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
                     fail += 1
                 
                 self.after(0, self._set_det_progress, ok + fail + skip)
-                self.after(0, self.lbl_1_progress.configure, {"text": f"Progress: {ok+fail+skip}/12"})
+                self.after(0, self.lbl_1_progress.configure, {"text": f"Progress: {ok+fail+skip}/{len(periods)}"})
 
         if not self._yearly_stop and self.var_excel_mode.get() == "consolidated": 
             self._batch_excel("GSTR-1", out, saved_jsons)
         
-        self.after(0, self._finish_yearly, self.lbl_1_progress, ok, skip, fail, 12)
+        self.after(0, self._finish_yearly, self.lbl_1_progress, ok, skip, fail, len(periods))
 
     # ── GSTR-2A Downloads ──────────────────────────────────────────────────────
 
     def _on_download_gstr2a(self):
-        year = self.var_2a_year.get().strip()
+        year = self.var_2a_year.get().split("-")[0].strip()
         if not year.isdigit(): return
+        
+        periods = [p for p, v in self._2a_period_vars.items() if v.get()]
         sections = [k for k, v in self._2a_section_vars.items() if v.get()]
-        if not sections: return
-        if self.var_2a_scope.get() == "year": self._start_gstr2a_yearly(int(year), sections)
-        else: self._start_gstr2a_single(self._month_val(self.var_2a_month), int(year), sections)
+        if not periods or not sections:
+            from tkinter import messagebox
+            messagebox.showwarning("Input Error", "Please select at least one period.")
+            return
 
-    def _start_gstr2a_single(self, period, year, sections):
-        self._set_state("downloading")
-        self._log(f"GSTR-2A — {MONTH_NAMES.get(period,period)} {year}", "step")
-        actual_year = year + 1 if int(period) <= 3 else year
-        threading.Thread(target=self._worker_gstr2a, args=(period, actual_year, sections), daemon=True).start()
+        self._start_gstr2a_batch(int(year), periods, sections)
 
-    def _worker_gstr2a(self, period, year, sections):
-        try:
-            d = Gstr2ADownloader(session=self._session)
-            res = d.download_gstr2a(period, year, sections, progress_callback=lambda m: self.after(0, self._log, m, "info"))
-            self.after(0, self._on_gstr2a_done, res, period, year)
-        except Exception as e: self.after(0, self._log, f"Error: {e}", "error"); self.after(0, self._set_state, "done")
-
-    def _on_gstr2a_done(self, result, period, year):
-        try:
-            p = save_gstr2a(result, self._json_dir("GSTR-2A", year), self._user())
-            self._log(f"Saved: {p}", "success")
-            self._maybe_excel("GSTR-2A", year, [p])
-        except Exception as e: self._log(f"Save error: {e}", "error")
-        self._set_state("done")
-
-    def _start_gstr2a_yearly(self, year, sections):
+    def _start_gstr2a_batch(self, year, periods, sections):
         self._yearly_stop = False; self._set_state("yearly")
-        threading.Thread(target=self._worker_gstr2a_yearly, args=(year, sections), daemon=True).start()
+        import threading
+        threading.Thread(target=self._worker_gstr2a_batch, args=(year, periods, sections), daemon=True).start()
 
-    def _worker_gstr2a_yearly(self, year, sections):
+    def _worker_gstr2a_batch(self, year, periods, sections):
         out = self._json_dir("GSTR-2A", year); user = self._user()
         ok = fail = skip = 0; saved_jsons = []
-        for i, period in enumerate(MONTHLY_FY_ORDER, 1):
+        for i, period in enumerate(periods, 1):
             if self._yearly_stop: break
             actual_year = year + 1 if int(period) <= 3 else year
-            name = MONTH_NAMES.get(period, period)
-            self.after(0, self.lbl_2a_progress.configure, {"text": f"[{i}/12] {name}"})
+            name = (MONTH_NAMES if self.var_2a_mode.get() == "Monthly" else QUARTER_NAMES).get(period, period)
+            self.after(0, self.lbl_2a_progress.configure, {"text": f"[{i}/{len(periods)}] {name}"})
             try:
                 d = Gstr2ADownloader(session=self._session)
                 res = d.download_gstr2a(period, actual_year, sections, progress_callback=lambda m: self.after(0, self._log, f"  {m}", "info"))
@@ -1296,58 +1329,46 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
             except Exception as e: self._log(f"Fail {name}: {e}", "error"); fail += 1
             self.after(0, self._set_det_progress, i)
         self._batch_excel("GSTR-2A", out, saved_jsons)
-        self.after(0, self._finish_yearly, self.lbl_2a_progress, ok, skip, fail, 12)
+        self.after(0, self._finish_yearly, self.lbl_2a_progress, ok, skip, fail, len(periods))
 
     # ── GSTR-2B Downloads ──────────────────────────────────────────────────────
 
     def _on_download_gstr2b(self):
-        mode = self.var_2b_mode.get(); year = self.var_2b_year.get().strip()
+        mode = self.var_2b_mode.get(); year = self.var_2b_year.get().split("-")[0].strip()
         if not year.isdigit(): return
-        period = self._month_val(self.var_2b_month) if mode == "M" else self._quarter_val()
-        if self.var_2b_scope.get() == "year":
-            self._start_gstr2b_yearly(int(year), mode, MONTHLY_FY_ORDER if mode == "M" else QUARTERLY_FY_ORDER)
-        else: self._start_gstr2b_single(period, int(year), mode)
+        
+        periods = [p for p, v in self._2b_period_vars.items() if v.get()]
+        if not periods:
+            from tkinter import messagebox
+            messagebox.showwarning("Input Error", "Please select at least one period.")
+            return
 
-    def _start_gstr2b_single(self, period, year, mode):
-        self._set_state("downloading")
-        self._log(f"GSTR-2B — {period} {year}", "step")
-        actual_year = year + 1 if int(period) <= 3 else year
-        threading.Thread(target=self._worker_gstr2b, args=(period, actual_year, mode), daemon=True).start()
+        self._start_gstr2b_batch(int(year), mode, periods)
 
-    def _worker_gstr2b(self, period, year, mode):
-        try:
-            d = Gstr2BDownloader(session=self._session)
-            res = d.download_gstr2b(period, year, mode)
-            self.after(0, self._on_gstr2b_done, res, period, year, mode)
-        except Exception as e: self.after(0, self._log, f"Error: {e}", "error"); self.after(0, self._set_state, "done")
-
-    def _on_gstr2b_done(self, result, period, year, mode):
-        try:
-            jdir = self._json_dir("GSTR-2B", year); save_2b(result, jdir, self._user(), period, year)
-            prd = str(period).zfill(2)
-            paths = [os.path.join(jdir, f"GSTR2B_Return_{self._user()}_{year}_{prd}.json")]
-            self._maybe_excel("GSTR-2B", year, [p for p in paths if os.path.exists(p)])
-        except Exception as e: self._log(f"Save error: {e}", "error")
-        self._set_state("done")
-
-    def _start_gstr2b_yearly(self, year, mode, periods):
+    def _start_gstr2b_batch(self, year, mode, periods):
         self._yearly_stop = False; self._set_state("yearly")
-        threading.Thread(target=self._worker_gstr2b_yearly, args=(year, mode, periods), daemon=True).start()
+        import threading
+        threading.Thread(target=self._worker_gstr2b_batch, args=(year, mode, periods), daemon=True).start()
 
-    def _worker_gstr2b_yearly(self, year, mode, periods):
+    def _worker_gstr2b_batch(self, year, mode, periods):
         out = self._json_dir("GSTR-2B", year); user = self._user(); ok = fail = skip = 0; saved_jsons = []
         for i, period in enumerate(periods, 1):
             if self._yearly_stop: break
             actual_year = year + 1 if int(period) <= 3 else year
-            name = (MONTH_NAMES if mode == "M" else QUARTER_NAMES).get(period, period)
+            name = (MONTH_NAMES if mode == "Monthly" else QUARTER_NAMES).get(period, period)
             self.after(0, self.lbl_2b_progress.configure, {"text": f"[{i}/{len(periods)}] {name}"})
             try:
-                d = Gstr2BDownloader(session=self._session)
-                res = d.download_gstr2b(period, actual_year, mode)
-                save_2b(res, out, user, period, actual_year)
                 prd = str(period).zfill(2)
-                saved_jsons.append(os.path.join(out, f"GSTR2B_Return_{user}_{actual_year}_{prd}.json"))
-                ok += 1
+                fpath = os.path.join(out, f"GSTR2B_Return_{user}_{actual_year}_{prd}.json")
+                if self.var_2b_skip.get() and os.path.exists(fpath):
+                    self._log(f"  {name} skipped (exists)", "info")
+                    saved_jsons.append(fpath); skip += 1
+                else:
+                    d = Gstr2BDownloader(session=self._session)
+                    res = d.download_gstr2b(period, actual_year, "M" if mode == "Monthly" else "Q")
+                    save_2b(res, out, user, period, actual_year)
+                    saved_jsons.append(fpath)
+                    ok += 1
             except Exception as e: self._log(f"Fail {name}: {e}", "error"); fail += 1
             self.after(0, self._set_det_progress, i)
         self._batch_excel("GSTR-2B", out, saved_jsons)
@@ -1356,57 +1377,61 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
     # ── GSTR-3B Downloads ──────────────────────────────────────────────────────
 
     def _on_download_gstr3b(self):
-        year = self.var_3b_year.get().strip()
+        year = self.var_3b_year.get().split("-")[0].strip()
         if not year.isdigit(): return
-        if self.var_3b_scope.get() == "year": self._start_gstr3b_yearly(int(year))
-        else: self._start_gstr3b_single(self._month_val(self.var_3b_month), int(year))
+        
+        periods = [p for p, v in self._3b_period_vars.items() if v.get()]
+        if not periods:
+            from tkinter import messagebox
+            messagebox.showwarning("Input Error", "Please select at least one period.")
+            return
 
-    def _start_gstr3b_single(self, period, year):
-        self._set_state("downloading")
-        actual_year = year + 1 if int(period) <= 3 else year
-        threading.Thread(target=self._worker_gstr3b, args=(period, actual_year), daemon=True).start()
+        self._start_gstr3b_batch(int(year), periods)
 
-    def _worker_gstr3b(self, period, year):
-        try:
-            res = self._login_dl.download_gstr3b(period, year)
-            self.after(0, self._on_gstr3b_done, res, period, year)
-        except Exception as e: self.after(0, self._log, f"Error: {e}", "error"); self.after(0, self._set_state, "done")
-
-    def _on_gstr3b_done(self, result, period, year):
-        try:
-            p = save_gstr3b(result, self._json_dir("GSTR-3B", year), self._user())
-            self._maybe_excel("GSTR-3B", year, [p])
-        except Exception as e: self._log(f"Save error: {e}", "error")
-        self._set_state("done")
-
-    def _start_gstr3b_yearly(self, year):
+    def _start_gstr3b_batch(self, year, periods):
         self._yearly_stop = False; self._set_state("yearly")
-        threading.Thread(target=self._worker_gstr3b_yearly, args=(year,), daemon=True).start()
+        import threading
+        threading.Thread(target=self._worker_gstr3b_batch, args=(year, periods), daemon=True).start()
 
-    def _worker_gstr3b_yearly(self, year):
+    def _worker_gstr3b_batch(self, year, periods):
         out = self._json_dir("GSTR-3B", year); user = self._user(); ok = fail = skip = 0; saved_jsons = []
-        for i, period in enumerate(MONTHLY_FY_ORDER, 1):
+        for i, period in enumerate(periods, 1):
             if self._yearly_stop: break
             actual_year = year + 1 if int(period) <= 3 else year
-            name = MONTH_NAMES.get(period, period)
-            self.after(0, self.lbl_3b_progress.configure, {"text": f"[{i}/12] {name}"})
+            name = (MONTH_NAMES if self.var_3b_mode.get() == "Monthly" else QUARTER_NAMES).get(period, period)
+            self.after(0, self.lbl_3b_progress.configure, {"text": f"[{i}/{len(periods)}] {name}"})
             try:
                 res = self._login_dl.download_gstr3b(period, actual_year)
                 res.year = actual_year; jp = save_gstr3b(res, out, user); saved_jsons.append(jp); ok += 1
             except Exception as e: self._log(f"Fail {name}: {e}", "error"); fail += 1
             self.after(0, self._set_det_progress, i)
         self._batch_excel("GSTR-3B", out, saved_jsons)
-        self.after(0, self._finish_yearly, self.lbl_3b_progress, ok, skip, fail, 12)
+        self.after(0, self._finish_yearly, self.lbl_3b_progress, ok, skip, fail, len(periods))
 
     # ── Log ──────────────────────────────────────────────────────────────────
 
+    def _set_det_progress(self, current_val, max_val=12):
+        pass
+
     def _log(self, msg: str, tag: str = "info"):
-        now = datetime.now().strftime("%H:%M:%S")
-        line = f"[{now}] {msg}\n"
-        self.txt_log.configure(state="normal")
-        self.txt_log.insert("end", line, tag)
-        self.txt_log.see("end")
-        self.txt_log.configure(state="disabled")
+        # UI Log
+        now_ui = datetime.now().strftime("%H:%M:%S")
+        if hasattr(self, 'txt_log'):
+            self.txt_log.configure(state="normal")
+            self.txt_log.insert("end", f"[{now_ui}] {msg}\n", tag)
+            self.txt_log.see("end")
+            self.txt_log.configure(state="disabled")
+
+        # File Log
+        now_file = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{now_file}] [{tag.upper()}] {msg}\n"
+        log_dir = os.path.join(os.path.dirname(__file__), "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"session_{datetime.now().strftime('%Y-%m-%d')}.log")
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(line)
+        except: pass
 
 if __name__ == "__main__":
     app = GstPortalApp()
