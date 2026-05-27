@@ -1214,6 +1214,15 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
             messagebox.showwarning("Input Error", "Please select at least one period.")
             return
 
+        if self.var_1_mode.get() == "Quarterly":
+            expanded = []
+            for p in periods:
+                if p == "6": expanded.extend(["4", "5", "6"])
+                elif p == "9": expanded.extend(["7", "8", "9"])
+                elif p == "12": expanded.extend(["10", "11", "12"])
+                elif p == "3": expanded.extend(["1", "2", "3"])
+            periods = expanded
+
         self._log(f"Initiating GSTR-1 Download for FY {year}...", "step")
         self._start_gstr1_batch(int(year), periods)
 

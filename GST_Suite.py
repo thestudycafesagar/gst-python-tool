@@ -1133,18 +1133,14 @@ class GSTSuite(_RealCTk):
 
     def _show_update_dialog(self, latest: str, url: str, notes: str):
         """Show update prompt on the main thread."""
-        msg = f"A new version is available!\n\nCurrent: v{VERSION}\nLatest:  v{latest}"
-        if notes:
-            msg += f"\n\nWhat's new:\n{notes}"
-        msg += "\n\nUpdate now?"
+        msg = f"New update found (v{latest}).\nInstalling the update..."
 
-        answer = _tk.messagebox.askyesno(
-            title="Update Available",
+        _tk.messagebox.showinfo(
+            title="Update Installing",
             message=msg,
             icon="info",
         )
-        if answer:
-            self._launch_updater(url)
+        self._launch_updater(url)
 
     def _launch_updater(self, download_url: str):
         """Extract bundled updater.exe to temp dir, launch it, then close."""
@@ -1300,7 +1296,7 @@ class GSTSuite(_RealCTk):
             self._theme_btn.set("☀️  Light" if mode == "Light" else "🌙  Dark")
 
     # Tool keys that are always accessible regardless of plan
-    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom", "GST_Reports"}
+    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom"}
 
     def _is_tool_allowed(self, tool_key: str) -> bool:
         if self._allowed is None:
@@ -1325,10 +1321,6 @@ class GSTSuite(_RealCTk):
         # Backward-compatible aliases from older auth payloads.
         aliases = {
             "Tally_Automation": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
-            "Tally_Bank": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
-            "Tally_Sales": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
-            # "Tally_Credit_Debit_Note": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
-            "Tally_Journal": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
             "Email_Suite": {
                 "EMAIL", "EMAIL_TOOLS", "OUTLOOK", "OUTLOOK TOOLS", "OUTLOOK EMAIL TOOLS",
                 "EMAIL_GST_REQUEST", "EMAIL_INVOICE", "EMAIL_PAYMENT",
