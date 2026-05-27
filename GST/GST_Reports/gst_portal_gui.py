@@ -1305,6 +1305,15 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
             messagebox.showwarning("Input Error", "Please select at least one period.")
             return
 
+        if self.var_2a_mode.get() == "Quarterly":
+            expanded = []
+            for p in periods:
+                if p == "6": expanded.extend(["4", "5", "6"])
+                elif p == "9": expanded.extend(["7", "8", "9"])
+                elif p == "12": expanded.extend(["10", "11", "12"])
+                elif p == "3": expanded.extend(["1", "2", "3"])
+            periods = expanded
+
         self._start_gstr2a_batch(int(year), periods, sections)
 
     def _start_gstr2a_batch(self, year, periods, sections):
@@ -1318,7 +1327,7 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         for i, period in enumerate(periods, 1):
             if self._yearly_stop: break
             actual_year = year + 1 if int(period) <= 3 else year
-            name = (MONTH_NAMES if self.var_2a_mode.get() == "Monthly" else QUARTER_NAMES).get(period, period)
+            name = MONTH_NAMES.get(period, period)
             self.after(0, self.lbl_2a_progress.configure, {"text": f"[{i}/{len(periods)}] {name}"})
             try:
                 d = Gstr2ADownloader(session=self._session)

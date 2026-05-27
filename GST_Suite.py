@@ -2016,22 +2016,31 @@ class GSTSuite(_RealCTk):
             ent_dob = None
             cb_freq = None
             ent_gstin = None
-            f_dob = ctk.CTkFrame(row1, fg_color="transparent")
-            f_dob.grid(row=0, column=1, sticky="ew", padx=(5, 0))
+            f_row1_col2 = ctk.CTkFrame(row1, fg_color="transparent")
+            f_row1_col2.grid(row=0, column=1, sticky="ew", padx=(5, 0))
             if is_it:
-                ctk.CTkLabel(f_dob, text="Date of Birth", font=("Segoe UI", 12)).pack(anchor="w")
-                ent_dob = ctk.CTkEntry(f_dob, placeholder_text="DD/MM/YYYY", height=36)
+                ctk.CTkLabel(f_row1_col2, text="Date of Birth", font=("Segoe UI", 12)).pack(anchor="w")
+                ent_dob = ctk.CTkEntry(f_row1_col2, placeholder_text="DD/MM/YYYY", height=36)
                 ent_dob.pack(fill="x", pady=(2, 0))
             else:
-                ctk.CTkLabel(f_dob, text="GSTIN", font=("Segoe UI", 12)).pack(anchor="w")
-                ent_gstin = ctk.CTkEntry(f_dob, placeholder_text="Enter GSTIN", height=36)
-                ent_gstin.pack(fill="x", pady=(2, 0))
+                ctk.CTkLabel(f_row1_col2, text="Filing Frequency", font=("Segoe UI", 12)).pack(anchor="w")
+                cb_freq = ctk.CTkComboBox(f_row1_col2, values=["Monthly", "Quarterly"], height=36, state="readonly")
+                cb_freq.pack(fill="x", pady=(2, 0))
+                cb_freq.set("Monthly")
+                def _on_freq_key(event):
+                    if hasattr(event, "char") and event.char:
+                        c = event.char.lower()
+                        if c == 'm':
+                            cb_freq.set("Monthly")
+                        elif c == 'q':
+                            cb_freq.set("Quarterly")
+                cb_freq.bind("<Key>", _on_freq_key)
 
             row2 = ctk.CTkFrame(rf, fg_color="transparent")
             row2.pack(fill="x", pady=(0, 6))
             row2.grid_columnconfigure((0, 1), weight=1)
 
-            user_field_label = "PAN / User ID" if is_it else "GST Username (Optional)"
+            user_field_label = "PAN / User ID" if is_it else "GST Username"
             user_placeholder = "Enter PAN/User ID" if is_it else "Enter GST username"
             
             f_u = ctk.CTkFrame(row2, fg_color="transparent")
@@ -2042,7 +2051,7 @@ class GSTSuite(_RealCTk):
 
             f_p = ctk.CTkFrame(row2, fg_color="transparent")
             f_p.grid(row=0, column=1, sticky="ew", padx=(5, 0))
-            ctk.CTkLabel(f_p, text="Password (Optional)" if not is_it else "Password", font=("Segoe UI", 12)).pack(anchor="w")
+            ctk.CTkLabel(f_p, text="Password", font=("Segoe UI", 12)).pack(anchor="w")
             pr = ctk.CTkFrame(f_p, fg_color="transparent")
             pr.pack(fill="x", pady=(2, 0))
             ent_p = ctk.CTkEntry(pr, placeholder_text="Enter password", show="*", height=36)
@@ -2060,12 +2069,11 @@ class GSTSuite(_RealCTk):
                 row3.pack(fill="x", pady=(0, 6))
                 row3.grid_columnconfigure((0, 1), weight=1)
                 
-                f_freq = ctk.CTkFrame(row3, fg_color="transparent")
-                f_freq.grid(row=0, column=0, sticky="ew", padx=(0, 5))
-                ctk.CTkLabel(f_freq, text="Filing Frequency", font=("Segoe UI", 12)).pack(anchor="w")
-                cb_freq = ctk.CTkComboBox(f_freq, values=["Monthly", "Quarterly"], height=36)
-                cb_freq.pack(fill="x", pady=(2, 0))
-                cb_freq.set("Monthly")
+                f_gstin = ctk.CTkFrame(row3, fg_color="transparent")
+                f_gstin.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+                ctk.CTkLabel(f_gstin, text="GSTIN (Optional)", font=("Segoe UI", 12)).pack(anchor="w")
+                ent_gstin = ctk.CTkEntry(f_gstin, placeholder_text="Enter GSTIN", height=36)
+                ent_gstin.pack(fill="x", pady=(2, 0))
 
             def _ov_save():
                 from tkinter import messagebox as _mb3
@@ -2076,16 +2084,9 @@ class GSTSuite(_RealCTk):
                 f = cb_freq.get() if cb_freq else "Monthly"
                 g = ent_gstin.get().strip().upper() if ent_gstin else ""
                 
-                if not is_it:
-                    if not u and g:
-                        u = g
-                    if not g and not u:
-                        _mb3.showerror("Missing", "Enter GSTIN or GST Username.")
-                        return
-                else:
-                    if not u or not p:
-                        _mb3.showerror("Missing", "Enter both username/PAN and password.")
-                        return
+                if not c or not u or not p:
+                    _mb3.showerror("Missing", "Client Name, Username, and Password are mandatory.")
+                    return
                 
                 try:
                     conn = _get_ov_db()

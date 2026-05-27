@@ -1043,6 +1043,25 @@ def _write_summary_sheet(wb, name, section_title, itcsumm, mode='avl'):
                 c_a.font      = Font(size=9, name="Calibri")
 
 
+def _extract_amounts(doc):
+    txval = _n(doc.get("txval"))
+    igst = _n(doc.get("igst") or doc.get("iamt"))
+    cgst = _n(doc.get("cgst") or doc.get("camt"))
+    sgst = _n(doc.get("sgst") or doc.get("samt"))
+    cess = _n(doc.get("cess") or doc.get("csamt"))
+    
+    if txval == 0.0 and igst == 0.0 and cgst == 0.0 and sgst == 0.0:
+        itms = doc.get("items") or doc.get("itms") or []
+        for itm in itms:
+            i_det = itm.get("itm_det") or itm
+            txval += _n(i_det.get("txval"))
+            igst += _n(i_det.get("igst") or i_det.get("iamt"))
+            cgst += _n(i_det.get("cgst") or i_det.get("camt"))
+            sgst += _n(i_det.get("sgst") or i_det.get("samt"))
+            cess += _n(i_det.get("cess") or i_det.get("csamt"))
+    return txval, igst, cgst, sgst, cess
+
+
 def _write_data_sheet(wb, name, section_title, data_list, rtnprd='', is_b2b=False,
                       is_cdn=False, is_isd=False, is_impg=False, is_impgsez=False,
                       is_ecomm=False, is_amended=False, is_rejected_ims=False):
@@ -1279,11 +1298,7 @@ def _write_data_sheet(wb, name, section_title, data_list, rtnprd='', is_b2b=Fals
 
         if is_b2b:
             for inv in (party.get("inv") or []):
-                igst = _n(inv.get("igst") or inv.get("iamt"))
-                cgst = _n(inv.get("cgst") or inv.get("camt"))
-                sgst = _n(inv.get("sgst") or inv.get("samt"))
-                cess = _n(inv.get("cess") or inv.get("csamt"))
-                txval = _n(inv.get("txval"))
+                txval, igst, cgst, sgst, cess = _extract_amounts(inv)
                 irn = _s(inv.get("irn") or "")
                 irndt = _s(inv.get("irngendate") or "")
                 srctyp = _s(inv.get("srctyp") or "")
@@ -1329,11 +1344,7 @@ def _write_data_sheet(wb, name, section_title, data_list, rtnprd='', is_b2b=Fals
 
         elif is_cdn:
             for nt in (party.get("nt") or []):
-                igst = _n(nt.get("igst") or nt.get("iamt"))
-                cgst = _n(nt.get("cgst") or nt.get("camt"))
-                sgst = _n(nt.get("sgst") or nt.get("samt"))
-                cess = _n(nt.get("cess") or nt.get("csamt"))
-                txval = _n(nt.get("txval"))
+                txval, igst, cgst, sgst, cess = _extract_amounts(nt)
                 irn = _s(nt.get("irn") or "")
                 irndt = _s(nt.get("irngendate") or "")
                 srctyp = _s(nt.get("srctyp") or "")
@@ -1379,10 +1390,7 @@ def _write_data_sheet(wb, name, section_title, data_list, rtnprd='', is_b2b=Fals
 
         elif is_isd:
             for doc in (party.get("docdet") or party.get("inv") or [party]):
-                igst = _n(doc.get("igst") or doc.get("iamt"))
-                cgst = _n(doc.get("cgst") or doc.get("camt"))
-                sgst = _n(doc.get("sgst") or doc.get("samt"))
-                cess = _n(doc.get("cess") or doc.get("csamt"))
+                txval, igst, cgst, sgst, cess = _extract_amounts(doc)
                 if is_rejected_ims:
                     if is_amended:
                         row = [_s(doc.get("odoc_typ")), _s(doc.get("odoc_num")), _s(doc.get("odoc_dt")),
@@ -1414,11 +1422,7 @@ def _write_data_sheet(wb, name, section_title, data_list, rtnprd='', is_b2b=Fals
 
         elif is_ecomm:
             for doc in (party.get("doc") or party.get("inv") or []):
-                igst = _n(doc.get("igst") or doc.get("iamt"))
-                cgst = _n(doc.get("cgst") or doc.get("camt"))
-                sgst = _n(doc.get("sgst") or doc.get("samt"))
-                cess = _n(doc.get("cess") or doc.get("csamt"))
-                txval = _n(doc.get("txval"))
+                txval, igst, cgst, sgst, cess = _extract_amounts(doc)
                 irn = _s(doc.get("irn") or "")
                 irndt = _s(doc.get("irngendate") or "")
                 srctyp = _s(doc.get("srctyp") or "")
@@ -1501,10 +1505,11 @@ def _compute_itcsumm(docdata: dict, docRejdata: dict, docRevdata: dict) -> dict:
         return {"igst": 0.0, "cgst": 0.0, "sgst": 0.0, "cess": 0.0}
 
     def _add(bucket, inv):
-        bucket["igst"] += _n(inv.get("igst"))
-        bucket["cgst"] += _n(inv.get("cgst"))
-        bucket["sgst"] += _n(inv.get("sgst"))
-        bucket["cess"] += _n(inv.get("cess"))
+        txval, igst, cgst, sgst, cess = _extract_amounts(inv)
+        bucket["igst"] += igst
+        bucket["cgst"] += cgst
+        bucket["sgst"] += sgst
+        bucket["cess"] += cess
 
     # ── itcavl ───────────────────────────────────────────────────────────────
     avl_ns_b2b   = _empty_bucket()  # nonrevsup b2b  (rev=N, itcavl=Y)
