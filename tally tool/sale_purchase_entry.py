@@ -63,7 +63,7 @@ COLORS = {
     "accent_hover": ("#1D4ED8", "#2563EB"),
     "success": ("#059669", "#10B981"),
     "warning": ("#D97706", "#F59E0B"),
-    "error": ("#DC2626", "#EF4444"),
+    "error": ("#EA580C", "#EF4444"),
     "text_primary": ("#0F172A", "#F1F5F9"),
     "text_secondary": ("#475569", "#CBD5E1"),
     "text_muted": ("#64748B", "#94A3B8"),
@@ -5699,7 +5699,7 @@ class _GSTFetchDialog(ctk.CTkToplevel):
                                            fg_color=("#059669", "#10B981"),
                                            command=self._on_confirm, state="disabled")
         self._confirm_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray60", "#DC2626"),
+        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray60", "#EA580C"),
                        command=self._on_cancel, width=90).pack(side="left")
 
     def _on_load_captcha(self):
@@ -5878,7 +5878,7 @@ class _MissingLedgerDialog(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_frame,
             text="✏  Create Manually",
-            fg_color=("gray70", "#DC2626"),
+            fg_color=("gray70", "#EA580C"),
             hover_color=("gray60", "#FCA5A5"),
             height=40,
             font=("Segoe UI", 12),
@@ -6064,7 +6064,7 @@ class _MissingLedgerDialog(ctk.CTkToplevel):
         ctk.CTkButton(btn_row, text="Create", fg_color=COLORS["success"],
                        hover_color="#047857", command=_confirm).pack(
             side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray70", "#DC2626"),
+        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray70", "#EA580C"),
                    hover_color=("gray60", "#FCA5A5"), command=_cancel, width=90).pack(side="left")
 
         name_entry.bind("<Return>", lambda _e: _confirm())
@@ -6715,8 +6715,8 @@ class TallySalesApp(ctk.CTk):
             width=132,
             height=32,
             font=("Segoe UI", 10, "bold"),
-            fg_color="#DC2626",
-            hover_color="#B91C1C",
+            fg_color="#EA580C",
+            hover_color="#C2410C",
             text_color="#FFFFFF",
             corner_radius=8,
             command=self._view_workflow_demo,
@@ -6746,8 +6746,8 @@ class TallySalesApp(ctk.CTk):
             width=96,
             height=34,
             font=("Segoe UI", 10, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"),
+            hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._fetch_tally_companies_thread,
@@ -7172,7 +7172,7 @@ class TallySalesApp(ctk.CTk):
         template_row.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
         template_btn = ctk.CTkButton(
             template_row, text="📥  Download Template",
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"], width=170,
             command=lambda: self._download_template_for_mode(mode),
         )
@@ -7230,7 +7230,7 @@ class TallySalesApp(ctk.CTk):
 
         xml_browse_btn = ctk.CTkButton(
             xml_row, text="Browse XML", command=browse_xml, width=90,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"])
         xml_browse_btn.pack(side="left", padx=(0, 8))
         self._voucher_xml_browse_buttons[mode] = xml_browse_btn
@@ -7283,7 +7283,7 @@ class TallySalesApp(ctk.CTk):
 
             fetch_vtype_btn = ctk.CTkButton(
                 vtype_row, text="Fetch", width=60,
-                fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                 text_color=COLORS["text_secondary"],
                 command=_do_fetch_vtypes,
             )
@@ -7318,7 +7318,7 @@ class TallySalesApp(ctk.CTk):
         ro_entry.pack(side="left", padx=(0, 6))
 
         ro_fetch_btn = ctk.CTkButton(roundoff_row, text="Fetch Ledgers", width=110,
-                                     fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                                     fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                                      text_color=COLORS["text_secondary"], state="disabled")
         ro_fetch_btn.pack(side="left", padx=(0, 6))
         self._roundoff_fetch_btns[mode] = ro_fetch_btn
@@ -7385,8 +7385,8 @@ class TallySalesApp(ctk.CTk):
 
         xml_toggle_btn = ctk.CTkButton(
             toggle_row, text="📄 XML Preview", width=150, height=30,
-            font=("Segoe UI", 10, "bold"), fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_muted"], corner_radius=6)
+            font=("Segoe UI", 10, "bold"), fg_color=("#F1F5F9", "#EA580C"),
+            hover_color=("#E2E8F0", "#C2410C"), text_color=COLORS["text_muted"], corner_radius=6)
         xml_toggle_btn.pack(side="left", padx=(0, 8))
 
         info_lbl = ctk.CTkLabel(toggle_row, text="", font=("Segoe UI", 11),
@@ -8885,7 +8885,7 @@ class TallySalesApp(ctk.CTk):
             manual_btn = ctk.CTkButton(
                 choice_frame,
                 text="✏  Create Manually",
-                fg_color=("gray70", "#DC2626"), hover_color=("gray60", "#FCA5A5"),
+                fg_color=("gray70", "#EA580C"), hover_color=("gray60", "#FCA5A5"),
                 text_color="#FFFFFF", height=44, font=("Segoe UI", 12),
             )
             manual_btn.pack(fill="x")
@@ -8959,7 +8959,7 @@ class TallySalesApp(ctk.CTk):
             create_form_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
             back_btn = ctk.CTkButton(
                 form_btns, text="← Back",
-                fg_color=("gray70", "#DC2626"), hover_color=("gray60", "#FCA5A5"),
+                fg_color=("gray70", "#EA580C"), hover_color=("gray60", "#FCA5A5"),
                 text_color="#FFFFFF", height=36, font=("Segoe UI", 11), width=80,
             )
             back_btn.pack(side="left")
@@ -9114,8 +9114,8 @@ class TallySalesApp(ctk.CTk):
                          width=260, font=("Segoe UI", 10),
                          text_color=COLORS["text_primary"], anchor="w").pack(side="left", padx=8)
             pick_btn = ctk.CTkButton(row_fr, text="🔍", width=32, height=26,
-                                     fg_color=("#F1F5F9", "#DC2626"),
-                                     hover_color=("#E2E8F0", "#B91C1C"),
+                                     fg_color=("#F1F5F9", "#EA580C"),
+                                     hover_color=("#E2E8F0", "#C2410C"),
                                      text_color=COLORS["accent"],
                                      font=("Segoe UI", 11), corner_radius=4)
             pick_btn.pack(side="right", padx=(0, 6))
@@ -9156,8 +9156,8 @@ class TallySalesApp(ctk.CTk):
                          width=260, font=("Segoe UI", 10),
                          text_color=COLORS["error"], anchor="w").pack(side="left", padx=8)
             pick_btn2 = ctk.CTkButton(row_fr, text="🔍", width=32, height=26,
-                                      fg_color=("#F1F5F9", "#DC2626"),
-                                      hover_color=("#E2E8F0", "#B91C1C"),
+                                      fg_color=("#F1F5F9", "#EA580C"),
+                                      hover_color=("#E2E8F0", "#C2410C"),
                                       text_color=COLORS["accent"],
                                       font=("Segoe UI", 11), corner_radius=4)
             pick_btn2.pack(side="right", padx=(0, 6))
@@ -9253,7 +9253,7 @@ class TallySalesApp(ctk.CTk):
                       command=_do_skip).pack(side="left", fill="x", expand=True, padx=4)
         ctk.CTkButton(btn_frame, text="Cancel",
                       font=("Segoe UI", 11), height=40,
-                      fg_color=("#E2E8F0", "#DC2626"), hover_color=("#CBD5E1", "#B91C1C"),
+                      fg_color=("#E2E8F0", "#EA580C"), hover_color=("#CBD5E1", "#C2410C"),
                       text_color=COLORS["text_primary"], corner_radius=8,
                       command=_do_cancel).pack(side="right", padx=(4, 0))
 
@@ -9366,7 +9366,7 @@ class TallySalesApp(ctk.CTk):
 
         fetch_btn = ctk.CTkButton(
             r1, text="Fetch Ledgers", width=110, height=32,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"],
             command=_fetch_bank_ledgers,
         )
@@ -9374,7 +9374,7 @@ class TallySalesApp(ctk.CTk):
 
         ctk.CTkButton(
             r1, text="📥  Download Template", width=160, height=32,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"],
             command=lambda m=mode: self._download_template_for_mode(m),
         ).pack(side="right")
@@ -9619,7 +9619,7 @@ class TallySalesApp(ctk.CTk):
 
         gen_btn = ctk.CTkButton(
             r3, text="💾  Generate XML", width=150, height=34,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"], corner_radius=8,
             command=_generate_xml,
         )
@@ -9845,7 +9845,7 @@ class TallySalesApp(ctk.CTk):
                                         fg_color=ACCENT, hover_color=ACCENT_HOVER,
                                         command=add_manual_ledger)
         add_ledger_btn.pack(fill="x", padx=12, pady=(10, 4))
-        ctk.CTkButton(form, text="✏️  Edit Selected", fg_color=("#94A3B8", "#DC2626"), hover_color=("#64748B", "#FCA5A5"),
+        ctk.CTkButton(form, text="✏️  Edit Selected", fg_color=("#94A3B8", "#EA580C"), hover_color=("#64748B", "#FCA5A5"),
                    text_color="#FFFFFF", command=edit_selected_ledger).pack(fill="x", padx=12, pady=(0, 12))
 
         # ════════════════════════════════════════════════════════════════
@@ -10150,11 +10150,11 @@ class TallySalesApp(ctk.CTk):
         btn2_row.grid_columnconfigure(0, weight=1)
         btn2_row.grid_columnconfigure(1, weight=1)
         ctk.CTkButton(btn2_row, text="✏️  Edit Selected",
-                   fg_color=("#94A3B8", "#DC2626"), hover_color=("#64748B", "#FCA5A5"),
+                   fg_color=("#94A3B8", "#EA580C"), hover_color=("#64748B", "#FCA5A5"),
                    text_color="#FFFFFF", command=_gst_edit_selected
                    ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
         ctk.CTkButton(btn2_row, text="🔄  Clear Fields",
-                   fg_color=("gray65", "#DC2626"), hover_color=("gray55", "#FCA5A5"),
+                   fg_color=("gray65", "#EA580C"), hover_color=("gray55", "#FCA5A5"),
                    command=_gst_reset_form_state
                    ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
@@ -10228,7 +10228,7 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkButton(btn_row, text="📂 Import XML", fg_color=COLORS["warning"], hover_color="#B45309",
                        text_color="#FFFFFF",
                        command=lambda: self._import_xml_direct("ledger")).grid(row=0, column=2, sticky="ew", padx=(6,0), pady=(0,6))
-        ctk.CTkButton(btn_row, text="🗑 Clear", fg_color=DANGER, hover_color="#B91C1C",
+        ctk.CTkButton(btn_row, text="🗑 Clear", fg_color=DANGER, hover_color="#C2410C",
                        command=clear_ledgers).grid(row=1, column=0, sticky="ew", padx=(0,6))
 
         # Load from Excel
@@ -10265,7 +10265,7 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkButton(
             btn_row,
             text="📂 Load Excel",
-            fg_color=("#94A3B8", "#DC2626"),
+            fg_color=("#94A3B8", "#EA580C"),
             hover_color=("#64748B", "#FCA5A5"),
             text_color="#FFFFFF",
             command=load_ledgers_excel,
@@ -10441,7 +10441,7 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkButton(
             form,
             text="✏️  Edit Selected",
-            fg_color=("#94A3B8", "#DC2626"),
+            fg_color=("#94A3B8", "#EA580C"),
             hover_color=("#64748B", "#FCA5A5"),
             text_color="#FFFFFF",
             command=edit_selected_item,
@@ -10613,7 +10613,7 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkButton(btn_row, text="📂 Import XML", fg_color=COLORS["warning"], hover_color="#B45309",
                        text_color="#FFFFFF",
                        command=lambda: self._import_xml_direct("stock")).grid(row=0, column=2, sticky="ew", padx=(6,0), pady=(0,6))
-        ctk.CTkButton(btn_row, text="🗑 Clear", fg_color=DANGER, hover_color="#B91C1C",
+        ctk.CTkButton(btn_row, text="🗑 Clear", fg_color=DANGER, hover_color="#C2410C",
                        command=clear_stock).grid(row=1, column=0, sticky="ew", padx=(0,6))
 
         def load_stock_excel():
@@ -10650,7 +10650,7 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkButton(
             btn_row,
             text="📂 Load Excel",
-            fg_color=("#94A3B8", "#DC2626"),
+            fg_color=("#94A3B8", "#EA580C"),
             hover_color=("#64748B", "#FCA5A5"),
             text_color="#FFFFFF",
             command=load_stock_excel,
@@ -11194,7 +11194,7 @@ class TallySalesApp(ctk.CTk):
 
         note_template_btn = ctk.CTkButton(
             top_row, text="📥  Download Template",
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"], width=170,
             command=self._download_note_template)
         note_template_btn.pack(side="right")
@@ -11203,11 +11203,11 @@ class TallySalesApp(ctk.CTk):
         self._note_source_tabs = ctk.CTkTabview(
             parent,
             fg_color="transparent",
-            segmented_button_fg_color=("#F1F5F9", "#7F1D1D"),
+            segmented_button_fg_color=("#F1F5F9", "#7C2D12"),
             segmented_button_selected_color=COLORS["accent"],
             segmented_button_selected_hover_color=COLORS["accent_hover"],
-            segmented_button_unselected_color=("#F1F5F9", "#DC2626"),
-            segmented_button_unselected_hover_color=("#E2E8F0", "#B91C1C"),
+            segmented_button_unselected_color=("#F1F5F9", "#EA580C"),
+            segmented_button_unselected_hover_color=("#E2E8F0", "#C2410C"),
         )
         self._note_source_tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 4))
 
@@ -11237,7 +11237,7 @@ class TallySalesApp(ctk.CTk):
         note_ro_entry.pack(side="left", padx=(0, 6))
 
         note_ro_fetch_btn = ctk.CTkButton(note_ro_row, text="Fetch Ledgers", width=110,
-                                          fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                                          fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                                           text_color=COLORS["text_secondary"], state="disabled")
         note_ro_fetch_btn.pack(side="left", padx=(0, 6))
 
@@ -11408,7 +11408,7 @@ class TallySalesApp(ctk.CTk):
                 self._note_manual_fetch_ledger_btn = ctk.CTkButton(
                     top_line, text="Fetch", width=70, height=26,
                     font=("Segoe UI", 10, "bold"),
-                    fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                    fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                     text_color=COLORS["text_secondary"],
                     command=self._note_fetch_party_ledgers_thread)
                 self._note_manual_fetch_ledger_btn.pack(side="right")
@@ -11424,7 +11424,7 @@ class TallySalesApp(ctk.CTk):
 
                 self._note_manual_party_search_clear_btn = ctk.CTkButton(
                     search_row, text="Clear", width=58, height=30,
-                    fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                    fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                     text_color=COLORS["text_secondary"], font=("Segoe UI", 9, "bold"),
                     command=lambda: (self._note_manual_party_search_var.set(""), self._on_note_party_search_change()))
                 self._note_manual_party_search_clear_btn.pack(side="right")
@@ -11472,15 +11472,15 @@ class TallySalesApp(ctk.CTk):
             text_color="#FFFFFF", height=34, state="disabled", command=self._note_update_manual_entry)
         self._note_manual_update_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0), pady=(0, 6))
 
-        ctk.CTkButton(btn_row, text="Clear Form", fg_color=("#F1F5F9", "#DC2626"),
-                      hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_secondary"],
+        ctk.CTkButton(btn_row, text="Clear Form", fg_color=("#F1F5F9", "#EA580C"),
+                      hover_color=("#E2E8F0", "#C2410C"), text_color=COLORS["text_secondary"],
                       height=34, command=self._note_clear_manual_form).grid(row=1, column=0, sticky="ew", padx=(0, 6))
 
         ctk.CTkButton(btn_row, text="Remove Selected", fg_color=COLORS["warning"], hover_color="#B45309",
                       text_color="#FFFFFF", height=34, command=self._note_remove_selected_manual).grid(
             row=1, column=1, sticky="ew", padx=3)
 
-        ctk.CTkButton(btn_row, text="Clear All", fg_color=COLORS["error"], hover_color="#B91C1C",
+        ctk.CTkButton(btn_row, text="Clear All", fg_color=COLORS["error"], hover_color="#C2410C",
                       text_color="#FFFFFF", height=34, command=self._note_clear_all_manual).grid(
             row=1, column=2, sticky="ew", padx=(6, 0))
 
@@ -11610,13 +11610,13 @@ class TallySalesApp(ctk.CTk):
 
         self._note_create_party_fetch_btn = ctk.CTkButton(
             btn_row, text="Fetch Party Ledgers", width=160, height=34,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"], command=self._note_fetch_party_ledgers_thread)
         self._note_create_party_fetch_btn.pack(side="left", padx=(0, 8))
 
         self._note_create_party_clear_btn = ctk.CTkButton(
             btn_row, text="Clear", width=90, height=34,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"], command=self._note_clear_create_party_form)
         self._note_create_party_clear_btn.pack(side="left", padx=(0, 8))
 
@@ -12071,7 +12071,7 @@ class TallySalesApp(ctk.CTk):
 
         ctk.CTkButton(
             inner, text="📥  Download Template",
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"], width=170,
             command=self._download_journal_template).pack(side="right")
 
@@ -12079,11 +12079,11 @@ class TallySalesApp(ctk.CTk):
         self._jnl_source_tabs = ctk.CTkTabview(
             parent,
             fg_color="transparent",
-            segmented_button_fg_color=("#F1F5F9", "#7F1D1D"),
+            segmented_button_fg_color=("#F1F5F9", "#7C2D12"),
             segmented_button_selected_color=COLORS["accent"],
             segmented_button_selected_hover_color=COLORS["accent_hover"],
-            segmented_button_unselected_color=("#F1F5F9", "#DC2626"),
-            segmented_button_unselected_hover_color=("#E2E8F0", "#B91C1C"),
+            segmented_button_unselected_color=("#F1F5F9", "#EA580C"),
+            segmented_button_unselected_hover_color=("#E2E8F0", "#C2410C"),
         )
         self._jnl_source_tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 2))
 
@@ -12111,7 +12111,7 @@ class TallySalesApp(ctk.CTk):
         jnl_ro_entry.pack(side="left", padx=(0, 6))
 
         jnl_ro_fetch_btn = ctk.CTkButton(jnl_ro_row, text="Fetch Ledgers", width=110,
-                                          fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                                          fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                                           text_color=COLORS["text_secondary"], state="disabled")
         jnl_ro_fetch_btn.pack(side="left", padx=(0, 6))
 
@@ -12278,7 +12278,7 @@ class TallySalesApp(ctk.CTk):
                 self._jnl_manual_fetch_ledger_btn = ctk.CTkButton(
                     top_line, text="Fetch", width=70, height=26,
                     font=("Segoe UI", 10, "bold"),
-                    fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                    fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                     text_color=COLORS["text_secondary"],
                     command=self._jnl_fetch_party_ledgers_thread)
                 self._jnl_manual_fetch_ledger_btn.pack(side="right")
@@ -12294,7 +12294,7 @@ class TallySalesApp(ctk.CTk):
 
                 self._jnl_manual_party_search_clear_btn = ctk.CTkButton(
                     search_row, text="Clear", width=58, height=30,
-                    fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                    fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                     text_color=COLORS["text_secondary"], font=("Segoe UI", 9, "bold"),
                     command=lambda: (self._jnl_manual_party_search_var.set(""), self._on_jnl_party_search_change()))
                 self._jnl_manual_party_search_clear_btn.pack(side="right")
@@ -12342,15 +12342,15 @@ class TallySalesApp(ctk.CTk):
             text_color="#FFFFFF", height=28, font=("Segoe UI", 10, "bold"), state="disabled", command=self._jnl_update_manual_entry)
         self._jnl_manual_update_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0), pady=(0, 4))
 
-        ctk.CTkButton(btn_row, text="Clear Form", fg_color=("#F1F5F9", "#DC2626"),
-                      hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_secondary"],
+        ctk.CTkButton(btn_row, text="Clear Form", fg_color=("#F1F5F9", "#EA580C"),
+                      hover_color=("#E2E8F0", "#C2410C"), text_color=COLORS["text_secondary"],
                       height=28, font=("Segoe UI", 10, "bold"), command=self._jnl_clear_manual_form).grid(row=1, column=0, sticky="ew", padx=(0, 6))
 
         ctk.CTkButton(btn_row, text="Remove Selected", fg_color=COLORS["warning"], hover_color="#B45309",
                       text_color="#FFFFFF", height=28, font=("Segoe UI", 10, "bold"), command=self._jnl_remove_selected_manual).grid(
             row=1, column=1, sticky="ew", padx=3)
 
-        ctk.CTkButton(btn_row, text="Clear All", fg_color=COLORS["error"], hover_color="#B91C1C",
+        ctk.CTkButton(btn_row, text="Clear All", fg_color=COLORS["error"], hover_color="#C2410C",
                       text_color="#FFFFFF", height=28, font=("Segoe UI", 10, "bold"), command=self._jnl_clear_all_manual).grid(
             row=1, column=2, sticky="ew", padx=(6, 0))
 

@@ -37,7 +37,7 @@ COLORS = {
     "success": "#059669",
     "warning": "#D97706",
     "warning_bg": "#FEF3C7",
-    "error": "#DC2626",
+    "error": "#EA580C",
     "text_primary": "#0F172A",
     "text_secondary": "#475569",
     "text_muted": "#64748B",

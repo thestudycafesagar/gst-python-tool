@@ -124,8 +124,8 @@ COLORS = {
     "success_bg":    ("#D1FAE5", "#064E3B"),
     "warning":       ("#D97706", "#F59E0B"),
     "warning_bg":    ("#FEF3C7", "#78350F"),
-    "error":         ("#DC2626", "#EF4444"),
-    "error_bg":      ("#FEE2E2", "#7F1D1D"),
+    "error":         ("#EA580C", "#EF4444"),
+    "error_bg":      ("#FEE2E2", "#7C2D12"),
     "text_primary":  ("#0F172A", "#F1F5F9"),
     "text_secondary":("#475569", "#CBD5E1"),
     "text_muted":    ("#64748B", "#94A3B8"),
@@ -1962,7 +1962,7 @@ class LogPanel(ctk.CTkFrame):
         ctk.CTkLabel(header, text="Activity Log", font=("Segoe UI", 13, "bold"),
                      text_color=COLORS["text_primary"]).pack(side="left")
         ctk.CTkButton(header, text="Clear", width=60, height=26, font=("Segoe UI", 11),
-                      fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                      fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                       text_color=COLORS["text_secondary"], corner_radius=6,
                       command=self.clear_log).pack(side="right")
         self.textbox = ctk.CTkTextbox(self, fg_color=COLORS["bg_dark"], text_color=COLORS["text_secondary"],
@@ -4315,7 +4315,7 @@ class _GSTFetchDialog(ctk.CTkToplevel):
             command=self._on_confirm, state="disabled")
         self._confirm_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ctk.CTkButton(btn_row, text="Cancel",
-                   fg_color=("gray60", "#DC2626"),
+                   fg_color=("gray60", "#EA580C"),
                    command=self._on_cancel, width=90).pack(side="left")
 
     def _on_load_captcha(self):
@@ -4581,7 +4581,7 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         btn_bar.pack(fill="x", side="bottom")
         btn_bar.pack_propagate(False)
         ctk.CTkButton(btn_bar, text="Cancel", width=110, height=36,
-                  fg_color=("gray60", "#DC2626"),
+                  fg_color=("gray60", "#EA580C"),
                   command=self.destroy).pack(side="right", padx=(6, 16), pady=12)
         self._save_btn = ctk.CTkButton(
             btn_bar, text="Save & Close", width=160, height=36,
@@ -5453,8 +5453,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=132,
             height=28,
             font=("Segoe UI", 10, "bold"),
-            fg_color="#DC2626",
-            hover_color="#B91C1C",
+            fg_color="#EA580C",
+            hover_color="#C2410C",
             text_color="#FFFFFF",
             corner_radius=6,
             command=self._view_workflow_demo,
@@ -5497,7 +5497,7 @@ class GSTR2BTallyApp(ctk.CTk):
 
         ctk.CTkButton(
             map_btn_frame, text="📤  Upload Template", font=("Segoe UI", 11), height=32,
-            fg_color=("#FFFFFF", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#FFFFFF", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"], corner_radius=6,
             command=self._upload_itc_template).pack(fill="x")
 
@@ -5569,8 +5569,8 @@ class GSTR2BTallyApp(ctk.CTk):
             text="...",
             width=42,
             height=34,
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"),
+            hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._browse_download2b_excel,
@@ -5586,7 +5586,7 @@ class GSTR2BTallyApp(ctk.CTk):
         add_btn_frame = ctk.CTkFrame(self.d2b_manual_frame, fg_color="transparent")
         add_btn_frame.pack(fill="x", padx=16, pady=(0, 8))
         ctk.CTkButton(add_btn_frame, text="+ Add User", width=100, height=28, font=("Segoe UI", 11, "bold"),
-                      fg_color=("#F0F4F8", "#DC2626"), text_color=COLORS["text_primary"], hover_color=("#E2E8F0", "#B91C1C"),
+                      fg_color=("#F0F4F8", "#EA580C"), text_color=COLORS["text_primary"], hover_color=("#E2E8F0", "#C2410C"),
                       command=self._add_d2b_manual_entry).pack(side="left")
         
         self._add_d2b_manual_entry() # Add one by default
@@ -5719,8 +5719,8 @@ class GSTR2BTallyApp(ctk.CTk):
             text="...",
             width=42,
             height=34,
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"),
+            hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._browse_tally_push_xml,
@@ -5857,8 +5857,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=86,
             height=34,
             font=("Segoe UI", 10, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"),
+            hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._fetch_tally_companies_thread,
@@ -5995,8 +5995,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=82,
             height=34,
             font=("Segoe UI", 9, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"),
+            hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._fetch_create_ledger_companies_thread,
@@ -6242,8 +6242,8 @@ class GSTR2BTallyApp(ctk.CTk):
             text="Test Connection",
             height=38,
             font=("Segoe UI", 10, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"),
+            hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=self._check_create_ledger_connection_thread,
@@ -6324,7 +6324,7 @@ class GSTR2BTallyApp(ctk.CTk):
 
         self.roundoff_fetch_btn = ctk.CTkButton(
             ro_entry_row, text="Fetch Ledgers", width=130, height=36,
-            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"], font=("Segoe UI", 11),
             corner_radius=8, state="disabled")
         self.roundoff_fetch_btn.pack(side="left")
@@ -6385,8 +6385,8 @@ class GSTR2BTallyApp(ctk.CTk):
                                           placeholder_text="Same as source file",
                                           font=("Segoe UI", 11), corner_radius=8)
         self.output_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(out_frame, text="...", width=40, height=36, fg_color=("#F1F5F9", "#DC2626"),
-                      hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_secondary"],
+        ctk.CTkButton(out_frame, text="...", width=40, height=36, fg_color=("#F1F5F9", "#EA580C"),
+                      hover_color=("#E2E8F0", "#C2410C"), text_color=COLORS["text_secondary"],
                       corner_radius=8, command=self._browse_output).pack(side="right")
 
         # ─── LEFT: Action Buttons ───
@@ -6403,12 +6403,12 @@ class GSTR2BTallyApp(ctk.CTk):
         self.generate_btn.pack(fill="x", padx=16, pady=(0, 6))
         # Keep these created (they are referenced elsewhere) but not packed
         self.excel_only_btn = ctk.CTkButton(self.action_card, text="Generate Tally Sheet Only",
-                                             font=("Segoe UI", 12), height=38, fg_color=("#F1F5F9", "#DC2626"),
-                                             hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_primary"],
+                                             font=("Segoe UI", 12), height=38, fg_color=("#F1F5F9", "#EA580C"),
+                                             hover_color=("#E2E8F0", "#C2410C"), text_color=COLORS["text_primary"],
                                              corner_radius=8, command=lambda: self._generate_output(xml=False))
         self.xml_only_btn = ctk.CTkButton(self.action_card, text="Generate XML Only",
-                                           font=("Segoe UI", 12), height=38, fg_color=("#F1F5F9", "#DC2626"),
-                                           hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_primary"],
+                                           font=("Segoe UI", 12), height=38, fg_color=("#F1F5F9", "#EA580C"),
+                                           hover_color=("#E2E8F0", "#C2410C"), text_color=COLORS["text_primary"],
                                            corner_radius=8, command=lambda: self._generate_output(excel=False))
 
         # ─── Inline Push to Tally Panel ───────────────────────────────────────
@@ -6478,8 +6478,8 @@ class GSTR2BTallyApp(ctk.CTk):
         self.inline_push_company_cb.grid(row=0, column=1, sticky="ew", padx=(8, 6))
         self.inline_push_company_refresh_btn = ctk.CTkButton(
             _cr2, text="Fetch", width=60, height=34,
-            font=("Segoe UI", 10, "bold"), fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"), text_color=COLORS["text_secondary"],
+            font=("Segoe UI", 10, "bold"), fg_color=("#F1F5F9", "#EA580C"),
+            hover_color=("#E2E8F0", "#C2410C"), text_color=COLORS["text_secondary"],
             corner_radius=8, command=self._inline_push_refresh_companies_thread)
         self.inline_push_company_refresh_btn.grid(row=0, column=2, sticky="e")
 
@@ -6617,8 +6617,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 )
             else:
                 btn.configure(
-                    fg_color=("#F1F5F9", "#DC2626"),
-                    hover_color=("#E2E8F0", "#B91C1C"),
+                    fg_color=("#F1F5F9", "#EA580C"),
+                    hover_color=("#E2E8F0", "#C2410C"),
                     text_color=COLORS["text_primary"],
                 )
 
@@ -8209,8 +8209,8 @@ class GSTR2BTallyApp(ctk.CTk):
                 text="Close & Save",
                 height=34,
                 font=("Segoe UI", 11),
-                fg_color=("#F1F5F9", "#DC2626"),
-                hover_color=("#E2E8F0", "#B91C1C"),
+                fg_color=("#F1F5F9", "#EA580C"),
+                hover_color=("#E2E8F0", "#C2410C"),
                 text_color=COLORS["text_secondary"],
                 command=_close_with_save,
             ).pack(side="right")
@@ -8280,7 +8280,7 @@ class GSTR2BTallyApp(ctk.CTk):
             ctk.CTkButton(
                 bf,
                 text="Create Manually",
-                fg_color=("gray70", "#DC2626"),
+                fg_color=("gray70", "#EA580C"),
                 hover_color=("gray60", "#FCA5A5"),
                 height=44,
                 font=("Segoe UI", 12),
@@ -8645,8 +8645,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=130,
             height=38,
             font=("Segoe UI", 11, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"),
+            hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=do_save_all_details,
@@ -8672,8 +8672,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=110,
             height=38,
             font=("Segoe UI", 11, "bold"),
-            fg_color=("#F1F5F9", "#DC2626"),
-            hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#F1F5F9", "#EA580C"),
+            hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_secondary"],
             corner_radius=8,
             command=dialog.destroy,
@@ -10036,7 +10036,7 @@ class GSTR2BTallyApp(ctk.CTk):
                          text_color=COLORS["text_primary"], anchor="w").pack(side="left", padx=8)
 
             pick_btn = ctk.CTkButton(row, text="🔍", width=32, height=26,
-                                     fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                                     fg_color=("#F1F5F9", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                                      text_color=COLORS["accent"], font=("Segoe UI", 11),
                                      corner_radius=4)
             pick_btn.pack(side="right", padx=(0, 6))
@@ -10474,7 +10474,7 @@ class GSTR2BTallyApp(ctk.CTk):
             on_apply_callback()
 
         ctk.CTkButton(btn_frame, text="Cancel", width=90,
-                      fg_color=("#FFFFFF", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+                      fg_color=("#FFFFFF", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
                       text_color=COLORS["text_secondary"],
                       command=dialog.destroy).pack(side="right", padx=(4, 0))
         ctk.CTkButton(btn_frame, text="✓  Apply & Continue", width=160,
@@ -10659,8 +10659,8 @@ class GSTR2BTallyApp(ctk.CTk):
                     invoice_rows[inv].remove(r)
                     r["frame"].destroy()
             ctk.CTkButton(top, text="✕", width=COL_W[5], height=26,
-                          font=("Segoe UI", 10), fg_color=("#DC2626", "#991B1B"),
-                          hover_color="#7F1D1D", text_color="#FFFFFF",
+                          font=("Segoe UI", 10), fg_color=("#EA580C", "#991B1B"),
+                          hover_color="#7C2D12", text_color="#FFFFFF",
                           corner_radius=4, command=_del).pack(side="left", padx=(2, 4))
 
             rows_for_inv.append(rd)
@@ -10717,7 +10717,7 @@ class GSTR2BTallyApp(ctk.CTk):
             def _make_add(ii, cont, r):
                 return lambda: _add_item_row(ii, cont, r)
             ctk.CTkButton(inv_card, text="+ Add Item", font=("Segoe UI", 11), height=26, width=110,
-                          fg_color=("#E2E8F0", "#DC2626"), hover_color=("#CBD5E1", "#B91C1C"),
+                          fg_color=("#E2E8F0", "#EA580C"), hover_color=("#CBD5E1", "#C2410C"),
                           text_color=COLORS["accent"], corner_radius=4,
                           command=_make_add(inv_idx, item_container, rec),
                           ).pack(anchor="w", padx=12, pady=(0, 6))
@@ -11159,7 +11159,7 @@ class GSTR2BTallyApp(ctk.CTk):
         cancel_btn = ctk.CTkButton(
             btn_bar, text="Cancel",
             font=("Segoe UI", 12), height=42, width=100,
-            fg_color=("#FFFFFF", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
+            fg_color=("#FFFFFF", "#EA580C"), hover_color=("#E2E8F0", "#C2410C"),
             text_color=COLORS["text_primary"], corner_radius=8, command=dialog.destroy)
         cancel_btn.pack(side="right", padx=(0, 4))
 
