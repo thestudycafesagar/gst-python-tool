@@ -687,17 +687,18 @@ _C = {
 
 # Per-tool accent colours (light, dark)
 _GST_ACCENTS = [
-    ("#059669", "#34d399"),   # GST Verifier Emerald
-    ("#0284c7", "#38bdf8"),   # R1 JSON      Sky
-    ("#db2777", "#f472b6"),   # JSON→Excel   Pink
-    ("#dc2626", "#f87171"),   # R1 PDF       Red
-    ("#0f766e", "#2dd4bf"),   # IMS          Teal
-    ("#4f46e5", "#818cf8"),   # GSTR-2B      Indigo
-    ("#7c3aed", "#a78bfa"),   # GSTR-3B      Violet
-    ("#0891b2", "#22d3ee"),   # 3B→Excel     Cyan
-    ("#0f766e", "#2dd4bf"),   # GST Reco     Teal
-    ("#d97706", "#fbbf24"),   # Challan      Amber
-    ("#8b5cf6", "#c4b5fd"),   # GST Reports  Purple
+    ("#059669", "#34d399"),   # GST Verifier      Emerald
+    ("#0284c7", "#38bdf8"),   # R1 JSON           Sky
+    ("#db2777", "#f472b6"),   # JSON→Excel        Pink
+    ("#dc2626", "#f87171"),   # R1 PDF            Red
+    ("#0f766e", "#2dd4bf"),   # IMS               Teal
+    ("#4f46e5", "#818cf8"),   # GSTR-2B           Indigo
+    ("#7c3aed", "#a78bfa"),   # GSTR-3B           Violet
+    ("#0891b2", "#22d3ee"),   # 3B→Excel          Cyan
+    ("#d97706", "#fbbf24"),   # Challan              Amber
+    ("#8b5cf6", "#c4b5fd"),   # GST Reports          Purple
+    ("#0f766e", "#2dd4bf"),   # GST Reco             Teal
+    ("#6366f1", "#818cf8"),   # GST Reconciliation   Indigo
 ]
 _IT_ACCENTS = [
     ("#0891b2", "#22d3ee"),   # 26/AIS/TIS     Cyan
@@ -751,9 +752,10 @@ GST_TOOLS = [
     {"key": "GSTR2B",       "tab": "📥  GSTR 2B",      "module": os.path.join(_GST_BASE, "GST 2B Downloader",     "main.py"),        "class": "App",                "desc": "Bulk download GSTR-2B returns via automated browser."},
     {"key": "GSTR3B",       "tab": "📥  GSTR 3B",      "module": os.path.join(_GST_BASE, "GST 3B Downloader",     "main.py"),        "class": "App",                "desc": "Bulk download GSTR-3B returns via automated browser."},
     {"key": "GSTR3B_Excel", "tab": "📊  GSTR 3B to Excel",   "module": os.path.join(_GST_BASE, "GST 3B to Excel",       "main.py"),        "class": "GSTR3BConverterPro", "desc": "Convert GSTR-3B PDF files to formatted Excel sheets."},
-    {"key": "GST_Reco",     "tab": "🔄  GST Reco", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
     {"key": "GST_Challan",  "tab": "💰  GST Challan",      "module": os.path.join(_GST_BASE, "GST Challan Downloader","main.py"),        "class": "App",                "desc": "Download GST Challan PDFs in bulk (Monthly / Quarterly)."},
     {"key": "GST_Reports",  "tab": "📊  GST Reports",      "module": os.path.join(_GST_BASE, "GST_Reports",           "gst_portal_gui.py"), "class": "GstPortalApp",       "desc": "Download GSTR-1, GSTR-2A, GSTR-2B and GSTR-3B returns directly from the GST portal with login, OTP, Excel export and consolidated yearly downloads."},
+    {"key": "GST_Reco",     "tab": "🔄  GST Reco",          "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
+    {"key": "GST_Reco_Cards", "tab": "⚖  GST Reconciliation", "builtin_ui": "reco_landing", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GST portal data against books — Sale vs GSTR-1, Purchase vs GSTR-2A/2B, 2A vs 2B and GSTR-9 reconciliation."},
 ]
 
 IT_TOOLS = [
@@ -812,6 +814,7 @@ TALLY_TOOLS = [
     # {"key": "Tally_Credit_Debit_Note", "tab": "📝  Credit/Debit Note", "module": os.path.join(_TALLY_BASE, "credit-debit-note.py"), "class": "TallyNoteEntryApp", "desc": "Create Credit/Debit Note vouchers from Excel or manual entry, then export or push XML directly to TallyPrime."},
     # {"key": "Tally_Journal", "tab": "📒  Journal Entry", "module": os.path.join(_TALLY_BASE, "journal_entry.py"), "class": "TallyJournalApp", "desc": "Create Journal vouchers from Excel upload or manual entry, with XML export and direct push to TallyPrime."},
 ]
+RECO_TOOLS = []   # placeholder — reconciliation lives inside GST_Reco tab now
 _RECO_ACCENTS = [
     ("#0f766e", "#2dd4bf"),
 ]
@@ -1300,7 +1303,7 @@ class GSTSuite(_RealCTk):
             self._theme_btn.set("☀️  Light" if mode == "Light" else "🌙  Dark")
 
     # Tool keys that are always accessible regardless of plan
-    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom", "GST_Reports"}
+    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom", "GST_Reports", "GST_Reco_Cards"}
 
     def _is_tool_allowed(self, tool_key: str) -> bool:
         if self._allowed is None:
@@ -1344,6 +1347,9 @@ class GSTSuite(_RealCTk):
             "Gmail_Custom": {
                 "GMAIL", "GMAIL_TOOLS", "GMAIL TOOLS",
                 "GMAIL_CUSTOM", "CUSTOM_EMAIL", "GMAIL_GST_REQUEST", "GMAIL_INVOICE", "GMAIL_PAYMENT",
+            },
+            "GST_Reco": {
+                "GST_RECO", "RECO", "RECONCILIATION", "GST RECO", "GST_RECONCILIATION",
             },
         }
         if key in aliases and any(a in norm for a in aliases[key]):
@@ -1714,6 +1720,112 @@ class GSTSuite(_RealCTk):
                      text="This module is not included in your current plan.\nContact AutomationCafe Suite to upgrade your subscription.",
                      font=("Segoe UI", 11), text_color=("#94a3b8", "#64748b"),
                      wraplength=300, justify="center").pack(pady=(10, 0))
+
+    # ── Built-in UI dispatcher ────────────────────────────────────────────────
+
+    def _build_builtin_ui(self, ui_key: str, tab_frame, accent):
+        if ui_key == "reco_landing":
+            self._build_reco_landing(tab_frame, accent)
+
+    def _build_reco_landing(self, tab_frame, accent):
+        """Arrow-card landing page — 2×2 grid, no header."""
+        tab_frame.grid_rowconfigure(0, weight=1)
+        tab_frame.grid_columnconfigure(0, weight=1)
+
+        dark    = ctk.get_appearance_mode().lower() == "dark"
+        area_bg = "#111827" if dark else "#f8fafc"
+
+        outer = ctk.CTkFrame(tab_frame, fg_color=area_bg, corner_radius=0)
+        outer.grid(row=0, column=0, sticky="nsew")
+        outer.grid_rowconfigure(0, weight=1)
+        outer.grid_columnconfigure(0, weight=1)
+
+        holder = ctk.CTkFrame(outer, fg_color="transparent")
+        holder.place(relx=0.5, rely=0.5, anchor="center")
+
+        CARDS = [
+            ("Sale Vs GSTR-1\nReconciliation",      "#f59e0b"),
+            ("Purchase Vs. GSTR-2A\nReconciliation", "#10b981"),
+            ("Purchase Vs. GSTR-2B\nReconciliation", "#e11d48"),
+            ("2B Vs. 2A\nReconciliation",            "#7c3aed"),
+        ]
+
+        # 2 × 2 grid
+        for i, (lbl, color) in enumerate(CARDS):
+            r, c = divmod(i, 2)
+            cv = self._make_reco_card(holder, lbl, color, area_bg, dark)
+            cv.grid(row=r, column=c, padx=18, pady=18)
+
+    def _make_reco_card(self, parent, label, color, area_bg, dark):
+        """Draw a single arrow-shaped reconciliation card on a tk.Canvas."""
+        W, H  = 490, 165
+        arr   = 40    # right arrow depth
+        cut   = 22    # left-corner diagonal cut
+        bw    = 3     # border width
+        m     = bw + 2
+
+        card_bg  = "#1a2535" if dark else "#ffffff"
+        text_col = "#e2e8f0" if dark else "#1e293b"
+        sep_col  = "#334155" if dark else "#e5e7eb"
+        dot_col  = "#4b5563" if dark else "#cbd5e1"
+
+        cv = _tk.Canvas(parent, width=W, height=H,
+                        bg=area_bg, highlightthickness=0, bd=0, cursor="hand2")
+
+        # Outer polygon — border color fill
+        cv.create_polygon(
+            bw+cut, bw,   W-arr-bw, bw,   W-bw, H//2,
+            W-arr-bw, H-bw,   bw+cut, H-bw,   bw, H-cut-bw,   bw, cut+bw,
+            fill=color, outline="", smooth=False)
+
+        # Inner polygon — card background
+        cv.create_polygon(
+            m+cut, m,   W-arr-m, m,   W-m-bw, H//2,
+            W-arr-m, H-m,   m+cut, H-m,   m, H-cut-m,   m, cut+m,
+            fill=card_bg, outline="", smooth=False)
+
+        # Dashed circle (icon container)
+        cx, cy, r = 88, H//2, 46
+        segs = 14
+        for i in range(segs):
+            start = (360 / segs) * i + 90
+            cv.create_arc(cx-r, cy-r, cx+r, cy+r,
+                          start=start, extent=(360/segs)*0.55,
+                          style="arc", outline=color, width=2)
+
+        # Scales of justice icon
+        cv.create_text(cx, cy, text="⚖", font=("Segoe UI Emoji", 26), fill=color)
+
+        # Vertical separator
+        sx = cx + r + 20
+        cv.create_line(sx, 18, sx, H-18, fill=sep_col, width=1)
+
+        # Title — two lines
+        tx = sx + 20
+        parts = label.split("\n")
+        cv.create_text(tx, H//2 - (15 if len(parts) > 1 else 0),
+                       text=parts[0], font=("Segoe UI", 14, "bold"),
+                       fill=text_col, anchor="w")
+        if len(parts) > 1:
+            cv.create_text(tx, H//2 + 15, text=parts[1],
+                           font=("Segoe UI", 14, "bold"),
+                           fill=text_col, anchor="w")
+
+        # Decorative footer: • • • ——
+        dy, dx = H - 22, sx + 14
+        for _ in range(3):
+            cv.create_oval(dx-4, dy-4, dx+4, dy+4, fill=dot_col, outline="")
+            dx += 14
+        cv.create_rectangle(dx+5, dy-4, dx+28, dy+4, fill=color, outline="")
+
+        # Click handler
+        def _click(_, t=label.replace("\n", " ")):
+            import tkinter.messagebox as _mb
+            _mb.showinfo("Coming Soon",
+                         f"'{t}'\n\nThis reconciliation module will be available soon.")
+        cv.bind("<Button-1>", _click)
+
+        return cv
 
     def _build_category_overview(self, frame, key, tools, accents, tv=None):
         COLS  = 3 if len(tools) <= 6 else 4
@@ -2421,6 +2533,14 @@ class GSTSuite(_RealCTk):
             if not tab_frame.winfo_exists():
                 return
         except Exception:
+            return
+
+        # ── Builtin UIs (no external module loading) ─────────────────────────
+        if tool.get("builtin_ui"):
+            tab_frame.grid_rowconfigure(0, weight=1)
+            tab_frame.grid_columnconfigure(0, weight=1)
+            self._build_builtin_ui(tool["builtin_ui"], tab_frame, accent)
+            self._loaded[name] = True
             return
 
         # ── Enhanced Loading overlay with better visibility and animations ──

@@ -82,6 +82,10 @@ TEXT_MUTED = COLORS["text_muted"]
 CARD_BG = COLORS["bg_dark"]
 SUSPENSE_LEDGER = "Suspense A/c"
 
+
+class _PushCancelledError(Exception):
+    """Raised when the user closes/skips a ledger resolution popup without completing it."""
+
 LEDGER_PARENT_OPTIONS = [
     "Sundry Debtors",
     "Sundry Creditors",
@@ -98,6 +102,21 @@ LEDGER_PARENT_OPTIONS = [
 LEDGER_GST_APPLICABLE_OPTIONS = [
     "Applicable",
     "Not Applicable",
+]
+
+LEDGER_GST_REG_TYPE_OPTIONS = [
+    "Unknown",
+    "Composition",
+    "Regular",
+    "Unregistered/Consumer",
+    "Government entity / TDS",
+    "Regular - SEZ",
+    "Regular-Deemed Exporter",
+    "Regular-Exports (EOU)",
+    "e-Commerce Operator",
+    "Input Service Distributor",
+    "Embassy/UN Body",
+    "Non-Resident Taxpayer",
 ]
 
 LEDGER_STATE_OPTIONS = [
@@ -322,6 +341,42 @@ def _resolve_party_ledger(row: dict, is_purchase_mode: bool = False) -> str:
             "Party",
         ]
     return _row_text_any(row, fallback_keys, "")
+
+
+def _apply_party_ledger_rename(rows: list, old_name: str, new_name: str, is_purchase_mode: bool) -> None:
+    old_key = _ledger_name_key(old_name)
+    new_text = str(new_name or "").strip()
+    new_key = _ledger_name_key(new_text)
+    if not old_key or not new_key or old_key == new_key:
+        return
+    for row in rows or []:
+        current = _resolve_party_ledger(row, is_purchase_mode=is_purchase_mode)
+        if _ledger_name_key(current) == old_key:
+            row["PartyLedger"] = new_text
+
+
+_NON_PARTY_LEDGER_FIELDS = {
+    "PurchaseLedger", "PurchaseAccount", "Purchase Ledger", "ExpenseLedger",
+    "SalesLedger", "SalesAccount", "Sales Ledger", "IncomeLedger",
+    "CGSTLedger", "CGST Ledger", "CentralTaxLedger", "Central Tax Ledger", "Central Tax",
+    "SGSTLedger", "SGST Ledger", "StateTaxLedger", "State Tax Ledger", "State Tax",
+    "UTGSTLedger", "UTGST Ledger",
+    "IGSTLedger", "IGST Ledger", "IntegratedTaxLedger", "Integrated Tax Ledger", "Integrated Tax",
+    "CessLedger", "Cess Ledger",
+}
+
+
+def _apply_generic_ledger_rename(rows: list, old_name: str, new_name: str) -> None:
+    """Rename a non-party ledger across all known ledger fields in rows_snapshot."""
+    old_key = _ledger_name_key(old_name)
+    new_text = str(new_name or "").strip()
+    if not old_key or not new_text:
+        return
+    for row in rows or []:
+        for field in _NON_PARTY_LEDGER_FIELDS:
+            val = row.get(field)
+            if isinstance(val, str) and _ledger_name_key(val) == old_key:
+                row[field] = new_text
 
 
 def _row_float(row: dict, key: str, default: float = 0.0) -> float:
@@ -1526,6 +1581,7 @@ def _collect_party_ledger_definition(row: dict, is_purchase_mode: bool) -> dict:
 
     return {
         "Name": party_name_raw,
+        "OriginalName": party_name_raw,
         "Parent": "Sundry Creditors" if is_purchase_mode else "Sundry Debtors",
         "GSTApplicable": gst_applicable,
         "GSTIN": gstin_raw,
@@ -1836,6 +1892,7 @@ def _build_missing_ledger_defs(line_errors: list, rows: list, mode: str) -> list
         entries.append(
             {
                 "Name": ledger_name,
+                "OriginalName": ledger_name,
                 "Parent": parent,
                 "GSTApplicable": "",
                 "GSTIN": "",
@@ -3140,6 +3197,12 @@ def _consolidate_item_rows(rows: list, resolved_mode: str, resolved_custom_date:
             existing_r["SGST Amount"] = _row_float(existing_r, "SGST Amount", 0.0) + _row_float(r, "SGST Amount", 0.0)
             existing_r["Cess Amount"] = _row_float(existing_r, "Cess Amount", 0.0) + _row_float(r, "Cess Amount", 0.0)
             existing_r["Invoice Value"] = _row_float(existing_r, "Invoice Value", 0.0) + _row_float(r, "Invoice Value", 0.0)
+            # Zero out rates so XML generator uses the summed explicit amounts
+            # instead of recalculating (which would apply one row's rate to the
+            # combined taxable value, producing wrong results when rates differ)
+            existing_r["CGSTRate"] = 0
+            existing_r["SGSTRate"] = 0
+            existing_r["IGSTRate"] = 0
             
             if "items" not in existing_r:
                 existing_r["items"] = []
@@ -3378,10 +3441,8 @@ def generate_purchase_item_xml(
         sgst_amt = round(taxable_for_tax * sgst_r / 100, 2) if sgst_r > 0 else sgst_amt_explicit
         igst_amt = round(taxable_for_tax * igst_r / 100, 2) if igst_r > 0 else igst_amt_explicit
         total = item_total + cgst_amt + sgst_amt + igst_amt
-        _ro_amt_pi   = round(round(total, 0) - total, 2) if round_off_ledger else 0.0
-        _ro_total_pi = round(total + _ro_amt_pi, 2)
 
-        # TDS fields
+        # TDS fields (must be computed before round-off so net payable is whole number)
         tds_ledger_raw = _row_text(r, "TDSLedger") or _row_text(r, "TDS Ledger") or _row_text(r, "Tds Ledger")
         tds_rate       = _row_float(r, "TDSRate", 0.0) or _row_float(r, "TDS Rate", 0.0)
         tds_amount_raw = _row_float(r, "TDSAmount", 0.0) or _row_float(r, "TDS Amount", 0.0)
@@ -3390,8 +3451,12 @@ def generate_purchase_item_xml(
         else:
             tds_amount = abs(tds_amount_raw)
         tds_led = xml_escape(tds_ledger_raw)
-        # Vendor is credited the net (invoice total minus TDS deducted at source).
-        party_total = _ro_total_pi - tds_amount if (tds_led and tds_amount > 0) else _ro_total_pi
+        # Round-off is applied to the net payable (after TDS) so the vendor
+        # receives a whole-number amount with no decimal paise.
+        _tds_val    = tds_amount if (tds_led and tds_amount > 0) else 0.0
+        _net_pre_ro = round(total - _tds_val, 2)
+        _ro_amt_pi  = round(round(_net_pre_ro, 0) - _net_pre_ro, 2) if round_off_ledger else 0.0
+        party_total = round(_net_pre_ro + _ro_amt_pi, 2)
 
         _vch_type_esc = xml_escape(str(voucher_type or "Purchase").strip() or "Purchase")
 
@@ -3736,15 +3801,21 @@ def generate_stockitem_xml(items: list, company: str) -> str:
     a('  <REQUESTDATA>')
 
     for item in items:
-        name   = xml_escape(item["Name"])
+        name       = xml_escape(item["Name"])
         parent_raw = _normalize_stock_group_name(item.get("Parent", "Primary"))
-        parent = xml_escape(parent_raw)
-        unit_raw = _normalize_stock_unit_name(item.get("Unit", "Nos"))
-        unit = xml_escape(unit_raw)
-        hsn    = xml_escape(item.get("HSNCode",""))
-        gst_r  = item.get("GSTRate","")
-        gst_a  = item.get("GSTApplicable","Applicable")
-        desc   = xml_escape(item.get("Description",""))
+        parent     = xml_escape(parent_raw)
+        unit_raw   = _normalize_stock_unit_name(item.get("Unit", "Nos"))
+        unit       = xml_escape(unit_raw)
+        hsn          = xml_escape(item.get("HSNCode", ""))
+        gst_r        = str(item.get("GSTRate", "") or "").replace("%", "").strip()
+        gst_a        = item.get("GSTApplicable", "Applicable")
+        desc         = xml_escape(item.get("Description", ""))
+        hsn_details  = item.get("HsnDetails", "Specify Details Here")
+        gst_r_details = item.get("GstRateDetails", "Specify Details Here")
+        supply_type  = xml_escape(item.get("TypeOfSupply", "Goods"))
+
+        hsn_is_custom = hsn_details != "As per Company/Stock Group"
+        gst_is_custom = gst_r_details != "As per Company/Stock Group"
 
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
         a(f'    <STOCKITEM NAME="{name}" ACTION="Create">')
@@ -3753,26 +3824,41 @@ def generate_stockitem_xml(items: list, company: str) -> str:
         if parent_raw and parent_raw.casefold() != "primary":
             a(f'     <PARENT>{parent}</PARENT>')
 
-        # ✅ FIX STARTS HERE
         a(f'     <BASEUNITS>{unit}</BASEUNITS>')
         a('     <ISADDITIONALUNITS>NO</ISADDITIONALUNITS>')
-        # ❌ REMOVED: <ADDITIONALUNITS>
-        # ✅ FIX ENDS HERE
 
-        if hsn:
-            a(f'     <GSTDETAILS.LIST>')
-            a(f'      <HSNCODE>{hsn}</HSNCODE>')
-            a(f'      <TAXABILITY>Taxable</TAXABILITY>')
-            if gst_r:
-                a(f'      <STATEWISEDETAILS.LIST>')
-                a(f'       <RATEDETAILS.LIST>')
-                a(f'        <GSTRATE>{gst_r}</GSTRATE>')
-                a(f'       </RATEDETAILS.LIST>')
-                a(f'      </STATEWISEDETAILS.LIST>')
-            a(f'     </GSTDETAILS.LIST>')
-
-        if gst_a:
-            a(f'     <GSTAPPLICABLE>{xml_escape(gst_a)}</GSTAPPLICABLE>')
+        emit_gst_block = (hsn_is_custom and hsn) or (gst_is_custom and gst_r)
+        if emit_gst_block:
+            a('     <GSTAPPLICABLE>Applicable</GSTAPPLICABLE>')
+            a('     <GSTDETAILS.LIST>')
+            if hsn_is_custom and hsn:
+                a(f'      <HSNCODE>{hsn}</HSNCODE>')
+            a('      <TAXABILITY>Taxable</TAXABILITY>')
+            a(f'      <SUPPLYTYPENAME>{supply_type}</SUPPLYTYPENAME>')
+            if gst_is_custom and gst_r:
+                try:
+                    rate_val = float(gst_r)
+                    igst = f"{rate_val:.2f}"
+                    half = f"{rate_val / 2:.2f}"
+                except ValueError:
+                    igst = gst_r
+                    half = gst_r
+                a('      <STATEWISEDETAILS.LIST>')
+                a('       <STATENAME>Not Applicable</STATENAME>')
+                a('       <RATEDETAILS.LIST>')
+                a('        <GSTRATEDUTYHEAD>Integrated Tax</GSTRATEDUTYHEAD>')
+                a(f'        <GSTRATE>{igst}</GSTRATE>')
+                a('       </RATEDETAILS.LIST>')
+                a('       <RATEDETAILS.LIST>')
+                a('        <GSTRATEDUTYHEAD>Central Tax</GSTRATEDUTYHEAD>')
+                a(f'        <GSTRATE>{half}</GSTRATE>')
+                a('       </RATEDETAILS.LIST>')
+                a('       <RATEDETAILS.LIST>')
+                a('        <GSTRATEDUTYHEAD>State Tax</GSTRATEDUTYHEAD>')
+                a(f'        <GSTRATE>{half}</GSTRATE>')
+                a('       </RATEDETAILS.LIST>')
+                a('      </STATEWISEDETAILS.LIST>')
+            a('     </GSTDETAILS.LIST>')
 
         if desc:
             a(f'     <DESCRIPTION>{desc}</DESCRIPTION>')
@@ -4590,6 +4676,7 @@ def _collect_auto_note_ledgers(rows: list, is_debit_note: bool = False) -> list:
             party_parent = "Sundry Creditors" if is_debit_note else "Sundry Debtors"
             party_def = {
                 "Name": party_name,
+                "OriginalName": party_name,
                 "Parent": party_parent,
                 "GSTIN": gstin_raw,
                 "PAN": _pan_from_gstin(gstin_raw),
@@ -5053,6 +5140,166 @@ def generate_note_xml(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  PAYMENT / RECEIPT VOUCHER XML
+# ═══════════════════════════════════════════════════════════════════════════
+
+PAYMENT_HEADERS = ["DATE", "DESCRIPTION", "CHEQUE NO.", "Amount", "LEDGER"]
+RECEIPT_HEADERS = ["DATE", "DESCRIPTION", "CHEQUE NO.", "Amount", "LEDGER"]
+
+
+def _find_blank_ledger_descs(rows: list) -> list:
+    """Return sorted unique descriptions whose LEDGER column is blank."""
+    seen, result = set(), []
+    for r in rows:
+        ledger = str(r.get("LEDGER") or r.get("Ledger") or "").strip()
+        if not ledger:
+            desc = str(r.get("DESCRIPTION") or r.get("Description") or "").strip() or "(no description)"
+            if desc not in seen:
+                seen.add(desc)
+                result.append(desc)
+    return sorted(result)
+
+
+def _find_nonmatching_voucher_ledgers(rows: list, tally_names_upper: set) -> list:
+    """Return sorted unique LEDGER values not found in Tally."""
+    seen, result = set(), []
+    for r in rows:
+        ledger = str(r.get("LEDGER") or r.get("Ledger") or "").strip()
+        if ledger and ledger.upper() not in tally_names_upper:
+            if ledger not in seen:
+                seen.add(ledger)
+                result.append(ledger)
+    return sorted(result)
+
+
+def generate_single_voucher_xml(
+    rows: list,
+    company: str,
+    bank_ledger: str,
+    voucher_type: str,
+    date_mode: str = "excel",
+    custom_tally_date: str = "",
+    start_vno: int = None,
+) -> str:
+    """Generate Payment or Receipt voucher XML from rows with an AMOUNT column.
+
+    voucher_type = "Payment" : contra-ledger DEBIT  + bank CREDIT  (money out)
+    voucher_type = "Receipt" : bank DEBIT           + contra-ledger CREDIT  (money in)
+    """
+    vtype = voucher_type.strip().title()
+    resolved_mode = str(date_mode or "excel").strip().lower()
+    if resolved_mode not in {"current", "excel", "custom"}:
+        resolved_mode = "excel"
+    resolved_custom = _normalize_manual_date_to_tally(custom_tally_date) if resolved_mode == "custom" else ""
+
+    lines = []
+    a = lines.append
+    company_static = _company_static_block(company)
+
+    a('<?xml version="1.0" encoding="UTF-8"?>')
+    a('<ENVELOPE>')
+    a(' <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>')
+    a(' <BODY><IMPORTDATA>')
+    a('  <REQUESTDESC><REPORTNAME>Vouchers</REPORTNAME>')
+    if company_static:
+        a(company_static)
+    a('  </REQUESTDESC>')
+    a('  <REQUESTDATA>')
+
+    bank_esc = xml_escape(str(bank_ledger or "").strip())
+    vch_counter = 0
+
+    for idx, r in enumerate(rows):
+        # ── Date ──────────────────────────────────────────────────────
+        if resolved_mode == "current":
+            dt = datetime.today().strftime("%Y%m%d")
+        elif resolved_mode == "custom":
+            dt = resolved_custom
+        else:
+            source_date = r.get("DATE") or r.get("Date") or r.get("date") or ""
+            dt = tally_date(source_date)
+            if not dt or not source_date:
+                continue
+
+        # ── Amount ────────────────────────────────────────────────────
+        def _to_float(v):
+            try:
+                return float(v) if v not in (None, "", "None") else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+
+        amt = _to_float(r.get("AMOUNT") or r.get("Amount") or r.get("amount") or 0)
+        if amt <= 0:
+            continue
+
+        # ── Contra ledger ──────────────────────────────────────────────
+        contra_raw = str(r.get("LEDGER") or r.get("Ledger") or r.get("ledger") or "").strip()
+        if not contra_raw:
+            contra_raw = "Suspense A/c"
+        contra_esc = xml_escape(contra_raw)
+
+        # ── Narration ──────────────────────────────────────────────────
+        description = str(r.get("DESCRIPTION") or r.get("Description") or r.get("description") or "").strip()
+        cheque_no   = str(r.get("CHEQUE NO.") or r.get("ChequeNo") or r.get("Cheque No") or "").strip()
+        if cheque_no in ("None", "none"):
+            cheque_no = ""
+        narration_parts = []
+        if description:
+            narration_parts.append(description)
+        if cheque_no:
+            narration_parts.append(f"Chq: {cheque_no}")
+        narration = xml_escape(" | ".join(narration_parts))
+
+        vch_counter += 1
+        vno = str(start_vno + vch_counter - 1) if start_vno is not None else str(vch_counter)
+
+        a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
+        a(f'    <VOUCHER VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">')
+        a(f'     <DATE>{dt}</DATE>')
+        a(f'     <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>')
+        a(f'     <VOUCHERNUMBER>{xml_escape(vno)}</VOUCHERNUMBER>')
+        a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
+        a('     <PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>')
+        if narration:
+            a(f'     <NARRATION>{narration}</NARRATION>')
+
+        if vtype == "Payment":
+            # Contra-ledger: DEBIT (receives money)
+            a('     <ALLLEDGERENTRIES.LIST>')
+            a(f'      <LEDGERNAME>{contra_esc}</LEDGERNAME>')
+            a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
+            a(f'      <AMOUNT>-{fmt_amt(amt)}</AMOUNT>')
+            a('     </ALLLEDGERENTRIES.LIST>')
+            # Bank: CREDIT (money goes out)
+            a('     <ALLLEDGERENTRIES.LIST>')
+            a(f'      <LEDGERNAME>{bank_esc}</LEDGERNAME>')
+            a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
+            a(f'      <AMOUNT>{fmt_amt(amt)}</AMOUNT>')
+            a('     </ALLLEDGERENTRIES.LIST>')
+        else:
+            # Bank: DEBIT (money comes in)
+            a('     <ALLLEDGERENTRIES.LIST>')
+            a(f'      <LEDGERNAME>{bank_esc}</LEDGERNAME>')
+            a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
+            a(f'      <AMOUNT>-{fmt_amt(amt)}</AMOUNT>')
+            a('     </ALLLEDGERENTRIES.LIST>')
+            # Contra-ledger: CREDIT (source of money)
+            a('     <ALLLEDGERENTRIES.LIST>')
+            a(f'      <LEDGERNAME>{contra_esc}</LEDGERNAME>')
+            a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
+            a(f'      <AMOUNT>{fmt_amt(amt)}</AMOUNT>')
+            a('     </ALLLEDGERENTRIES.LIST>')
+
+        a('    </VOUCHER>')
+        a('   </TALLYMESSAGE>')
+
+    a('  </REQUESTDATA>')
+    a(' </IMPORTDATA></BODY>')
+    a('</ENVELOPE>')
+    return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  READ EXCEL
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -5104,6 +5351,7 @@ def _parse_portal_data_to_ledger_def(portal_data: dict, ledger_name: str, parent
     trade_name = str(key_details.get("Trade Name") or "").strip()
     legal_name = str(key_details.get("Legal Name of Business") or "").strip()
     mailing_name = trade_name or legal_name or ledger_name
+    final_name = mailing_name or ledger_name
 
     ppob = str(key_details.get("Principal Place of Business") or "").strip()
     address1 = ""
@@ -5151,9 +5399,9 @@ def _parse_portal_data_to_ledger_def(portal_data: dict, ledger_name: str, parent
     gst_applicable = "Applicable" if gstin_val else "Not Applicable"
 
     return {
-        "Name": ledger_name,
+        "Name": final_name,
         "Parent": parent,
-        "MailingName": mailing_name,
+        "MailingName": mailing_name or final_name,
         "GSTIN": gstin_val,
         "PAN": _pan_from_gstin(gstin_val),
         "GSTApplicable": gst_applicable,
@@ -5523,10 +5771,11 @@ class _GSTFetchDialog(ctk.CTkToplevel):
         # Build enriched ledger def from (possibly edited) fields
         addr_full = self._addr_var.get().strip()
         addr_parts = [p.strip() for p in addr_full.split(",") if p.strip()]
+        name = self._name_var.get().strip() or self._ledger_name
         led_def = {
-            "Name": self._ledger_name,
+            "Name": name,
             "Parent": self._ledger_parent,
-            "MailingName": self._name_var.get().strip() or self._ledger_name,
+            "MailingName": name,
             "GSTIN": self._gstin_var.get().strip().upper(),
             "GSTApplicable": "Applicable" if self._gstin_var.get().strip() else "Not Applicable",
             "GSTRegistrationType": self._reg_type_var.get().strip() or "Regular",
@@ -5573,12 +5822,17 @@ class _MissingLedgerDialog(ctk.CTkToplevel):
         parent_account = str(led_def.get("Parent", "") or "Sundry Debtors")
 
         self.title("Missing Ledger")
-        self.geometry("500x280")
+        self.geometry("500x340")
         self.resizable(False, False)
         self.grab_set()
         self.lift()
         self.focus_force()
-        self.protocol("WM_DELETE_WINDOW", self._choose_manual)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Store for use in methods
+        self._ledger_name    = ledger_name
+        self._gstin_hint     = gstin_hint
+        self._parent_account = parent_account
 
         # Header
         header = ctk.CTkFrame(self, fg_color=("#FEF3C7", "#78350F"), corner_radius=0)
@@ -5605,7 +5859,7 @@ class _MissingLedgerDialog(ctk.CTkToplevel):
                           text_color=("gray50", "gray60")).pack(anchor="w")
 
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=(0, 16))
+        btn_frame.pack(fill="x", padx=20, pady=(0, 14))
 
         portal_enabled = _SELENIUM_AVAILABLE and _PIL_AVAILABLE
         portal_tooltip = "" if portal_enabled else " (Selenium/PIL not installed)"
@@ -5615,40 +5869,231 @@ class _MissingLedgerDialog(ctk.CTkToplevel):
             text=f"🌐  Fetch from GST Portal{portal_tooltip}",
             fg_color=("#2563EB", "#3B82F6"),
             hover_color=("#1D4ED8", "#2563EB"),
-            height=44,
+            height=40,
             font=("Segoe UI", 12),
-            command=lambda: self._choose_fetch(ledger_name, gstin_hint, parent_account),
+            command=self._choose_fetch,
             state="normal" if portal_enabled else "disabled",
-        ).pack(fill="x", pady=(0, 8))
+        ).pack(fill="x", pady=(0, 6))
 
         ctk.CTkButton(
             btn_frame,
-            text="✏  Create Manually (Basic Info Only)",
+            text="✏  Create Manually",
             fg_color=("gray70", "gray30"),
             hover_color=("gray60", "gray40"),
-            height=44,
+            height=40,
             font=("Segoe UI", 12),
             command=self._choose_manual,
+        ).pack(fill="x", pady=(0, 6))
+
+        ctk.CTkButton(
+            btn_frame,
+            text="⏭  Skip this entry",
+            fg_color=COLORS["warning"],
+            hover_color=("#B45309", "#D97706"),
+            height=36,
+            font=("Segoe UI", 11),
+            command=self._on_skip,
         ).pack(fill="x")
 
-    def _choose_fetch(self, ledger_name, gstin_hint, parent_account):
+    def _return_to_choice(self):
+        """Bring this dialog back to focus after a sub-popup closes without result."""
+        self.deiconify()
+        self.grab_set()
+        self.lift()
+        self.focus_force()
+
+    def _choose_fetch(self):
         self.withdraw()
-        dlg = _GSTFetchDialog(self.master, ledger_name, gstin_hint, parent_account)
+        dlg = _GSTFetchDialog(self.master, self._ledger_name, self._gstin_hint, self._parent_account)
         self.wait_window(dlg)
         result_def = dlg.get_result()
         if result_def:
+            # Portal returned data — use it and proceed
+            name = str(result_def.get("MailingName") or result_def.get("Name") or "").strip()
+            if name:
+                result_def = dict(result_def)
+                result_def["Name"] = name
+                result_def["MailingName"] = name
             self._choice_data["choice"] = "fetch"
             self._choice_data["def"] = result_def
+            self._event.set()
+            self.destroy()
         else:
-            # user cancelled the fetch dialog → fall back to manual
-            self._choice_data["choice"] = "manual"
-            self._choice_data["def"] = self._led_def
+            # Portal closed without data — come back to this choice screen, do NOT auto-create
+            self._return_to_choice()
+
+    def _on_skip(self):
+        """Skip button — skip only this ledger, continue push for remaining entries."""
+        self._choice_data["choice"] = "skipped"
         self._event.set()
         self.destroy()
 
-    def _choose_manual(self):
+    def _on_close(self):
+        """X button — cancel the entire push."""
+        self._choice_data["choice"] = "cancelled"
+        self._event.set()
+        self.destroy()
+
+    def _prompt_manual_details(self, default_def: dict) -> dict:
+        pop = ctk.CTkToplevel(self)
+        pop.title("Create Ledger Manually")
+        pop.geometry("520x520")
+        pop.resizable(False, True)
+        pop.transient(self)
+        pop.grab_set()
+        pop.lift()
+        pop.focus_force()
+
+        name_default = str(default_def.get("MailingName") or default_def.get("Name") or "").strip()
+        parent_default = str(default_def.get("Parent") or "Sundry Debtors").strip()
+        gst_app_default = str(default_def.get("GSTApplicable") or "Not Applicable").strip()
+        state_default = str(default_def.get("StateOfSupply") or "Not Applicable").strip()
+        gstin_default = str(default_def.get("GSTIN") or "").strip().upper()
+        addr1_default = str(default_def.get("Address1") or "").strip()
+        addr2_default = str(default_def.get("Address2") or "").strip()
+
+        name_var = tk.StringVar(value=name_default)
+        gstin_var = tk.StringVar(value=gstin_default)
+        pan_var = tk.StringVar(value=str(default_def.get("PAN") or "").strip().upper())
+        status_var = tk.StringVar(value="")
+
+        form = ctk.CTkScrollableFrame(pop, fg_color="transparent")
+        form.pack(fill="both", expand=True, padx=16, pady=(12, 0))
+
+        def _row_label(text):
+            ctk.CTkLabel(form, text=text, font=("Segoe UI", 11)).pack(anchor="w", pady=(6, 0))
+
+        _row_label("Ledger Name *")
+        name_entry = ctk.CTkEntry(form, textvariable=name_var, height=28)
+        name_entry.pack(fill="x", pady=(0, 2))
+
+        _row_label("Parent Group *")
+        parent_var = ctk.StringVar(value=parent_default or LEDGER_PARENT_OPTIONS[0])
+        parent_cb = ctk.CTkComboBox(form, variable=parent_var, values=LEDGER_PARENT_OPTIONS, width=280)
+        parent_cb.pack(fill="x", pady=(0, 2))
+
+        _row_label("GST Applicable")
+        gst_app_var = ctk.StringVar(value=gst_app_default or LEDGER_GST_APPLICABLE_OPTIONS[1])
+        gst_app_cb = ctk.CTkComboBox(form, variable=gst_app_var, values=LEDGER_GST_APPLICABLE_OPTIONS, width=280)
+        gst_app_cb.pack(fill="x", pady=(0, 2))
+
+        _row_label("GST Registration Type")
+        reg_default = str(default_def.get("GSTRegistrationType") or "").strip()
+        if reg_default not in LEDGER_GST_REG_TYPE_OPTIONS:
+            reg_default = "Unknown"
+        reg_var = ctk.StringVar(value=reg_default)
+        reg_cb = ctk.CTkComboBox(form, variable=reg_var, values=LEDGER_GST_REG_TYPE_OPTIONS, width=280)
+        reg_cb.pack(fill="x", pady=(0, 2))
+
+        _row_label("GSTIN")
+        gstin_entry = ctk.CTkEntry(form, textvariable=gstin_var, height=28,
+                                   placeholder_text="e.g. 29ABCDE1234F1Z5")
+        gstin_entry.pack(fill="x", pady=(0, 2))
+
+        _row_label("PAN")
+        pan_entry = ctk.CTkEntry(form, textvariable=pan_var, height=28,
+                                 placeholder_text="auto-filled from GSTIN")
+        pan_entry.pack(fill="x", pady=(0, 2))
+
+        _row_label("State")
+        state_var = ctk.StringVar(value=state_default if state_default in LEDGER_STATE_OPTIONS else "Not Applicable")
+        state_cb = ctk.CTkComboBox(form, variable=state_var, values=LEDGER_STATE_OPTIONS, width=280)
+        state_cb.pack(fill="x", pady=(0, 2))
+
+        _row_label("Address Line 1")
+        addr1_var = tk.StringVar(value=addr1_default)
+        addr1_entry = ctk.CTkEntry(form, textvariable=addr1_var, height=28)
+        addr1_entry.pack(fill="x", pady=(0, 2))
+
+        _row_label("Address Line 2")
+        addr2_var = tk.StringVar(value=addr2_default)
+        addr2_entry = ctk.CTkEntry(form, textvariable=addr2_var, height=28)
+        addr2_entry.pack(fill="x", pady=(0, 2))
+
+        def _sync_pan(*_):
+            g = gstin_var.get().strip().upper()
+            pan = _pan_from_gstin(g)
+            if pan:
+                pan_var.set(pan)
+
+        gstin_entry.bind("<FocusOut>", _sync_pan)
+        gstin_entry.bind("<KeyRelease>", _sync_pan)
+
+        status_lbl = ctk.CTkLabel(pop, textvariable=status_var, font=("Segoe UI", 10),
+                                   text_color=COLORS["text_muted"], anchor="w")
+        status_lbl.pack(fill="x", padx=16, pady=(6, 0))
+
+        btn_row = ctk.CTkFrame(pop, fg_color="transparent")
+        btn_row.pack(fill="x", padx=16, pady=(8, 12))
+
+        result = {"def": None}
+
+        def _confirm():
+            name = name_var.get().strip()
+            parent = parent_var.get().strip()
+            if not name:
+                status_var.set("Ledger name is required.")
+                return
+            if not parent:
+                status_var.set("Parent group is required.")
+                return
+            gstin = gstin_var.get().strip().upper()
+            pan = pan_var.get().strip().upper() or _pan_from_gstin(gstin)
+            state_val = _normalize_state_for_ledger(state_var.get().strip())
+            result["def"] = {
+                "Name": name,
+                "MailingName": name,
+                "Parent": parent,
+                "GSTApplicable": gst_app_var.get().strip(),
+                "GSTRegistrationType": reg_var.get().strip(),
+                "GSTIN": gstin,
+                "PAN": pan,
+                "StateOfSupply": state_val,
+                "Address1": addr1_var.get().strip(),
+                "Address2": addr2_var.get().strip(),
+                "Country": "India",
+                "Billwise": "Yes" if _is_party_parent(parent) else "No",
+                "TypeOfTaxation": "",
+                "GSTRate": "",
+            }
+            pop.destroy()
+
+        def _cancel():
+            pop.destroy()
+
+        ctk.CTkButton(btn_row, text="Create", fg_color=COLORS["success"],
+                       hover_color="#047857", command=_confirm).pack(
+            side="left", fill="x", expand=True, padx=(0, 6))
+        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray70", "gray30"),
+                       hover_color=("gray60", "gray40"), command=_cancel, width=90).pack(side="left")
+
+        name_entry.bind("<Return>", lambda _e: _confirm())
+        pop.wait_window()
+        return result["def"]
+
+    def _choose_manual(self, prompt: bool = True):
+        default_name = str(
+            self._led_def.get("MailingName")
+            or self._led_def.get("Name")
+            or ""
+        ).strip()
+        name = default_name
+        if prompt:
+            manual_def = self._prompt_manual_details(self._led_def)
+            if manual_def is None:
+                # Manual form closed without filling — come back to this choice screen
+                self._return_to_choice()
+                return
+
+        led_def = dict(self._led_def)
+        if prompt and manual_def is not None:
+            led_def.update(manual_def)
+        elif name:
+            led_def["Name"] = name
+            led_def["MailingName"] = name
+
         self._choice_data["choice"] = "manual"
-        self._choice_data["def"] = self._led_def
+        self._choice_data["def"] = led_def
         self._event.set()
         self.destroy()
 
@@ -5659,6 +6104,7 @@ def _ask_create_party_ledger(widget, led_def: dict) -> dict:
     waits for user choice (up to 5 min), and returns the (possibly enriched)
     ledger definition dict.
     """
+    original_name = str(led_def.get("OriginalName") or led_def.get("Name") or "").strip()
     event = threading.Event()
     choice_data = {"choice": None, "def": led_def}
 
@@ -5668,10 +6114,372 @@ def _ask_create_party_ledger(widget, led_def: dict) -> dict:
     widget.after(0, _show)
     event.wait(timeout=300)
 
-    if choice_data["choice"] is None:
-        # Timeout – fall back to manual
-        choice_data["def"] = led_def
-    return choice_data["def"]
+    choice = choice_data["choice"]
+
+    # X-close or timeout — cancel the entire push
+    if choice in (None, "cancelled"):
+        return None
+
+    # Skip button — skip only this ledger, caller continues to next
+    if choice == "skipped":
+        return {"_skipped": True}
+
+    result = choice_data["def"]
+    if isinstance(result, dict):
+        name = str(result.get("MailingName") or result.get("Name") or "").strip()
+        if name:
+            result = dict(result)
+            result["Name"] = name
+            result["MailingName"] = name
+        if original_name:
+            result["OriginalName"] = original_name
+    return result
+
+
+def _spe_theme_color(name: str) -> str:
+    """Resolve a COLORS key to the current-mode hex string."""
+    value = COLORS.get(name, name)
+    if isinstance(value, tuple):
+        mode = ctk.get_appearance_mode().lower()
+        return value[1] if mode == "dark" else value[0]
+    return value
+
+
+class _NonPartyMissingLedgerDialog(ctk.CTkToplevel):
+    """
+    Table-style dialog showing ALL missing non-party ledgers at once.
+    Columns: Missing Ledger | Map To Existing | Create New | Parent Group
+    Modelled on the resolution dialog in main.py.
+    """
+
+    def __init__(self, parent, led_defs: list, existing_ledger_names: set,
+                 result_data: dict, event: threading.Event):
+        super().__init__(parent)
+        self._led_defs = led_defs
+        self._result_data = result_data
+        self._event = event
+
+        n = len(led_defs)
+        self.title("Resolve Missing Ledgers")
+        self.geometry("980x580")
+        self.minsize(820, 420)
+        self.grab_set()
+        self.lift()
+        self.focus_force()
+        self.protocol("WM_DELETE_WINDOW", self._abort)
+
+        # ── Header ──────────────────────────────────────────────────────────
+        top = ctk.CTkFrame(self, fg_color=COLORS["table_header"], corner_radius=0)
+        top.pack(fill="x")
+        ctk.CTkLabel(top, text="Missing Ledger Resolution",
+                     font=("Segoe UI", 15, "bold"),
+                     text_color=COLORS["warning"]).pack(anchor="w", padx=14, pady=(10, 2))
+        ctk.CTkLabel(top,
+                     text=(f"{n} ledger(s) not found in Tally. "
+                           "Map each to an existing ledger, or create it — then click Apply & Continue."),
+                     font=("Segoe UI", 11),
+                     text_color=COLORS["text_secondary"],
+                     wraplength=940, justify="left").pack(anchor="w", padx=14, pady=(0, 10))
+
+        # ── Info bar ─────────────────────────────────────────────────────────
+        info_bar = ctk.CTkFrame(self, fg_color="transparent")
+        info_bar.pack(fill="x", padx=16, pady=(6, 2))
+        self._tally_ledgers = sorted(existing_ledger_names, key=str.casefold)
+        self._tally_count_lbl = ctk.CTkLabel(
+            info_bar,
+            text=f"Existing ledgers in Tally: {len(self._tally_ledgers)}",
+            font=("Segoe UI", 11, "bold"),
+            text_color=COLORS["text_primary"],
+        )
+        self._tally_count_lbl.pack(side="left")
+
+        # ── Column header ─────────────────────────────────────────────────────
+        hdr = ctk.CTkFrame(self, fg_color=COLORS["table_header"], corner_radius=6, height=30)
+        hdr.pack(fill="x", padx=16, pady=(2, 2))
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="Missing Ledger", width=210,
+                     font=("Segoe UI", 10, "bold"), text_color=COLORS["warning"],
+                     anchor="w").pack(side="left", padx=(10, 4))
+        ctk.CTkLabel(hdr, text="Map To Existing", width=270,
+                     font=("Segoe UI", 10, "bold"), text_color=COLORS["warning"],
+                     anchor="w").pack(side="left", padx=4)
+        ctk.CTkLabel(hdr, text="Create New", width=230,
+                     font=("Segoe UI", 10, "bold"), text_color=COLORS["warning"],
+                     anchor="w").pack(side="left", padx=4)
+        ctk.CTkLabel(hdr, text="Parent Group",
+                     font=("Segoe UI", 10, "bold"), text_color=COLORS["warning"],
+                     anchor="w").pack(side="left", padx=4)
+
+        # ── Scrollable table ──────────────────────────────────────────────────
+        table = ctk.CTkScrollableFrame(
+            self, fg_color=COLORS["bg_card"], corner_radius=8,
+            border_width=1, border_color=COLORS["border"],
+        )
+        table.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+
+        self._row_controls = []
+        _SEARCH_PH = "Search Ledger"
+
+        def _sanitize(values):
+            seen, out = set(), []
+            for v in values or []:
+                t = str(v or "").strip()
+                k = t.casefold()
+                if t and k not in seen:
+                    seen.add(k)
+                    out.append(t)
+            return out
+
+        sanitized_all = _sanitize(self._tally_ledgers)
+
+        for idx, ld in enumerate(led_defs):
+            row_bg = COLORS["bg_card"] if idx % 2 == 0 else COLORS["bg_input"]
+            row = ctk.CTkFrame(table, fg_color=row_bg, corner_radius=4)
+            row.pack(fill="x", pady=2, padx=2)
+
+            led_name = str(ld.get("Name") or "").strip()
+            parent_guess = str(ld.get("Parent") or "Purchase Accounts").strip()
+
+            # Col 1 — ledger name
+            ctk.CTkLabel(row, text=led_name[:34], width=210,
+                         font=("Segoe UI", 10), text_color=COLORS["text_primary"],
+                         anchor="w").pack(side="left", padx=(10, 4), pady=8)
+
+            # ── Map column ────────────────────────────────────────────────────
+            map_col = ctk.CTkFrame(row, fg_color="transparent", width=270)
+            map_col.pack(side="left", padx=4, pady=6)
+            map_col.pack_propagate(False)
+
+            map_search = ctk.CTkEntry(
+                map_col, height=26,
+                fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                text_color=COLORS["text_primary"], placeholder_text=_SEARCH_PH,
+                font=("Segoe UI", 10),
+            )
+            map_search.pack(fill="x", pady=(0, 2))
+
+            try:
+                map_combo = ctk.CTkComboBox(
+                    map_col, values=sanitized_all[:200] or [""], height=26,
+                    fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                    button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
+                    font=("Segoe UI", 10),
+                )
+            except tk.TclError:
+                map_combo = ctk.CTkComboBox(
+                    map_col, values=[""], height=26,
+                    fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                    button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
+                    font=("Segoe UI", 10),
+                )
+            map_combo.pack(fill="x")
+            map_combo.set(_SEARCH_PH)
+
+            lb_bg = _spe_theme_color("bg_input")
+            lb_fg = _spe_theme_color("text_primary")
+            lb_sel = _spe_theme_color("accent")
+            suggestion_box = tk.Listbox(
+                map_col, height=3, exportselection=False,
+                activestyle="none", relief="solid", borderwidth=1,
+                bg=lb_bg, fg=lb_fg, selectbackground=lb_sel,
+                selectforeground="#FFFFFF", font=("Segoe UI", 9),
+            )
+            suggestion_box.pack(fill="x", pady=(2, 0))
+
+            # ── Create column ──────────────────────────────────────────────────
+            create_col = ctk.CTkFrame(row, fg_color="transparent", width=230)
+            create_col.pack(side="left", padx=4, pady=6)
+            create_col.pack_propagate(False)
+
+            create_var = ctk.BooleanVar(value=False)
+            create_btn = ctk.CTkButton(
+                create_col, text="Create", width=64, height=26,
+                font=("Segoe UI", 10, "bold"),
+                fg_color=COLORS["success"], hover_color="#047857", text_color="#FFFFFF",
+            )
+            create_btn.pack(side="left", padx=(0, 4))
+
+            new_name_entry = ctk.CTkEntry(
+                create_col, width=158, height=26,
+                fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                text_color=COLORS["text_primary"], placeholder_text="New Ledger Name",
+                font=("Segoe UI", 10),
+            )
+            new_name_entry.pack(side="left")
+            new_name_entry.insert(0, led_name)
+            new_name_entry.configure(state="disabled")
+
+            # ── Parent column ──────────────────────────────────────────────────
+            pval = parent_guess if parent_guess in LEDGER_PARENT_OPTIONS else "Purchase Accounts"
+            parent_combo = ctk.CTkComboBox(
+                row, values=LEDGER_PARENT_OPTIONS, width=195,
+                fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
+                font=("Segoe UI", 10),
+            )
+            parent_combo.pack(side="left", padx=6, pady=6)
+            parent_combo.set(pval)
+            parent_combo.configure(state="disabled")
+
+            # ── Sync helpers ───────────────────────────────────────────────────
+            def _make_sync(var=create_var, ne=new_name_entry, pc=parent_combo, btn=create_btn):
+                def _sync():
+                    s = "normal" if var.get() else "disabled"
+                    ne.configure(state=s)
+                    pc.configure(state=s)
+                    btn.configure(text="Edit" if var.get() else "Create")
+                return _sync
+
+            sync_fn = _make_sync()
+
+            def _make_toggle(var=create_var, sync=sync_fn):
+                def _toggle():
+                    var.set(not var.get())
+                    sync()
+                return _toggle
+
+            create_btn.configure(command=_make_toggle())
+
+            # ── Filter helpers ──────────────────────────────────────────────────
+            def _make_filter(combo=map_combo, entry=map_search, lb=suggestion_box):
+                def _apply(query=None):
+                    q = str(query if query is not None else entry.get() or "").strip().lower()
+                    filt = [v for v in sanitized_all if q in v.lower()] if q else sanitized_all
+                    combo.configure(values=(filt[:200] if filt else [""]))
+                    lb.delete(0, "end")
+                    if q:
+                        for item in filt[:10]:
+                            lb.insert("end", item)
+                return _apply
+
+            apply_filter = _make_filter()
+
+            def _make_key_handler(entry=map_search, fn=apply_filter):
+                return lambda e: fn(entry.get())
+
+            map_search.bind("<KeyRelease>", _make_key_handler())
+            apply_filter()
+
+            def _make_lb_click(lb=suggestion_box, entry=map_search, combo=map_combo):
+                def _handle(_e=None):
+                    sel = lb.curselection()
+                    if not sel:
+                        return
+                    val = str(lb.get(sel[0]) or "").strip()
+                    if not val:
+                        return
+                    entry.delete(0, "end")
+                    entry.insert(0, val)
+                    combo.set(val)
+                    lb.delete(0, "end")
+                return _handle
+
+            lb_handler = _make_lb_click()
+            suggestion_box.bind("<<ListboxSelect>>", lb_handler)
+            suggestion_box.bind("<Double-Button-1>", lb_handler)
+
+            def _make_combo_select(entry=map_search):
+                def _on(val):
+                    entry.delete(0, "end")
+                    entry.insert(0, str(val or "").strip())
+                return _on
+
+            map_combo.configure(command=_make_combo_select())
+
+            self._row_controls.append({
+                "led_def": ld,
+                "led_name": led_name,
+                "map_search": map_search,
+                "map_combo": map_combo,
+                "suggestion_box": suggestion_box,
+                "create_var": create_var,
+                "new_name_entry": new_name_entry,
+                "parent_combo": parent_combo,
+            })
+
+        # ── Bottom buttons ────────────────────────────────────────────────────
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(fill="x", padx=16, pady=(0, 14))
+
+        ctk.CTkButton(
+            btn_row, text="Create All As-Is",
+            height=38, font=("Segoe UI", 11),
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF", command=self._create_all,
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            btn_row, text="Apply & Continue",
+            height=38, font=("Segoe UI", 12, "bold"),
+            fg_color=COLORS["success"], hover_color="#047857",
+            text_color="#FFFFFF", command=self._apply,
+        ).pack(side="right")
+
+    def _collect_results(self) -> list:
+        _SEARCH_PH = "Search Ledger"
+        results = []
+        for rc in self._row_controls:
+            led_name = rc["led_name"]
+            create_enabled = rc["create_var"].get()
+
+            selected = (rc["map_combo"].get() or "").strip()
+            if selected.casefold() == _SEARCH_PH.casefold():
+                selected = ""
+            if not selected:
+                selected = rc["map_search"].get().strip()
+
+            if create_enabled:
+                new_name = rc["new_name_entry"].get().strip() or led_name
+                parent = rc["parent_combo"].get().strip() or rc["led_def"].get("Parent", "")
+                new_def = dict(rc["led_def"])
+                new_def["Name"] = new_name
+                new_def["Parent"] = parent
+                results.append({"action": "create", "def": new_def})
+            elif selected and selected.casefold() != led_name.casefold():
+                results.append({"action": "map", "old_name": led_name, "new_name": selected})
+            else:
+                # Nothing mapped and no create → create as-is
+                results.append({"action": "create", "def": dict(rc["led_def"])})
+        return results
+
+    def _apply(self):
+        self._result_data["results"] = self._collect_results()
+        self._event.set()
+        self.destroy()
+
+    def _create_all(self):
+        self._result_data["results"] = [
+            {"action": "create", "def": dict(rc["led_def"])}
+            for rc in self._row_controls
+        ]
+        self._event.set()
+        self.destroy()
+
+    def _abort(self):
+        """User closed the window without completing — signal cancellation."""
+        self._result_data["aborted"] = True
+        self._result_data["results"] = []
+        self._event.set()
+        self.destroy()
+
+
+def _ask_map_nonparty_ledgers(widget, led_defs: list, existing_ledger_names: set):
+    """
+    Call from a worker thread. Shows _NonPartyMissingLedgerDialog (all ledgers
+    at once) on the main thread, waits up to 5 min, and returns:
+      list of {"action": "map"|"create", ...}  — if user applied
+      None                                      — if user closed/aborted (push must stop)
+    """
+    event = threading.Event()
+    result_data = {"aborted": False, "results": [{"action": "create", "def": ld} for ld in led_defs]}
+
+    widget.after(0, lambda: _NonPartyMissingLedgerDialog(
+        widget, led_defs, existing_ledger_names, result_data, event))
+
+    event.wait(timeout=300)
+    if result_data.get("aborted") or not event.is_set():
+        return None
+    return result_data["results"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -5786,7 +6594,18 @@ class TallySalesApp(ctk.CTk):
             "purchase_accounting": "Template_Purchase Accounting Voucher.xlsx",
             "purchase_item": "Template_Purchase Item Voucher.xlsx",
             "sales_export_accounting": "Template_Sales Export Accounting.xlsx",
+            "payment": "Template_Payment Voucher.xlsx",
+            "receipt": "Template_Receipt Voucher.xlsx",
         }
+        # Payment / Receipt panel state (keyed by mode)
+        self._voucher_panel_state = {}
+        for _vm in ("payment", "receipt"):
+            self._voucher_panel_state[_vm] = {
+                "bank_ledger_var": ctk.StringVar(value=""),
+                "loaded_rows": [],
+                "fp_var": ctk.StringVar(value=""),
+                "info_var": ctk.StringVar(value=""),
+            }
 
         self._build_ui()
 
@@ -6032,6 +6851,8 @@ class TallySalesApp(ctk.CTk):
             "📝  Credit Note (Item)",
             "📒  Debit Note (Item)",
             "📓  Journal Entry",
+            "💸  Payment Entry",
+            "🧾  Receipt Entry",
             "🏦  Create Ledgers",
             "📁  Create Stock Items",
         ]
@@ -6046,6 +6867,8 @@ class TallySalesApp(ctk.CTk):
             "📝  Credit Note (Item)": "credit_note_item",
             "📒  Debit Note (Item)": "debit_note_item",
             "📓  Journal Entry": "journal",
+            "💸  Payment Entry": "payment",
+            "🧾  Receipt Entry": "receipt",
             "🏦  Create Ledgers": "ledger",
             "📁  Create Stock Items": "stock",
         }
@@ -6100,6 +6923,16 @@ class TallySalesApp(ctk.CTk):
         journal_pf.grid(row=0, column=0, sticky="nsew")
         self._panels["journal"] = journal_pf
 
+        # Payment panel
+        payment_pf = ctk.CTkFrame(_content_outer, fg_color="transparent")
+        payment_pf.grid(row=0, column=0, sticky="nsew")
+        self._panels["payment"] = payment_pf
+
+        # Receipt panel
+        receipt_pf = ctk.CTkFrame(_content_outer, fg_color="transparent")
+        receipt_pf.grid(row=0, column=0, sticky="nsew")
+        self._panels["receipt"] = receipt_pf
+
         self.tab_acct = self._panels["accounting"]
         self.tab_item = self._panels["item"]
         self.tab_purchase_acct = self._panels["purchase_accounting"]
@@ -6115,6 +6948,8 @@ class TallySalesApp(ctk.CTk):
         self._build_voucher_tab(self.tab_export_acct, mode="sales_export_accounting")
         self._build_note_panel(self._panels["note"])
         self._build_journal_panel(self._panels["journal"])
+        self._build_payment_or_receipt_panel(self._panels["payment"], "payment")
+        self._build_payment_or_receipt_panel(self._panels["receipt"], "receipt")
         self._build_ledger_tab()
         self._build_stock_tab()
 
@@ -6936,6 +7771,24 @@ class TallySalesApp(ctk.CTk):
                      "Singapore", "Advertisement Export", 100, "9983", "Advertisement", ""],
                 ],
             },
+            "payment": {
+                "sheet_name": "Sheet1",
+                "headers": ["DATE", "DESCRIPTION", "CHEQUE NO.", "Amount", "LEDGER"],
+                "sample_rows": [
+                    ["01-Apr-2026", "Payment to supplier", "CHQ001", 5000, "Supplier A/c"],
+                    ["02-Apr-2026", "Office expenses", "CHQ002", 1200, "Office Expenses A/c"],
+                    ["03-Apr-2026", "Rent payment", "", 15000, "Rent A/c"],
+                ],
+            },
+            "receipt": {
+                "sheet_name": "Sheet1",
+                "headers": ["DATE", "DESCRIPTION", "CHEQUE NO.", "Amount", "LEDGER"],
+                "sample_rows": [
+                    ["01-Apr-2026", "Receipt from customer", "CHQ101", 8000, "Customer A/c"],
+                    ["02-Apr-2026", "Sales receipt", "CHQ102", 25000, "Sales A/c"],
+                    ["03-Apr-2026", "Interest received", "", 500, "Interest Income A/c"],
+                ],
+            },
         }
         return templates.get(mode, {})
 
@@ -7393,6 +8246,17 @@ class TallySalesApp(ctk.CTk):
                         effective_custom_tally_date = custom_tally_date
                         company_gst_registrations = []
                         existing_ledger_names = set()
+                        is_purchase_mode = mode in {"purchase_accounting", "purchase_item"}
+
+                        def _update_party_rows_from_def(led_def: dict):
+                            if not isinstance(led_def, dict):
+                                return
+                            _apply_party_ledger_rename(
+                                rows_snapshot,
+                                led_def.get("OriginalName", ""),
+                                led_def.get("Name", ""),
+                                is_purchase_mode,
+                            )
 
                         self.after(0, lambda: self._push_message_var.set("Fetching company GST registrations..."))
                         gst_reg_result = _fetch_company_gst_registrations(
@@ -7418,8 +8282,6 @@ class TallySalesApp(ctk.CTk):
                             existing_ledger_names,
                         )
                         if auto_ledger_defs_to_create:
-                            # For party ledgers: ask the user how to create each one.
-                            # For tax/sales/purchase ledgers: auto-create silently.
                             party_defs_to_ask = []
                             non_party_defs = []
                             for _ld in auto_ledger_defs_to_create:
@@ -7428,36 +8290,64 @@ class TallySalesApp(ctk.CTk):
                                 else:
                                     non_party_defs.append(_ld)
 
-                            # Ask user for each missing party ledger
+                            # Ask user for each missing party ledger (create or fetch from portal)
                             asked_defs = []
                             for _ld in party_defs_to_ask:
+                                _ld_name = _ld.get("Name", "")
                                 self.after(0, lambda: self._push_message_var.set(
-                                    f"Waiting for user input: ledger '{_ld.get('Name', '')}' not found..."))
+                                    f"Waiting for user input: ledger '{_ld_name}' not found..."))
                                 enriched = _ask_create_party_ledger(self, _ld)
+                                if enriched is None:
+                                    raise _PushCancelledError(
+                                        f"Push cancelled — ledger '{_ld_name}' was not resolved.")
+                                if enriched.get("_skipped"):
+                                    continue
+                                _update_party_rows_from_def(enriched)
                                 asked_defs.append(enriched)
 
-                            auto_ledger_defs_to_create = non_party_defs + asked_defs
+                            # Ask user for ALL missing non-party ledgers at once
+                            final_non_party_defs = []
+                            if non_party_defs:
+                                self.after(0, lambda: self._push_message_var.set(
+                                    "Waiting for user input: resolve missing ledgers..."))
+                                nonparty_results = _ask_map_nonparty_ledgers(
+                                    self, non_party_defs, existing_ledger_names)
+                                if nonparty_results is None:
+                                    raise _PushCancelledError(
+                                        "Push cancelled — missing ledger resolution was closed.")
+                                for res in nonparty_results:
+                                    if res.get("action") == "map":
+                                        old_n = str(res.get("old_name") or "").strip()
+                                        new_n = str(res.get("new_name") or "").strip()
+                                        if old_n and new_n and old_n.casefold() != new_n.casefold():
+                                            _apply_generic_ledger_rename(rows_snapshot, old_n, new_n)
+                                        # Mapped to existing — skip creation
+                                    else:
+                                        final_non_party_defs.append(res.get("def", {}))
 
-                            self.after(0, lambda: self._push_message_var.set("Creating required ledgers in Tally..."))
-                            auto_ledger_xml = generate_ledger_xml(auto_ledger_defs_to_create, company)
-                            auto_ledger_resp = push_to_tally(auto_ledger_xml, host, port_value)
-                            auto_ledger_parsed = _parse_tally_response_details(auto_ledger_resp)
-                            self._append_debug_log(
-                                "auto-ledger",
-                                target_company,
-                                auto_ledger_xml,
-                                auto_ledger_resp,
-                                auto_ledger_parsed,
-                                note=(
-                                    f"mode={mode}, ledgers_total={len(auto_ledger_defs)}, "
-                                    f"new_ledgers={len(auto_ledger_defs_to_create)}"
-                                ),
-                            )
-                            existing_ledger_names.update(
-                                str(entry.get("Name", "") or "").strip()
-                                for entry in auto_ledger_defs_to_create
-                                if str(entry.get("Name", "") or "").strip()
-                            )
+                            auto_ledger_defs_to_create = final_non_party_defs + asked_defs
+
+                            if auto_ledger_defs_to_create:
+                                self.after(0, lambda: self._push_message_var.set("Creating required ledgers in Tally..."))
+                                auto_ledger_xml = generate_ledger_xml(auto_ledger_defs_to_create, company)
+                                auto_ledger_resp = push_to_tally(auto_ledger_xml, host, port_value)
+                                auto_ledger_parsed = _parse_tally_response_details(auto_ledger_resp)
+                                self._append_debug_log(
+                                    "auto-ledger",
+                                    target_company,
+                                    auto_ledger_xml,
+                                    auto_ledger_resp,
+                                    auto_ledger_parsed,
+                                    note=(
+                                        f"mode={mode}, ledgers_total={len(auto_ledger_defs)}, "
+                                        f"new_ledgers={len(auto_ledger_defs_to_create)}"
+                                    ),
+                                )
+                                existing_ledger_names.update(
+                                    str(entry.get("Name", "") or "").strip()
+                                    for entry in auto_ledger_defs_to_create
+                                    if str(entry.get("Name", "") or "").strip()
+                                )
 
                         self.after(0, lambda: self._push_message_var.set("Fetching next voucher number from Tally..."))
                         next_voucher = None
@@ -7540,14 +8430,46 @@ class TallySalesApp(ctk.CTk):
                                     existing_ledger_names,
                                 )
                                 if missing_ledger_defs:
-                                    # Ask user for each missing party ledger before creating
-                                    final_missing_defs = []
+                                    # Ask user for missing ledgers found after Tally rejected push
+                                    party_retry_defs = []
+                                    nonparty_retry_defs = []
                                     for _mld in missing_ledger_defs:
                                         if _is_party_parent(str(_mld.get("Parent", "") or "")):
-                                            self.after(0, lambda: self._push_message_var.set(
-                                                f"Waiting for user input: ledger '{_mld.get('Name', '')}' not found..."))
-                                            _mld = _ask_create_party_ledger(self, _mld)
+                                            party_retry_defs.append(_mld)
+                                        else:
+                                            nonparty_retry_defs.append(_mld)
+
+                                    final_missing_defs = []
+                                    for _mld in party_retry_defs:
+                                        _mld_name = _mld.get("Name", "")
+                                        self.after(0, lambda: self._push_message_var.set(
+                                            f"Waiting for user input: ledger '{_mld_name}' not found..."))
+                                        _mld = _ask_create_party_ledger(self, _mld)
+                                        if _mld is None:
+                                            raise _PushCancelledError(
+                                                f"Push cancelled — ledger '{_mld_name}' was not resolved.")
+                                        if _mld.get("_skipped"):
+                                            continue
+                                        _update_party_rows_from_def(_mld)
                                         final_missing_defs.append(_mld)
+
+                                    if nonparty_retry_defs:
+                                        self.after(0, lambda: self._push_message_var.set(
+                                            "Waiting for user input: resolve missing ledgers..."))
+                                        retry_np_results = _ask_map_nonparty_ledgers(
+                                            self, nonparty_retry_defs, existing_ledger_names)
+                                        if retry_np_results is None:
+                                            raise _PushCancelledError(
+                                                "Push cancelled — missing ledger resolution was closed.")
+                                        for _res in retry_np_results:
+                                            if _res.get("action") == "map":
+                                                _old = str(_res.get("old_name") or "").strip()
+                                                _new = str(_res.get("new_name") or "").strip()
+                                                if _old and _new and _old.casefold() != _new.casefold():
+                                                    _apply_generic_ledger_rename(rows_snapshot, _old, _new)
+                                            else:
+                                                final_missing_defs.append(_res.get("def", {}))
+
                                     missing_ledger_defs = final_missing_defs
 
                                     self.after(0, lambda: self._push_message_var.set("Creating missing ledgers and retrying..."))
@@ -7677,6 +8599,15 @@ class TallySalesApp(ctk.CTk):
                                     "detail": detail,
                                 }
 
+                    except _PushCancelledError as _cancel_exc:
+                        result = {
+                            "ok": False,
+                            "cancelled": True,
+                            "target_company": target_company,
+                            "detail": str(_cancel_exc),
+                            "parsed": {},
+                        }
+
                     except Exception as exc:
                         result = {
                             "ok": False,
@@ -7700,6 +8631,17 @@ class TallySalesApp(ctk.CTk):
 
                     def done():
                         self._set_push_loading_state(False)
+
+                        if result.get("cancelled"):
+                            self.status_var.set("Push cancelled — ledger not resolved")
+                            messagebox.showwarning(
+                                "Push Cancelled",
+                                "The push was cancelled because one or more missing ledgers "
+                                "were not resolved.\n\n"
+                                "Please resolve all ledger mappings and try again.",
+                            )
+                            return
+
                         if result.get("ok"):
                             parsed_local = result.get("parsed", {})
                             self.status_var.set(f"Posted to Tally ({result.get('target_company', target_company)})")
@@ -7742,6 +8684,948 @@ class TallySalesApp(ctk.CTk):
             except Exception:
                 pass
             messagebox.showerror("Error", str(e))
+
+    # ── PAYMENT / RECEIPT PANEL ─────────────────────────────────────────
+
+    def _show_voucher_ledger_mapping_dialog(self, rows, blank_descs, nonmatch_ledgers,
+                                            on_proceed, on_cancel=None):
+        """Popup to fix blank / wrong LEDGER entries before generating or pushing vouchers.
+
+        blank_descs      – descriptions whose LEDGER column is empty.
+        nonmatch_ledgers – LEDGER values not found in Tally.
+        on_proceed       – called after user clicks Apply or Skip.
+        on_cancel        – called if user cancels (optional).
+        """
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Fix Ledger Mapping")
+        dialog.geometry("820x620")
+        dialog.resizable(True, True)
+        dialog.minsize(640, 420)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.configure(fg_color=COLORS["bg_dark"])
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - 820) // 2
+        y = self.winfo_y() + (self.winfo_height() - 620) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        _tally_ledgers = []
+
+        # ── Header ────────────────────────────────────────────────────
+        total_issues = len(blank_descs) + len(nonmatch_ledgers)
+        hdr = ctk.CTkFrame(dialog, fg_color=("#FEF2F2", "#450A0A"), corner_radius=10, height=60)
+        hdr.pack(fill="x", padx=16, pady=(16, 4))
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="⚠️  Ledger Mapping Issues",
+                     font=("Segoe UI", 15, "bold"),
+                     text_color=COLORS["error"]).pack(side="left", padx=16)
+        ctk.CTkLabel(hdr, text=f"{total_issues} item(s) need attention",
+                     font=("Segoe UI", 11),
+                     text_color=COLORS["text_secondary"]).pack(side="right", padx=16)
+
+        # ── Fetch bar ─────────────────────────────────────────────────
+        info_bar = ctk.CTkFrame(dialog, fg_color="transparent")
+        info_bar.pack(fill="x", padx=16, pady=(4, 2))
+        ctk.CTkLabel(info_bar, text="Type a ledger name or click 🔍 to search from Tally.",
+                     font=("Segoe UI", 11),
+                     text_color=COLORS["text_secondary"]).pack(side="left")
+        fetch_status_lbl = ctk.CTkLabel(info_bar, text="", font=("Segoe UI", 10),
+                                         text_color=COLORS["text_muted"])
+        fetch_status_lbl.pack(side="left", padx=8)
+        fetch_btn = ctk.CTkButton(info_bar, text="Fetch Ledgers from Tally",
+                                   width=200, height=30,
+                                   font=("Segoe UI", 10, "bold"),
+                                   fg_color=COLORS["accent"],
+                                   hover_color=COLORS["accent_hover"],
+                                   text_color="#FFFFFF", corner_radius=6)
+        fetch_btn.pack(side="right")
+
+        # ── Column headers ────────────────────────────────────────────
+        col_hdr = ctk.CTkFrame(dialog, fg_color=COLORS["table_header"], corner_radius=6, height=32)
+        col_hdr.pack(fill="x", padx=16, pady=(2, 2))
+        col_hdr.pack_propagate(False)
+        ctk.CTkLabel(col_hdr, text="#", width=35, font=("Segoe UI", 10, "bold"),
+                     text_color=("#F59E0B", "#F59E0B"), anchor="center").pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(col_hdr, text="Type / Description", width=260,
+                     font=("Segoe UI", 10, "bold"),
+                     text_color=("#F59E0B", "#F59E0B"), anchor="w").pack(side="left", padx=8)
+        ctk.CTkLabel(col_hdr, text="Assign Ledger",
+                     font=("Segoe UI", 10, "bold"),
+                     text_color=("#F59E0B", "#F59E0B"), anchor="w").pack(side="left", padx=8, fill="x", expand=True)
+
+        # ── Scrollable list ───────────────────────────────────────────
+        list_frame = ctk.CTkScrollableFrame(dialog, fg_color=COLORS["bg_card"],
+                                             corner_radius=8, border_width=1,
+                                             border_color=COLORS["border"])
+        list_frame.pack(fill="both", expand=True, padx=16, pady=(0, 6))
+
+        entry_map = {}
+
+        def _open_picker(entry_widget):
+            if not _tally_ledgers:
+                messagebox.showinfo("Fetch First",
+                                    "Click 'Fetch Ledgers from Tally' to load the ledger list.",
+                                    parent=dialog)
+                return
+            pop = tk.Toplevel(dialog)
+            pop.title("Select Ledger")
+            pop.geometry("360x340")
+            pop.resizable(False, False)
+            pop.transient(dialog)
+            pop.grab_set()
+            bg = COLORS["bg_card"]
+            fg = COLORS["text_primary"]
+            ibg = COLORS["bg_input"]
+            acc = COLORS["accent"]
+            if isinstance(bg, tuple):
+                mode_idx = 1 if ctk.get_appearance_mode().lower() == "dark" else 0
+                bg, fg, ibg, acc = bg[mode_idx], fg[mode_idx], ibg[mode_idx], acc[mode_idx]
+            pop.configure(bg=bg)
+            sf = tk.Frame(pop, bg=bg)
+            sf.pack(fill="x", padx=8, pady=8)
+            tk.Label(sf, text="Search:", bg=bg, fg=fg, font=("Segoe UI", 10)).pack(side="left")
+            sv = tk.StringVar()
+            se = tk.Entry(sf, textvariable=sv, font=("Segoe UI", 10),
+                          bg=ibg, fg=fg, insertbackground=fg, relief="flat", bd=2)
+            se.pack(side="left", padx=(6, 0), fill="x", expand=True)
+            lf = tk.Frame(pop, bg=bg)
+            lf.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+            sb = tk.Scrollbar(lf)
+            sb.pack(side="right", fill="y")
+            lb = tk.Listbox(lf, yscrollcommand=sb.set, font=("Segoe UI", 10),
+                            selectmode="single", bg=ibg, fg=fg, relief="flat", bd=0,
+                            selectbackground=acc, selectforeground="#FFFFFF")
+            lb.pack(fill="both", expand=True)
+            sb.config(command=lb.yview)
+            def _filt(*_):
+                q = sv.get().strip().lower()
+                lb.delete(0, "end")
+                for name in _tally_ledgers:
+                    if not q or q in name.lower():
+                        lb.insert("end", name)
+            sv.trace_add("write", _filt)
+            _filt()
+            def _sel(*_):
+                sel = lb.curselection()
+                if sel:
+                    entry_widget.delete(0, "end")
+                    entry_widget.insert(0, lb.get(sel[0]))
+                    pop.destroy()
+            br = tk.Frame(pop, bg=bg)
+            br.pack(fill="x", padx=8, pady=(0, 8))
+            tk.Button(br, text="Select", command=_sel, relief="flat",
+                      font=("Segoe UI", 10, "bold"), bg=acc, fg="#FFFFFF",
+                      padx=12, pady=4).pack(side="left", padx=(0, 6))
+            tk.Button(br, text="Cancel", command=pop.destroy, relief="flat",
+                      font=("Segoe UI", 10), bg=ibg, fg=fg,
+                      padx=12, pady=4).pack(side="left")
+            lb.bind("<Double-Button-1>", _sel)
+            lb.bind("<Return>", _sel)
+            se.focus_set()
+
+        def _open_create_ledger(entry_widget):
+            led_name = entry_widget.get().strip()
+
+            pop = ctk.CTkToplevel(dialog)
+            pop.title("Create Ledger")
+            pop.geometry("520x340")
+            pop.resizable(False, True)
+            pop.transient(dialog)
+            pop.grab_set()
+            pop.configure(fg_color=COLORS["bg_dark"])
+            pop.lift()
+            pop.focus_force()
+            pop.protocol("WM_DELETE_WINDOW", pop.destroy)
+
+            # ── Header ───────────────────────────────────────────────
+            header = ctk.CTkFrame(pop, fg_color=("#FEF3C7", "#78350F"), corner_radius=0)
+            header.pack(fill="x")
+            ctk.CTkLabel(header, text="⚠  Ledger Not Found in Tally",
+                         font=("Segoe UI", 13, "bold"),
+                         text_color=("#92400E", "#FCD34D")).pack(padx=16, pady=10)
+
+            # ── View 1: choice frame ──────────────────────────────────
+            choice_frame = ctk.CTkFrame(pop, fg_color="transparent")
+            choice_frame.pack(fill="both", expand=True, padx=20, pady=10)
+
+            ctk.CTkLabel(choice_frame,
+                         text=f'The ledger  "{led_name}"  was not found in Tally.',
+                         font=("Segoe UI", 12), wraplength=460,
+                         justify="left").pack(anchor="w")
+            ctk.CTkLabel(choice_frame, text="How would you like to create it?",
+                         font=("Segoe UI", 11),
+                         text_color=("gray50", "gray60")).pack(anchor="w", pady=(4, 6))
+
+            grp_row = ctk.CTkFrame(choice_frame, fg_color="transparent")
+            grp_row.pack(fill="x", pady=(0, 10))
+            ctk.CTkLabel(grp_row, text="Parent Group:", width=120,
+                         anchor="w", font=("Segoe UI", 11)).pack(side="left")
+            parent_var = ctk.StringVar(value=LEDGER_PARENT_OPTIONS[0])
+            ctk.CTkComboBox(grp_row, variable=parent_var,
+                            values=LEDGER_PARENT_OPTIONS, width=280,
+                            font=("Segoe UI", 10)).pack(side="left", padx=(8, 0))
+
+            portal_enabled = _SELENIUM_AVAILABLE and _PIL_AVAILABLE
+            portal_suffix = "" if portal_enabled else " (Selenium/PIL not installed)"
+            portal_btn = ctk.CTkButton(
+                choice_frame,
+                text=f"\U0001f310  Fetch from GST Portal{portal_suffix}",
+                fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                text_color="#FFFFFF", height=44, font=("Segoe UI", 12),
+                state="normal" if portal_enabled else "disabled",
+            )
+            portal_btn.pack(fill="x", pady=(0, 8))
+
+            manual_btn = ctk.CTkButton(
+                choice_frame,
+                text="✏  Create Manually",
+                fg_color=("gray70", "gray30"), hover_color=("gray60", "gray40"),
+                text_color="#FFFFFF", height=44, font=("Segoe UI", 12),
+            )
+            manual_btn.pack(fill="x")
+
+            # ── View 2: full form ─────────────────────────────────────
+            form_frame = ctk.CTkScrollableFrame(pop, fg_color="transparent")
+
+            mf = {}
+
+            def _form_row(parent_fr, label, key, placeholder="", required=False):
+                row = ctk.CTkFrame(parent_fr, fg_color="transparent")
+                row.pack(fill="x", pady=3)
+                lbl_text = f"{label} *" if required else label
+                ctk.CTkLabel(row, text=lbl_text, width=130, anchor="w",
+                             font=("Segoe UI", 11)).pack(side="left")
+                ent = ctk.CTkEntry(row, height=28, fg_color=COLORS["bg_input"],
+                                   border_color=COLORS["border"],
+                                   text_color=COLORS["text_primary"],
+                                   font=("Segoe UI", 10), corner_radius=6,
+                                   placeholder_text=placeholder)
+                ent.pack(side="left", fill="x", expand=True, padx=(6, 0))
+                mf[key] = ent
+                return ent
+
+            def _combo_row(parent_fr, label, key, values, default=""):
+                row = ctk.CTkFrame(parent_fr, fg_color="transparent")
+                row.pack(fill="x", pady=3)
+                ctk.CTkLabel(row, text=label, width=130, anchor="w",
+                             font=("Segoe UI", 11)).pack(side="left")
+                var = ctk.StringVar(value=default or values[0])
+                cb = ctk.CTkComboBox(row, variable=var, values=values,
+                                     width=280, font=("Segoe UI", 10))
+                cb.pack(side="left", padx=(6, 0))
+                mf[key] = var
+                return var
+
+            _form_row(form_frame, "Ledger Name", "name", required=True)
+            mf["name"].insert(0, led_name)
+
+            _combo_row(form_frame, "Parent Group *", "parent",
+                       LEDGER_PARENT_OPTIONS, LEDGER_PARENT_OPTIONS[0])
+
+            _combo_row(form_frame, "GST Applicable", "gst_app",
+                       LEDGER_GST_APPLICABLE_OPTIONS, LEDGER_GST_APPLICABLE_OPTIONS[1])
+
+            _combo_row(form_frame, "GST Registration Type", "gst_reg_type",
+                       LEDGER_GST_REG_TYPE_OPTIONS, "Unknown")
+
+            _form_row(form_frame, "GSTIN", "gstin", "e.g. 29ABCDE1234F1Z5")
+            _form_row(form_frame, "PAN", "pan", "auto-filled from GSTIN")
+            _combo_row(form_frame, "State", "state",
+                       LEDGER_STATE_OPTIONS, LEDGER_STATE_OPTIONS[0])
+            _form_row(form_frame, "Address Line 1", "addr1")
+            _form_row(form_frame, "Address Line 2", "addr2")
+
+            def _sync_pan(*_):
+                g = mf["gstin"].get().strip().upper()
+                pan = _pan_from_gstin(g)
+                if pan:
+                    mf["pan"].delete(0, "end")
+                    mf["pan"].insert(0, pan)
+            mf["gstin"].bind("<FocusOut>", _sync_pan)
+
+            form_btns = ctk.CTkFrame(form_frame, fg_color="transparent")
+            form_btns.pack(fill="x", pady=(8, 4))
+            create_form_btn = ctk.CTkButton(
+                form_btns, text="✓ Create in Tally",
+                fg_color=COLORS["success"], hover_color="#047857",
+                text_color="#FFFFFF", height=36, font=("Segoe UI", 11),
+            )
+            create_form_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
+            back_btn = ctk.CTkButton(
+                form_btns, text="← Back",
+                fg_color=("gray70", "gray30"), hover_color=("gray60", "gray40"),
+                text_color="#FFFFFF", height=36, font=("Segoe UI", 11), width=80,
+            )
+            back_btn.pack(side="left")
+
+            # ── Status bar (always visible) ───────────────────────────
+            status_var2 = ctk.StringVar(value="")
+            status_bar = ctk.CTkLabel(pop, textvariable=status_var2,
+                                      font=("Segoe UI", 10),
+                                      text_color=COLORS["text_muted"],
+                                      anchor="w")
+            status_bar.pack(fill="x", padx=20, pady=(0, 6))
+
+            # ── Helpers ───────────────────────────────────────────────
+            def _set_choice_btns(state):
+                if portal_enabled:
+                    portal_btn.configure(state=state)
+                manual_btn.configure(state=state)
+
+            def _to_choice():
+                form_frame.pack_forget()
+                status_bar.pack_forget()
+                choice_frame.pack(fill="both", expand=True, padx=20, pady=10)
+                status_bar.pack(fill="x", padx=20, pady=(0, 6))
+                pop.geometry("520x340")
+                status_var2.set("")
+
+            def _to_form():
+                choice_frame.pack_forget()
+                status_bar.pack_forget()
+                mf["parent"].set(parent_var.get() or LEDGER_PARENT_OPTIONS[0])
+                form_frame.pack(fill="both", expand=True, padx=8, pady=(4, 4))
+                status_bar.pack(fill="x", padx=20, pady=(0, 6))
+                pop.geometry("520x560")
+                mf["name"].focus_set()
+
+            def _do_push(led_def):
+                try:
+                    company = self._get_selected_company()
+                    host = self.tally_host_var.get().strip() or "localhost"
+                    port_text = self.tally_port_var.get().strip()
+                    port = int(port_text) if port_text.isdigit() else 9000
+                except Exception as exc:
+                    status_var2.set(f"⚠ Settings error: {exc}")
+                    return
+                _set_choice_btns("disabled")
+                create_form_btn.configure(state="disabled")
+                status_var2.set("Pushing to Tally…")
+                name = str(led_def.get("Name", "") or "").strip()
+
+                def _worker():
+                    try:
+                        xml = generate_ledger_xml([led_def], company)
+                        resp = push_to_tally(xml, host, port)
+                        parsed = _parse_tally_response_details(resp)
+                        def _done():
+                            if parsed.get("success") or parsed.get("created", 0) > 0 or parsed.get("altered", 0) > 0:
+                                status_var2.set(f"✓ '{name}' created successfully!")
+                                if name not in _tally_ledgers:
+                                    _tally_ledgers.append(name)
+                                    _tally_ledgers.sort(key=str.upper)
+                                entry_widget.delete(0, "end")
+                                entry_widget.insert(0, name)
+                                pop.after(1500, pop.destroy)
+                            else:
+                                errs = "; ".join(parsed.get("line_errors") or [])
+                                status_var2.set(f"✗ {errs or 'Tally returned an error.'}")
+                                _set_choice_btns("normal")
+                                create_form_btn.configure(state="normal")
+                        pop.after(0, _done)
+                    except Exception as exc:
+                        def _err():
+                            status_var2.set(f"✗ {exc}")
+                            _set_choice_btns("normal")
+                            create_form_btn.configure(state="normal")
+                        pop.after(0, _err)
+                threading.Thread(target=_worker, daemon=True).start()
+
+            def _choose_portal():
+                parent = parent_var.get().strip() or LEDGER_PARENT_OPTIONS[0]
+                pop.withdraw()
+                fetch_dlg = _GSTFetchDialog(self, led_name, "", parent)
+                pop.wait_window(fetch_dlg)
+                result_def = fetch_dlg.get_result()
+                pop.deiconify()
+                pop.grab_set()
+                if result_def:
+                    trade_name = (result_def.get("MailingName") or "").strip()
+                    if trade_name:
+                        result_def = dict(result_def)
+                        result_def["Name"] = trade_name
+                    _do_push(result_def)
+                else:
+                    status_var2.set("Portal fetch cancelled — choose another option.")
+
+            def _on_form_create():
+                name = mf["name"].get().strip()
+                parent = mf["parent"].get().strip()
+                if not name:
+                    status_var2.set("⚠ Ledger name is required.")
+                    return
+                if not parent:
+                    status_var2.set("⚠ Parent group is required.")
+                    return
+                gstin = mf["gstin"].get().strip().upper()
+                pan = mf["pan"].get().strip().upper() or _pan_from_gstin(gstin)
+                state = _normalize_state_for_ledger(mf["state"].get())
+                reg_type = mf["gst_reg_type"].get().strip()
+                _do_push({
+                    "Name": name,
+                    "Parent": parent,
+                    "MailingName": name,
+                    "GSTIN": gstin,
+                    "PAN": pan,
+                    "GSTApplicable": mf["gst_app"].get().strip(),
+                    "GSTRegistrationType": reg_type,
+                    "StateOfSupply": state,
+                    "Address1": mf["addr1"].get().strip(),
+                    "Address2": mf["addr2"].get().strip(),
+                    "Country": "India",
+                    "Billwise": "Yes" if _is_party_parent(parent) else "No",
+                    "TypeOfTaxation": "",
+                    "GSTRate": "",
+                })
+
+            portal_btn.configure(command=_choose_portal)
+            manual_btn.configure(command=_to_form)
+            back_btn.configure(command=_to_choice)
+            create_form_btn.configure(command=_on_form_create)
+
+        row_colors = (COLORS["bg_card"], COLORS["bg_card_hover"])
+        global_idx = 0
+
+        # ── Blank LEDGER section ──────────────────────────────────────
+        if blank_descs:
+            sec = ctk.CTkFrame(list_frame, fg_color="transparent")
+            sec.pack(fill="x", pady=(4, 0))
+            ctk.CTkLabel(sec, text="⬜ BLANK LEDGER — entries with no ledger assigned",
+                         font=("Segoe UI", 10, "bold"),
+                         text_color=COLORS["warning"]).pack(side="left", padx=8, pady=2)
+
+        for desc in blank_descs:
+            global_idx += 1
+            key = f"BLANK::{desc}"
+            bg = row_colors[global_idx % 2]
+            row_fr = ctk.CTkFrame(list_frame, fg_color=bg, corner_radius=4, height=36)
+            row_fr.pack(fill="x", pady=1)
+            row_fr.pack_propagate(False)
+            ctk.CTkLabel(row_fr, text=f"{global_idx}.", width=35,
+                         font=("Consolas", 10), text_color=COLORS["text_muted"],
+                         anchor="center").pack(side="left", padx=(8, 0))
+            ctk.CTkLabel(row_fr, text=(desc[:40] + "…" if len(desc) > 40 else desc),
+                         width=260, font=("Segoe UI", 10),
+                         text_color=COLORS["text_primary"], anchor="w").pack(side="left", padx=8)
+            pick_btn = ctk.CTkButton(row_fr, text="🔍", width=32, height=26,
+                                     fg_color=COLORS["bg_input"],
+                                     hover_color=COLORS["bg_card_hover"],
+                                     text_color=COLORS["accent"],
+                                     font=("Segoe UI", 11), corner_radius=4)
+            pick_btn.pack(side="right", padx=(0, 6))
+            create_btn = ctk.CTkButton(row_fr, text="➕", width=32, height=26,
+                                       fg_color=COLORS["success"], hover_color="#047857",
+                                       text_color="#FFFFFF",
+                                       font=("Segoe UI", 11), corner_radius=4)
+            create_btn.pack(side="right", padx=(0, 2))
+            ent = ctk.CTkEntry(row_fr, height=28, fg_color=COLORS["bg_input"],
+                               border_color=COLORS["border"],
+                               text_color=COLORS["text_primary"],
+                               font=("Segoe UI", 10), corner_radius=6,
+                               placeholder_text="Enter ledger name")
+            ent.pack(side="left", fill="x", expand=True, padx=(4, 4))
+            entry_map[key] = ent
+            pick_btn.configure(command=lambda e=ent: _open_picker(e))
+            create_btn.configure(command=lambda e=ent: _open_create_ledger(e))
+
+        # ── Wrong LEDGER section ──────────────────────────────────────
+        if nonmatch_ledgers:
+            sec2 = ctk.CTkFrame(list_frame, fg_color="transparent")
+            sec2.pack(fill="x", pady=(8, 0))
+            ctk.CTkLabel(sec2, text="❌ WRONG LEDGER — name not found in Tally",
+                         font=("Segoe UI", 10, "bold"),
+                         text_color=COLORS["error"]).pack(side="left", padx=8, pady=2)
+
+        for wrong in nonmatch_ledgers:
+            global_idx += 1
+            key = f"WRONG::{wrong}"
+            bg = row_colors[global_idx % 2]
+            row_fr = ctk.CTkFrame(list_frame, fg_color=bg, corner_radius=4, height=36)
+            row_fr.pack(fill="x", pady=1)
+            row_fr.pack_propagate(False)
+            ctk.CTkLabel(row_fr, text=f"{global_idx}.", width=35,
+                         font=("Consolas", 10), text_color=COLORS["text_muted"],
+                         anchor="center").pack(side="left", padx=(8, 0))
+            ctk.CTkLabel(row_fr, text=(wrong[:40] + "…" if len(wrong) > 40 else wrong),
+                         width=260, font=("Segoe UI", 10),
+                         text_color=COLORS["error"], anchor="w").pack(side="left", padx=8)
+            pick_btn2 = ctk.CTkButton(row_fr, text="🔍", width=32, height=26,
+                                      fg_color=COLORS["bg_input"],
+                                      hover_color=COLORS["bg_card_hover"],
+                                      text_color=COLORS["accent"],
+                                      font=("Segoe UI", 11), corner_radius=4)
+            pick_btn2.pack(side="right", padx=(0, 6))
+            create_btn2 = ctk.CTkButton(row_fr, text="➕", width=32, height=26,
+                                        fg_color=COLORS["success"], hover_color="#047857",
+                                        text_color="#FFFFFF",
+                                        font=("Segoe UI", 11), corner_radius=4)
+            create_btn2.pack(side="right", padx=(0, 2))
+            ent2 = ctk.CTkEntry(row_fr, height=28, fg_color=COLORS["bg_input"],
+                                border_color=COLORS["error"],
+                                text_color=COLORS["text_primary"],
+                                font=("Segoe UI", 10), corner_radius=6)
+            ent2.insert(0, wrong)
+            ent2.pack(side="left", fill="x", expand=True, padx=(4, 4))
+            entry_map[key] = ent2
+            pick_btn2.configure(command=lambda e=ent2: _open_picker(e))
+            create_btn2.configure(command=lambda e=ent2: _open_create_ledger(e))
+
+        # ── Fetch button logic ─────────────────────────────────────────
+        def _do_fetch():
+            try:
+                tally_url = self._get_tally_url()
+            except Exception:
+                messagebox.showerror("Settings", "Invalid Tally URL. Check host/port.", parent=dialog)
+                return
+            company = self._get_selected_company()
+            fetch_btn.configure(state="disabled", text="Fetching…")
+            fetch_status_lbl.configure(text="Fetching ledgers…", text_color=COLORS["warning"])
+
+            def _worker():
+                try:
+                    res = _fetch_tally_ledgers(tally_url, timeout=15, company_name=company)
+                    names = sorted(res.get("ledgers") or [], key=str.upper)
+                except Exception:
+                    names = []
+
+                def _done():
+                    fetch_btn.configure(state="normal", text="Fetch Ledgers from Tally")
+                    if names:
+                        _tally_ledgers.clear()
+                        _tally_ledgers.extend(names)
+                        fetch_status_lbl.configure(
+                            text=f"✓ {len(_tally_ledgers)} ledgers loaded — click 🔍 to search",
+                            text_color=COLORS["success"])
+                    else:
+                        fetch_status_lbl.configure(text="✗ Fetch failed — is Tally running?",
+                                                   text_color=COLORS["error"])
+                self.after(0, _done)
+            threading.Thread(target=_worker, daemon=True).start()
+
+        fetch_btn.configure(command=_do_fetch)
+
+        # ── Action buttons ─────────────────────────────────────────────
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent", height=50)
+        btn_frame.pack(fill="x", padx=16, pady=(0, 14))
+        btn_frame.pack_propagate(False)
+
+        def _do_apply():
+            mapping = {k: v.get().strip() for k, v in entry_map.items() if v.get().strip()}
+            for r in rows:
+                ledger = str(r.get("LEDGER") or r.get("Ledger") or "").strip()
+                if not ledger:
+                    desc = str(r.get("DESCRIPTION") or r.get("Description") or "").strip() or "(no description)"
+                    mapped = mapping.get(f"BLANK::{desc}")
+                    if mapped:
+                        r["LEDGER"] = mapped
+            for r in rows:
+                ledger = str(r.get("LEDGER") or r.get("Ledger") or "").strip()
+                corrected = mapping.get(f"WRONG::{ledger}")
+                if corrected:
+                    r["LEDGER"] = corrected
+            dialog.destroy()
+            on_proceed()
+
+        def _do_skip():
+            dialog.destroy()
+            on_proceed()
+
+        def _do_cancel():
+            dialog.destroy()
+            if on_cancel:
+                on_cancel()
+
+        ctk.CTkButton(btn_frame, text="✓ Apply & Proceed",
+                      font=("Segoe UI", 12, "bold"), height=40,
+                      fg_color=COLORS["success"], hover_color="#047857",
+                      text_color="#FFFFFF", corner_radius=8,
+                      command=_do_apply).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(btn_frame, text="Skip (use Suspense A/c for blanks)",
+                      font=("Segoe UI", 11), height=40,
+                      fg_color=COLORS["warning"], hover_color="#B45309",
+                      text_color="#FFFFFF", corner_radius=8,
+                      command=_do_skip).pack(side="left", fill="x", expand=True, padx=4)
+        ctk.CTkButton(btn_frame, text="Cancel",
+                      font=("Segoe UI", 11), height=40,
+                      fg_color=COLORS["bg_card_hover"], hover_color=COLORS["border"],
+                      text_color=COLORS["text_primary"], corner_radius=8,
+                      command=_do_cancel).pack(side="right", padx=(4, 0))
+
+    def _build_payment_or_receipt_panel(self, parent, mode: str):
+        """Panel for Payment or Receipt voucher creation (mode = 'payment' or 'receipt')."""
+        is_payment = (mode == "payment")
+        state = self._voucher_panel_state[mode]
+        vtype = "Payment" if is_payment else "Receipt"
+        icon  = "💸" if is_payment else "🧾"
+        hdrs  = PAYMENT_HEADERS if is_payment else RECEIPT_HEADERS
+        sub   = "Contra-ledger Debit + Bank Credit (money going out)" if is_payment \
+                else "Bank Debit + Contra-ledger Credit (money coming in)"
+
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(5, weight=1)
+
+        # ── Header ────────────────────────────────────────────────────────
+        hdr = ctk.CTkFrame(parent, fg_color=COLORS["accent"], corner_radius=8)
+        hdr.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+        ctk.CTkLabel(
+            hdr,
+            text=f"{icon}  {vtype} Entry",
+            font=("Segoe UI", 13, "bold"),
+            text_color="#FFFFFF",
+        ).pack(anchor="w", padx=14, pady=(8, 2))
+        ctk.CTkLabel(
+            hdr,
+            text=sub,
+            font=("Segoe UI", 10),
+            text_color="#E2E8F0",
+        ).pack(anchor="w", padx=14, pady=(0, 8))
+
+        # ── Row 1: Bank/Cash ledger + Download Template ───────────────────
+        r1 = ctk.CTkFrame(parent, fg_color="transparent")
+        r1.grid(row=1, column=0, sticky="ew", padx=10, pady=(6, 2))
+
+        ctk.CTkLabel(r1, text="Bank / Cash Ledger:", font=("Segoe UI", 11),
+                     text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 6))
+        ctk.CTkEntry(
+            r1,
+            textvariable=state["bank_ledger_var"],
+            width=280,
+            height=32,
+            placeholder_text="e.g. HDFC Bank A/c, Cash",
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+            font=("Segoe UI", 10),
+        ).pack(side="left", padx=(0, 8))
+
+        def _fetch_bank_ledgers():
+            fetch_btn.configure(state="disabled", text="Fetching…")
+            url = self._get_tally_url()
+            co = self._get_selected_company()
+
+            def _worker():
+                try:
+                    res = _fetch_tally_ledgers(url, timeout=15, company_name=co)
+                    leds = sorted(res.get("ledgers") or [], key=str.upper)
+                except Exception:
+                    leds = []
+
+                def _done():
+                    fetch_btn.configure(state="normal", text="Fetch Ledgers")
+                    if leds:
+                        _show_ledger_picker(leds)
+                    else:
+                        messagebox.showwarning("No Ledgers", "Could not fetch ledgers from Tally.")
+                self.after(0, _done)
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _show_ledger_picker(ledger_names):
+            popup = ctk.CTkToplevel(self)
+            popup.title("Select Bank / Cash Ledger")
+            popup.geometry("380x420")
+            popup.grab_set()
+            popup.lift()
+            search_var = ctk.StringVar()
+            ctk.CTkEntry(popup, textvariable=search_var, placeholder_text="Search…",
+                         height=32, fg_color=COLORS["bg_input"],
+                         border_color=COLORS["border"],
+                         text_color=COLORS["text_primary"]).pack(fill="x", padx=10, pady=(10, 4))
+            lb = tk.Listbox(popup, font=("Segoe UI", 10), activestyle="none",
+                            bg=self._resolve_theme_color("bg_input"),
+                            fg=self._resolve_theme_color("text_primary"),
+                            selectbackground=self._resolve_theme_color("accent"),
+                            selectforeground="#FFFFFF", relief="flat", borderwidth=0)
+            lb.pack(fill="both", expand=True, padx=10, pady=(0, 6))
+            for n in ledger_names:
+                lb.insert("end", n)
+
+            def _filter(*_):
+                q = search_var.get().strip().lower()
+                lb.delete(0, "end")
+                for n in ledger_names:
+                    if not q or q in n.lower():
+                        lb.insert("end", n)
+            search_var.trace_add("write", _filter)
+
+            def _select(*_):
+                sel = lb.curselection()
+                if sel:
+                    state["bank_ledger_var"].set(lb.get(sel[0]))
+                    popup.destroy()
+            lb.bind("<Double-Button-1>", _select)
+            ctk.CTkButton(popup, text="Select", command=_select,
+                          fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                          text_color="#FFFFFF", height=32).pack(fill="x", padx=10, pady=(0, 10))
+
+        fetch_btn = ctk.CTkButton(
+            r1, text="Fetch Ledgers", width=110, height=32,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"],
+            command=_fetch_bank_ledgers,
+        )
+        fetch_btn.pack(side="left", padx=(0, 16))
+
+        ctk.CTkButton(
+            r1, text="📥  Download Template", width=160, height=32,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"],
+            command=lambda m=mode: self._download_template_for_mode(m),
+        ).pack(side="right")
+
+        # ── Row 2: Browse Excel ───────────────────────────────────────────
+        r2 = ctk.CTkFrame(parent, fg_color="transparent")
+        r2.grid(row=2, column=0, sticky="ew", padx=10, pady=(4, 2))
+
+        ctk.CTkEntry(
+            r2, textvariable=state["fp_var"],
+            placeholder_text="Select Excel file (.xlsx)…",
+            width=480, state="readonly",
+            fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(r2, textvariable=state["info_var"],
+                     font=("Segoe UI", 10), text_color=COLORS["text_muted"]).pack(side="right", padx=(8, 0))
+
+        # Treeview for preview
+        tree_frame = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=6)
+        tree_frame.grid(row=5, column=0, sticky="nsew", padx=10, pady=(4, 4))
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical")
+        hsb = ttk.Scrollbar(tree_frame, orient="horizontal")
+        pr_tree = ttk.Treeview(
+            tree_frame,
+            columns=hdrs,
+            show="headings",
+            style="PR.Treeview",
+            yscrollcommand=vsb.set,
+            xscrollcommand=hsb.set,
+        )
+        vsb.config(command=pr_tree.yview)
+        hsb.config(command=pr_tree.xview)
+        col_widths = {"DATE": 100, "DESCRIPTION": 260, "CHEQUE NO.": 110, "Amount": 110, "LEDGER": 220}
+        for col in hdrs:
+            pr_tree.heading(col, text=col)
+            pr_tree.column(col, width=col_widths.get(col, 100), minwidth=60)
+        vsb.pack(side="right", fill="y")
+        hsb.pack(side="bottom", fill="x")
+        pr_tree.pack(fill="both", expand=True)
+
+        def _browse():
+            fp = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx *.xlsm *.xls")])
+            if not fp:
+                return
+            state["fp_var"].set(fp)
+            state["info_var"].set("Loading…")
+            self.status_var.set(f"Loading: {os.path.basename(fp)}")
+
+            def _worker():
+                try:
+                    _, rows = read_excel(fp)
+                    preview_rows = [
+                        [str(_row_get(r, h, "") or "") for h in hdrs]
+                        for r in rows[:300]
+                    ]
+                    result = {"ok": True, "rows": rows, "preview": preview_rows}
+                except Exception as exc:
+                    result = {"ok": False, "error": str(exc)}
+
+                def _done():
+                    if not result["ok"]:
+                        state["info_var"].set("")
+                        messagebox.showerror("Load Error", result["error"])
+                        return
+                    state["loaded_rows"] = result["rows"]
+                    pr_tree.delete(*pr_tree.get_children())
+                    for vals in result["preview"]:
+                        pr_tree.insert("", "end", values=vals)
+                    n = len(result["rows"])
+                    state["info_var"].set(f"✅ {n} rows loaded")
+                    self.status_var.set(f"Loaded {n} rows from {os.path.basename(fp)}")
+                self.after(0, _done)
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        ctk.CTkButton(r2, text="Browse Excel", width=100, height=32,
+                      fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                      text_color="#FFFFFF", command=_browse).pack(side="left")
+
+        # ── Row 3: Action buttons ─────────────────────────────────────────
+        r3 = ctk.CTkFrame(parent, fg_color="transparent")
+        r3.grid(row=3, column=0, sticky="ew", padx=10, pady=(4, 2))
+
+        def _do_generate_xml(rows, bank, company, date_mode, custom_date, out_path):
+            try:
+                xml_content = generate_single_voucher_xml(
+                    rows=rows, company=company, bank_ledger=bank,
+                    voucher_type=vtype, date_mode=date_mode, custom_tally_date=custom_date,
+                )
+                with open(out_path, "w", encoding="utf-8") as f:
+                    f.write(xml_content)
+                self.status_var.set(f"XML saved: {os.path.basename(out_path)}")
+                messagebox.showinfo("XML Saved", f"Saved to:\n{out_path}")
+            except Exception as exc:
+                messagebox.showerror("Generate Error", str(exc))
+
+        def _generate_xml():
+            rows = state["loaded_rows"]
+            if not rows:
+                messagebox.showwarning("No Data", "Please browse and load an Excel file first.")
+                return
+            bank = state["bank_ledger_var"].get().strip()
+            if not bank:
+                messagebox.showwarning("No Ledger", "Please enter or fetch the Bank / Cash Ledger name.")
+                return
+            company = self._get_selected_company()
+            try:
+                date_mode, custom_date = self._get_voucher_date_selection()
+            except ValueError as exc:
+                messagebox.showerror("Date Error", str(exc))
+                return
+
+            out_path = filedialog.asksaveasfilename(
+                defaultextension=".xml",
+                initialfile=f"{vtype}_Vouchers.xml",
+                filetypes=[("XML Files", "*.xml")],
+            )
+            if not out_path:
+                return
+
+            blank = _find_blank_ledger_descs(rows)
+            if blank:
+                self._show_voucher_ledger_mapping_dialog(
+                    rows=rows, blank_descs=blank, nonmatch_ledgers=[],
+                    on_proceed=lambda: _do_generate_xml(rows, bank, company, date_mode, custom_date, out_path),
+                )
+            else:
+                _do_generate_xml(rows, bank, company, date_mode, custom_date, out_path)
+
+        def _do_push_worker(rows, bank, company, date_mode, custom_date):
+            push_btn.configure(state="disabled", text="Pushing…")
+            gen_btn.configure(state="disabled")
+            self.status_var.set(f"Pushing {vtype} vouchers to Tally…")
+
+            def _worker():
+                try:
+                    xml_content = generate_single_voucher_xml(
+                        rows=rows, company=company, bank_ledger=bank,
+                        voucher_type=vtype, date_mode=date_mode, custom_tally_date=custom_date,
+                    )
+                    url = self._get_tally_url()
+                    response = push_to_tally(xml_content, host=url.split("//")[1].split(":")[0],
+                                             port=int(url.split(":")[-1]))
+                    details = _parse_tally_response_details(response)
+                    result = {"ok": True, "details": details}
+                except Exception as exc:
+                    result = {"ok": False, "error": str(exc)}
+
+                def _done():
+                    push_btn.configure(state="normal", text="🚀  Push to Tally")
+                    gen_btn.configure(state="normal")
+                    if not result["ok"]:
+                        self.status_var.set("Push failed.")
+                        messagebox.showerror("Push Failed", result["error"])
+                        return
+                    d = result["details"]
+                    created = d.get("created", 0)
+                    errors = d.get("errors", 0)
+                    errs = d.get("line_errors") or []
+                    if errors or errs:
+                        msg = f"Created: {created}  Errors: {errors}"
+                        if errs:
+                            msg += "\n\n" + "\n".join(errs[:5])
+                        self.status_var.set(f"Push done — {created} created, {errors} errors.")
+                        messagebox.showwarning("Push Completed with Errors", msg)
+                    else:
+                        self.status_var.set(f"Pushed {created} {vtype} voucher(s) successfully.")
+                        messagebox.showinfo("Push Successful",
+                                            f"✅ {created} {vtype} voucher(s) pushed to Tally.")
+                self.after(0, _done)
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _check_nonmatching_then_push(rows, bank, company, date_mode, custom_date):
+            try:
+                url = self._get_tally_url()
+            except Exception:
+                # Can't reach Tally — skip the name check and push directly
+                _do_push_worker(rows, bank, company, date_mode, custom_date)
+                return
+
+            self.status_var.set("Checking ledger names against Tally…")
+
+            def _worker():
+                try:
+                    res = _fetch_tally_ledgers(url, timeout=15, company_name=company)
+                    names_upper = {n.upper() for n in (res.get("ledgers") or [])}
+                except Exception:
+                    names_upper = set()
+
+                def _done():
+                    self.status_var.set("Ready")
+                    if not names_upper:
+                        # Couldn't fetch — proceed without check
+                        _do_push_worker(rows, bank, company, date_mode, custom_date)
+                        return
+                    nonmatch = _find_nonmatching_voucher_ledgers(rows, names_upper)
+                    if not nonmatch:
+                        _do_push_worker(rows, bank, company, date_mode, custom_date)
+                        return
+                    self._show_voucher_ledger_mapping_dialog(
+                        rows=rows, blank_descs=[], nonmatch_ledgers=nonmatch,
+                        on_proceed=lambda: _do_push_worker(rows, bank, company, date_mode, custom_date),
+                        on_cancel=None,
+                    )
+                self.after(0, _done)
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _push_to_tally():
+            rows = state["loaded_rows"]
+            if not rows:
+                messagebox.showwarning("No Data", "Please browse and load an Excel file first.")
+                return
+            bank = state["bank_ledger_var"].get().strip()
+            if not bank:
+                messagebox.showwarning("No Ledger", "Please enter or fetch the Bank / Cash Ledger name.")
+                return
+            company = self._get_selected_company()
+            try:
+                date_mode, custom_date = self._get_voucher_date_selection()
+            except ValueError as exc:
+                messagebox.showerror("Date Error", str(exc))
+                return
+
+            blank = _find_blank_ledger_descs(rows)
+            if blank:
+                def _after_blank():
+                    _check_nonmatching_then_push(rows, bank, company, date_mode, custom_date)
+                self._show_voucher_ledger_mapping_dialog(
+                    rows=rows, blank_descs=blank, nonmatch_ledgers=[],
+                    on_proceed=_after_blank,
+                    on_cancel=None,
+                )
+            else:
+                _check_nonmatching_then_push(rows, bank, company, date_mode, custom_date)
+
+        gen_btn = ctk.CTkButton(
+            r3, text="💾  Generate XML", width=150, height=34,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"], corner_radius=8,
+            command=_generate_xml,
+        )
+        gen_btn.pack(side="left", padx=(0, 8))
+
+        push_btn = ctk.CTkButton(
+            r3, text="🚀  Push to Tally", width=150, height=34,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF", corner_radius=8,
+            command=_push_to_tally,
+        )
+        push_btn.pack(side="left")
 
     # ── LEDGER CREATION TAB ─────────────────────────────────────────────
 
@@ -7861,6 +9745,7 @@ class TallySalesApp(ctk.CTk):
         _mlabel("Ledger Name *");      _mentry("led_name",     "e.g. ABC Traders")
         _mlabel("Parent Group *");     _mcombo("led_parent",   LEDGER_PARENT_OPTIONS, LEDGER_PARENT_OPTIONS[0])
         _mlabel("GST Applicable");     _mcombo("led_gst_app",  LEDGER_GST_APPLICABLE_OPTIONS, "Not Applicable")
+        _mlabel("GST Registration Type"); _mcombo("led_reg_type", LEDGER_GST_REG_TYPE_OPTIONS, "Unknown")
         _mlabel("GSTIN");              _mentry("led_gstin",    "e.g. 07AAACR1718Q1ZZ")
         _mlabel("PAN / IT No.");       _mentry("led_pan",      "Auto-filled from GSTIN")
         _mlabel("State");              _mcombo("led_state",    LEDGER_STATE_OPTIONS, "Not Applicable")
@@ -7881,6 +9766,7 @@ class TallySalesApp(ctk.CTk):
             _set_field(m_fields["led_name"], "")
             _set_field(m_fields["led_parent"], LEDGER_PARENT_OPTIONS[0])
             _set_field(m_fields["led_gst_app"], "Not Applicable")
+            _set_field(m_fields["led_reg_type"], "Unknown")
             _set_field(m_fields["led_gstin"], "")
             _set_field(m_fields["led_pan"], "")
             _set_field(m_fields["led_state"], "Not Applicable")
@@ -7902,6 +9788,7 @@ class TallySalesApp(ctk.CTk):
             entry = {
                 "Name": name, "Parent": parent_grp,
                 "GSTApplicable": gst_app,
+                "GSTRegistrationType": m_fields["led_reg_type"].get().strip(),
                 "GSTIN": gstin,
                 "PAN": pan_val,
                 "StateOfSupply": state,
@@ -7934,6 +9821,7 @@ class TallySalesApp(ctk.CTk):
             _set_field(m_fields["led_name"],     entry.get("Name", ""))
             _set_field(m_fields["led_parent"],   entry.get("Parent", ""))
             _set_field(m_fields["led_gst_app"],  entry.get("GSTApplicable", ""))
+            _set_field(m_fields["led_reg_type"], entry.get("GSTRegistrationType", "") or "Unknown")
             _set_field(m_fields["led_gstin"],    entry.get("GSTIN", ""))
             gstin_for_pan = entry.get("GSTIN", "")
             _set_field(m_fields["led_pan"],      entry.get("PAN", "") or _pan_from_gstin(gstin_for_pan))
@@ -8404,25 +10292,57 @@ class TallySalesApp(ctk.CTk):
         form.grid_columnconfigure(0, weight=1)
 
         fields = {}
-        configs = [
-            ("Item Name *", "item_name", "e.g. Laptop Dell Inspiron"),
-            ("Stock Group", "item_parent", "Primary"),
-            ("Unit", "item_unit", "Nos / Pcs / Kg / Ltr"),
-            ("HSN/SAC Code", "item_hsn", "e.g. 84713010"),
-            ("GST Rate %", "item_gst_rate", "e.g. 18"),
-            ("Description", "item_desc", "Optional description"),
+        combo_vars = {}
+
+        _DETAIL_OPTIONS = [
+            "Specify Details Here", "As per Company/Stock Group",
+            "Use GST Classification", "Specify in Voucher",
         ]
-        for label, key, placeholder in configs:
-            ctk.CTkLabel(form, text=label, font=("Segoe UI", 11), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
-            e = ctk.CTkEntry(
-                form,
-                placeholder_text=placeholder,
-                fg_color=COLORS["bg_card"],
-                border_color=COLORS["border"],
-                text_color=COLORS["text_primary"],
-            )
+
+        def _add_entry(label, key, placeholder):
+            ctk.CTkLabel(form, text=label, font=("Segoe UI", 11),
+                         text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+            e = ctk.CTkEntry(form, placeholder_text=placeholder,
+                             fg_color=COLORS["bg_card"], border_color=COLORS["border"],
+                             text_color=COLORS["text_primary"])
             e.pack(fill="x", padx=12, pady=(0,2))
             fields[key] = e
+
+        def _add_combo(label, key, values, default=None):
+            ctk.CTkLabel(form, text=label, font=("Segoe UI", 11),
+                         text_color=COLORS["text_secondary"]).pack(anchor="w", padx=12, pady=(6,0))
+            var = ctk.StringVar(value=default or values[0])
+            ctk.CTkComboBox(form, variable=var, values=values,
+                            fg_color=COLORS["bg_card"], border_color=COLORS["border"],
+                            text_color=COLORS["text_primary"],
+                            font=("Segoe UI", 10)).pack(fill="x", padx=12, pady=(0,2))
+            combo_vars[key] = var
+
+        _add_entry("Item Name *", "item_name", "e.g. Laptop Dell Inspiron")
+        _add_entry("Stock Group", "item_parent", "Primary")
+        _add_entry("Unit", "item_unit", "Nos / Pcs / Kg / Ltr")
+        _add_entry("HSN/SAC Code", "item_hsn", "e.g. 84713010")
+        _add_combo("HSN/SAC Details", "item_hsn_details", _DETAIL_OPTIONS)
+        _add_entry("GST Rate %", "item_gst_rate", "e.g. 5")
+        _add_combo("GST Rate Details", "item_gst_rate_details", _DETAIL_OPTIONS)
+        _add_combo("Type of Supply", "item_supply_type",
+                   ["Goods", "Services", "Capital Goods"])
+        _add_entry("Description", "item_desc", "Optional description")
+
+        def _update_hsn_field_state(*_):
+            state = ("disabled"
+                     if combo_vars["item_hsn_details"].get() == "As per Company/Stock Group"
+                     else "normal")
+            fields["item_hsn"].configure(state=state)
+
+        def _update_gst_field_state(*_):
+            state = ("disabled"
+                     if combo_vars["item_gst_rate_details"].get() == "As per Company/Stock Group"
+                     else "normal")
+            fields["item_gst_rate"].configure(state=state)
+
+        combo_vars["item_hsn_details"].trace_add("write", _update_hsn_field_state)
+        combo_vars["item_gst_rate_details"].trace_add("write", _update_gst_field_state)
 
         self._stock_list = []
         stock_edit_index = None
@@ -8435,16 +10355,21 @@ class TallySalesApp(ctk.CTk):
                 return
             parent_group = _normalize_stock_group_name(fields["item_parent"].get())
             unit_name = _normalize_stock_unit_name(fields["item_unit"].get())
+            gst_rate_raw = fields["item_gst_rate"].get().strip()
             entry = {
                 "Name": name,
                 "Parent": parent_group,
                 "Unit": unit_name,
                 "HSNCode": fields["item_hsn"].get().strip(),
-                "GSTRate": fields["item_gst_rate"].get().strip(),
-                "GSTApplicable": "Applicable" if fields["item_gst_rate"].get().strip() else "",
+                "HsnDetails": combo_vars["item_hsn_details"].get(),
+                "GSTRate": gst_rate_raw.replace("%", "").strip(),
+                "GSTApplicable": "Applicable" if gst_rate_raw else "",
+                "GstRateDetails": combo_vars["item_gst_rate_details"].get(),
+                "TypeOfSupply": combo_vars["item_supply_type"].get(),
                 "Description": fields["item_desc"].get().strip(),
             }
-            row_values = (name, entry["Parent"], entry["Unit"], entry["HSNCode"], entry["GSTRate"])
+            row_values = (name, entry["Parent"], entry["Unit"], entry["HSNCode"],
+                          entry["GSTRate"], entry["TypeOfSupply"])
 
             if stock_edit_index is None:
                 self._stock_list.append(entry)
@@ -8459,6 +10384,11 @@ class TallySalesApp(ctk.CTk):
 
             for v in fields.values():
                 v.delete(0, "end")
+            combo_vars["item_hsn_details"].set("Specify Details Here")
+            combo_vars["item_gst_rate_details"].set("Specify Details Here")
+            combo_vars["item_supply_type"].set("Goods")
+            fields["item_hsn"].configure(state="normal")
+            fields["item_gst_rate"].configure(state="normal")
             self._stk_count_label.configure(text=f"{len(self._stock_list)} item(s) queued")
 
         def edit_selected_item():
@@ -8483,8 +10413,11 @@ class TallySalesApp(ctk.CTk):
             fields["item_unit"].insert(0, entry.get("Unit", ""))
             fields["item_hsn"].delete(0, "end")
             fields["item_hsn"].insert(0, entry.get("HSNCode", ""))
+            combo_vars["item_hsn_details"].set(entry.get("HsnDetails", "Specify Details Here"))
             fields["item_gst_rate"].delete(0, "end")
             fields["item_gst_rate"].insert(0, entry.get("GSTRate", ""))
+            combo_vars["item_gst_rate_details"].set(entry.get("GstRateDetails", "Specify Details Here"))
+            combo_vars["item_supply_type"].set(entry.get("TypeOfSupply", "Goods"))
             fields["item_desc"].delete(0, "end")
             fields["item_desc"].insert(0, entry.get("Description", ""))
 
@@ -8513,11 +10446,12 @@ class TallySalesApp(ctk.CTk):
         right.grid_columnconfigure(0, weight=1)
         right.grid_rowconfigure(0, weight=1)
 
-        stk_tree = ttk.Treeview(right, columns=("Name","Group","Unit","HSN","GST%"),
+        stk_tree = ttk.Treeview(right, columns=("Name","Group","Unit","HSN","GST%","Type"),
                                  show="headings", height=8)
-        for c in ("Name","Group","Unit","HSN","GST%"):
+        col_widths = {"Name": 140, "Group": 110, "Unit": 60, "HSN": 90, "GST%": 55, "Type": 80}
+        for c in ("Name","Group","Unit","HSN","GST%","Type"):
             stk_tree.heading(c, text=c)
-            stk_tree.column(c, width=120)
+            stk_tree.column(c, width=col_widths.get(c, 100))
         stk_tree.grid(row=0, column=0, sticky="nsew", pady=(0,8))
 
         self._stk_count_label = ctk.CTkLabel(right, text="0 item(s) queued",
@@ -8686,19 +10620,23 @@ class TallySalesApp(ctk.CTk):
                         r.get("Parent", "") or r.get("StockGroup", "") or "Primary"
                     )
                     unit_name = _normalize_stock_unit_name(r.get("Unit", "") or "Nos")
+                    gst_rate_raw = str(r.get("GSTRate","") or "").replace("%","").strip()
                     entry = {
                         "Name": str(r.get("Name","") or r.get("ItemName","") or ""),
                         "Parent": parent_group,
                         "Unit": unit_name,
                         "HSNCode": str(r.get("HSNCode","") or r.get("HSN","") or ""),
-                        "GSTRate": str(r.get("GSTRate","") or ""),
-                        "GSTApplicable": "Applicable",
+                        "HsnDetails": str(r.get("HsnDetails","") or "Specify Details Here"),
+                        "GSTRate": gst_rate_raw,
+                        "GSTApplicable": "Applicable" if gst_rate_raw else "",
+                        "TypeOfSupply": str(r.get("TypeOfSupply","") or "Goods"),
                         "Description": str(r.get("Description","") or ""),
                     }
                     if entry["Name"]:
                         self._stock_list.append(entry)
                         stk_tree.insert("","end", values=(entry["Name"], entry["Parent"],
-                                        entry["Unit"], entry["HSNCode"], entry["GSTRate"]))
+                                        entry["Unit"], entry["HSNCode"],
+                                        entry["GSTRate"], entry["TypeOfSupply"]))
                 self._stk_count_label.configure(text=f"{len(self._stock_list)} item(s) queued")
             except Exception as e:
                 messagebox.showerror("Error", str(e))
@@ -9031,12 +10969,24 @@ class TallySalesApp(ctk.CTk):
             is_debit = (_normalize_note_type(note_type) == "Debit Note")
             note_rows_snap = list(rows)
 
+            def _build_note_xml(rows_use):
+                return generate_note_xml(
+                    rows_use,
+                    company=company,
+                    date_mode=date_mode,
+                    custom_tally_date=custom_tally_date,
+                    voucher_type=note_type,
+                    company_gst_registrations=_cmp_gst_regs,
+                    entry_mode=note_entry_mode,
+                    round_off_ledger=_note_ro_ledger,
+                )[0]
+
             self._set_push_loading_state(True, f"Pushing {voucher_count} {note_type} voucher(s)...")
             self.status_var.set("Pushing to Tally...")
 
             def worker():
                 try:
-                    # Pre-creation: check & create missing party ledgers
+                    # Pre-creation: check & create missing ledgers
                     self.after(0, lambda: self._push_message_var.set("Checking existing ledgers in Tally..."))
                     _el_result = _fetch_existing_ledger_names(tally_url, company_name=company, timeout=15)
                     existing_note_ledgers = set(_el_result.get("ledgers") or set()) if _el_result.get("success") else set()
@@ -9044,26 +10994,63 @@ class TallySalesApp(ctk.CTk):
                     auto_note_defs = _collect_auto_note_ledgers(note_rows_snap, is_debit_note=is_debit)
                     auto_note_to_create = _filter_out_existing_ledgers(auto_note_defs, existing_note_ledgers)
                     if auto_note_to_create:
-                        party_defs_n = [d for d in auto_note_to_create if _is_party_parent(str(d.get("Parent", "")))]
-                        non_party_n  = [d for d in auto_note_to_create if not _is_party_parent(str(d.get("Parent", "")))]
+                        party_defs_n   = [d for d in auto_note_to_create if _is_party_parent(str(d.get("Parent", "")))]
+                        non_party_n    = [d for d in auto_note_to_create if not _is_party_parent(str(d.get("Parent", "")))]
+
+                        # Party ledgers — ask user; cancel stops the push
                         asked_n = []
                         for _ld in party_defs_n:
-                            self.after(0, lambda: self._push_message_var.set("Waiting for user input on missing ledger..."))
-                            asked_n.append(_ask_create_party_ledger(self, _ld))
-                        auto_note_to_create = non_party_n + asked_n
-                        self.after(0, lambda: self._push_message_var.set("Creating required ledgers in Tally..."))
-                        push_to_tally(generate_ledger_xml(auto_note_to_create, company), host=host, port=port)
-                        existing_note_ledgers.update(
-                            str(e.get("Name", "")).strip() for e in auto_note_to_create
-                            if str(e.get("Name", "")).strip()
-                        )
+                            _ld_name = _ld.get("Name", "")
+                            self.after(0, lambda: self._push_message_var.set(
+                                f"Waiting for user input: ledger '{_ld_name}' not found..."))
+                            _enriched = _ask_create_party_ledger(self, _ld)
+                            if _enriched is None:
+                                raise _PushCancelledError(
+                                    f"Push cancelled — ledger '{_ld_name}' was not resolved.")
+                            if _enriched.get("_skipped"):
+                                continue
+                            _apply_party_ledger_rename(
+                                note_rows_snap,
+                                _enriched.get("OriginalName", ""),
+                                _enriched.get("Name", ""),
+                                is_debit,
+                            )
+                            asked_n.append(_enriched)
+
+                        # Non-party ledgers — show mapping dialog; cancel stops the push
+                        final_non_party_n = []
+                        if non_party_n:
+                            self.after(0, lambda: self._push_message_var.set(
+                                "Waiting for user input: resolve missing ledgers..."))
+                            np_results = _ask_map_nonparty_ledgers(self, non_party_n, existing_note_ledgers)
+                            if np_results is None:
+                                raise _PushCancelledError(
+                                    "Push cancelled — missing ledger resolution was closed.")
+                            for _res in np_results:
+                                if _res.get("action") == "map":
+                                    _old = str(_res.get("old_name") or "").strip()
+                                    _new = str(_res.get("new_name") or "").strip()
+                                    if _old and _new and _old.casefold() != _new.casefold():
+                                        _apply_generic_ledger_rename(note_rows_snap, _old, _new)
+                                else:
+                                    final_non_party_n.append(_res.get("def", {}))
+
+                        auto_note_to_create = final_non_party_n + asked_n
+                        if auto_note_to_create:
+                            self.after(0, lambda: self._push_message_var.set("Creating required ledgers in Tally..."))
+                            push_to_tally(generate_ledger_xml(auto_note_to_create, company), host=host, port=port)
+                            existing_note_ledgers.update(
+                                str(e.get("Name", "")).strip() for e in auto_note_to_create
+                                if str(e.get("Name", "")).strip()
+                            )
 
                     # Push note XML
                     self.after(0, lambda: self._push_message_var.set(f"Pushing {note_type} vouchers..."))
-                    resp = push_to_tally(xml_payload, host=host, port=port)
+                    note_xml_payload = _build_note_xml(note_rows_snap)
+                    resp = push_to_tally(note_xml_payload, host=host, port=port)
                     parsed = _parse_tally_response_details(resp)
 
-                    # On failure: auto-create missing ledgers from line errors and retry
+                    # On failure: resolve missing ledgers from line errors and retry
                     if not parsed.get("success"):
                         line_errs = parsed.get("line_errors", [])
                         if line_errs:
@@ -9071,29 +11058,76 @@ class TallySalesApp(ctk.CTk):
                             miss_defs = _build_missing_ledger_defs(line_errs, note_rows_snap, miss_mode)
                             miss_defs = _filter_out_existing_ledgers(miss_defs, existing_note_ledgers)
                             if miss_defs:
+                                party_miss_n    = [d for d in miss_defs if _is_party_parent(str(d.get("Parent", "")))]
+                                nonparty_miss_n = [d for d in miss_defs if not _is_party_parent(str(d.get("Parent", "")))]
+
                                 final_miss = []
-                                for _mld in miss_defs:
-                                    if _is_party_parent(str(_mld.get("Parent", ""))):
-                                        self.after(0, lambda: self._push_message_var.set("Waiting for user input on missing ledger..."))
-                                        _mld = _ask_create_party_ledger(self, _mld)
+                                for _mld in party_miss_n:
+                                    _mld_name = _mld.get("Name", "")
+                                    self.after(0, lambda: self._push_message_var.set(
+                                        f"Waiting for user input: ledger '{_mld_name}' not found..."))
+                                    _mld = _ask_create_party_ledger(self, _mld)
+                                    if _mld is None:
+                                        raise _PushCancelledError(
+                                            f"Push cancelled — ledger '{_mld_name}' was not resolved.")
+                                    if _mld.get("_skipped"):
+                                        continue
+                                    _apply_party_ledger_rename(
+                                        note_rows_snap,
+                                        _mld.get("OriginalName", ""),
+                                        _mld.get("Name", ""),
+                                        is_debit,
+                                    )
                                     final_miss.append(_mld)
-                                self.after(0, lambda: self._push_message_var.set("Creating missing ledgers and retrying..."))
-                                push_to_tally(generate_ledger_xml(final_miss, company), host=host, port=port)
-                                existing_note_ledgers.update(
-                                    str(e.get("Name", "")).strip() for e in final_miss
-                                    if str(e.get("Name", "")).strip()
-                                )
-                                retry_resp = push_to_tally(xml_payload, host=host, port=port)
-                                retry_parsed = _parse_tally_response_details(retry_resp)
-                                if retry_parsed.get("success"):
-                                    parsed = retry_parsed
+
+                                if nonparty_miss_n:
+                                    self.after(0, lambda: self._push_message_var.set(
+                                        "Waiting for user input: resolve missing ledgers..."))
+                                    retry_np = _ask_map_nonparty_ledgers(
+                                        self, nonparty_miss_n, existing_note_ledgers)
+                                    if retry_np is None:
+                                        raise _PushCancelledError(
+                                            "Push cancelled — missing ledger resolution was closed.")
+                                    for _res in retry_np:
+                                        if _res.get("action") == "map":
+                                            _old = str(_res.get("old_name") or "").strip()
+                                            _new = str(_res.get("new_name") or "").strip()
+                                            if _old and _new and _old.casefold() != _new.casefold():
+                                                _apply_generic_ledger_rename(note_rows_snap, _old, _new)
+                                        else:
+                                            final_miss.append(_res.get("def", {}))
+
+                                if final_miss:
+                                    self.after(0, lambda: self._push_message_var.set("Creating missing ledgers and retrying..."))
+                                    push_to_tally(generate_ledger_xml(final_miss, company), host=host, port=port)
+                                    existing_note_ledgers.update(
+                                        str(e.get("Name", "")).strip() for e in final_miss
+                                        if str(e.get("Name", "")).strip()
+                                    )
+                                    retry_payload = _build_note_xml(note_rows_snap)
+                                    retry_resp = push_to_tally(retry_payload, host=host, port=port)
+                                    retry_parsed = _parse_tally_response_details(retry_resp)
+                                    if retry_parsed.get("success"):
+                                        parsed = retry_parsed
 
                     result = {"ok": True, "parsed": parsed}
+
+                except _PushCancelledError as _cancel_exc:
+                    result = {"ok": False, "cancelled": True, "error": str(_cancel_exc)}
+
                 except Exception as exc:
                     result = {"ok": False, "error": str(exc)}
 
                 def done():
                     self._set_push_loading_state(False)
+                    if result.get("cancelled"):
+                        self.status_var.set("Push cancelled — ledger not resolved")
+                        messagebox.showwarning(
+                            "Push Cancelled",
+                            "The push was cancelled because one or more missing ledgers "
+                            "were not resolved.\n\nPlease resolve all ledger mappings and try again.",
+                        )
+                        return
                     if not result.get("ok"):
                         messagebox.showerror("Push Failed", str(result.get("error", "Unknown error")))
                         return
@@ -10703,12 +12737,23 @@ class TallySalesApp(ctk.CTk):
             jnl_is_purchase = (journal_type == "purchase")
             jnl_rows_snap = list(rows)
 
+            def _build_journal_xml(rows_use):
+                return generate_journal_xml(
+                    rows_use,
+                    company=company,
+                    date_mode=date_mode,
+                    custom_tally_date=custom_tally_date,
+                    journal_type=journal_type,
+                    company_gst_registrations=_cmp_regs,
+                    round_off_ledger=_jnl_ro_ledger,
+                )[0]
+
             self._set_push_loading_state(True, f"Pushing {voucher_count} Journal voucher(s) from {source_label}...")
             self.status_var.set("Pushing to Tally...")
 
             def worker():
                 try:
-                    # Pre-creation: check & create missing party ledgers
+                    # Pre-creation: check & create missing ledgers
                     self.after(0, lambda: self._push_message_var.set("Checking existing ledgers in Tally..."))
                     _jel_result = _fetch_existing_ledger_names(tally_url_jnl, company_name=company, timeout=15)
                     existing_jnl_ledgers = set(_jel_result.get("ledgers") or set()) if _jel_result.get("success") else set()
@@ -10716,26 +12761,63 @@ class TallySalesApp(ctk.CTk):
                     auto_jnl_defs = _collect_auto_note_ledgers(jnl_rows_snap, is_debit_note=jnl_is_purchase)
                     auto_jnl_to_create = _filter_out_existing_ledgers(auto_jnl_defs, existing_jnl_ledgers)
                     if auto_jnl_to_create:
-                        party_defs_j = [d for d in auto_jnl_to_create if _is_party_parent(str(d.get("Parent", "")))]
-                        non_party_j  = [d for d in auto_jnl_to_create if not _is_party_parent(str(d.get("Parent", "")))]
+                        party_defs_j   = [d for d in auto_jnl_to_create if _is_party_parent(str(d.get("Parent", "")))]
+                        non_party_j    = [d for d in auto_jnl_to_create if not _is_party_parent(str(d.get("Parent", "")))]
+
+                        # Party ledgers — ask user; cancel stops the push
                         asked_j = []
                         for _ld in party_defs_j:
-                            self.after(0, lambda: self._push_message_var.set("Waiting for user input on missing ledger..."))
-                            asked_j.append(_ask_create_party_ledger(self, _ld))
-                        auto_jnl_to_create = non_party_j + asked_j
-                        self.after(0, lambda: self._push_message_var.set("Creating required ledgers in Tally..."))
-                        push_to_tally(generate_ledger_xml(auto_jnl_to_create, company), host=host, port=port)
-                        existing_jnl_ledgers.update(
-                            str(e.get("Name", "")).strip() for e in auto_jnl_to_create
-                            if str(e.get("Name", "")).strip()
-                        )
+                            _ld_name = _ld.get("Name", "")
+                            self.after(0, lambda: self._push_message_var.set(
+                                f"Waiting for user input: ledger '{_ld_name}' not found..."))
+                            _enriched = _ask_create_party_ledger(self, _ld)
+                            if _enriched is None:
+                                raise _PushCancelledError(
+                                    f"Push cancelled — ledger '{_ld_name}' was not resolved.")
+                            if _enriched.get("_skipped"):
+                                continue
+                            _apply_party_ledger_rename(
+                                jnl_rows_snap,
+                                _enriched.get("OriginalName", ""),
+                                _enriched.get("Name", ""),
+                                jnl_is_purchase,
+                            )
+                            asked_j.append(_enriched)
+
+                        # Non-party ledgers — show mapping dialog; cancel stops the push
+                        final_non_party_j = []
+                        if non_party_j:
+                            self.after(0, lambda: self._push_message_var.set(
+                                "Waiting for user input: resolve missing ledgers..."))
+                            np_results_j = _ask_map_nonparty_ledgers(self, non_party_j, existing_jnl_ledgers)
+                            if np_results_j is None:
+                                raise _PushCancelledError(
+                                    "Push cancelled — missing ledger resolution was closed.")
+                            for _res in np_results_j:
+                                if _res.get("action") == "map":
+                                    _old = str(_res.get("old_name") or "").strip()
+                                    _new = str(_res.get("new_name") or "").strip()
+                                    if _old and _new and _old.casefold() != _new.casefold():
+                                        _apply_generic_ledger_rename(jnl_rows_snap, _old, _new)
+                                else:
+                                    final_non_party_j.append(_res.get("def", {}))
+
+                        auto_jnl_to_create = final_non_party_j + asked_j
+                        if auto_jnl_to_create:
+                            self.after(0, lambda: self._push_message_var.set("Creating required ledgers in Tally..."))
+                            push_to_tally(generate_ledger_xml(auto_jnl_to_create, company), host=host, port=port)
+                            existing_jnl_ledgers.update(
+                                str(e.get("Name", "")).strip() for e in auto_jnl_to_create
+                                if str(e.get("Name", "")).strip()
+                            )
 
                     # Push journal XML
                     self.after(0, lambda: self._push_message_var.set("Pushing journal vouchers..."))
-                    resp = push_to_tally(xml_payload, host=host, port=port)
+                    journal_xml_payload = _build_journal_xml(jnl_rows_snap)
+                    resp = push_to_tally(journal_xml_payload, host=host, port=port)
                     parsed = _parse_tally_response_details(resp)
 
-                    # On failure: auto-create missing ledgers from line errors and retry
+                    # On failure: resolve missing ledgers from line errors and retry
                     if not parsed.get("success"):
                         line_errs = parsed.get("line_errors", [])
                         if line_errs:
@@ -10743,29 +12825,76 @@ class TallySalesApp(ctk.CTk):
                             miss_defs = _build_missing_ledger_defs(line_errs, jnl_rows_snap, miss_mode)
                             miss_defs = _filter_out_existing_ledgers(miss_defs, existing_jnl_ledgers)
                             if miss_defs:
+                                party_miss_j    = [d for d in miss_defs if _is_party_parent(str(d.get("Parent", "")))]
+                                nonparty_miss_j = [d for d in miss_defs if not _is_party_parent(str(d.get("Parent", "")))]
+
                                 final_miss = []
-                                for _mld in miss_defs:
-                                    if _is_party_parent(str(_mld.get("Parent", ""))):
-                                        self.after(0, lambda: self._push_message_var.set("Waiting for user input on missing ledger..."))
-                                        _mld = _ask_create_party_ledger(self, _mld)
+                                for _mld in party_miss_j:
+                                    _mld_name = _mld.get("Name", "")
+                                    self.after(0, lambda: self._push_message_var.set(
+                                        f"Waiting for user input: ledger '{_mld_name}' not found..."))
+                                    _mld = _ask_create_party_ledger(self, _mld)
+                                    if _mld is None:
+                                        raise _PushCancelledError(
+                                            f"Push cancelled — ledger '{_mld_name}' was not resolved.")
+                                    if _mld.get("_skipped"):
+                                        continue
+                                    _apply_party_ledger_rename(
+                                        jnl_rows_snap,
+                                        _mld.get("OriginalName", ""),
+                                        _mld.get("Name", ""),
+                                        jnl_is_purchase,
+                                    )
                                     final_miss.append(_mld)
-                                self.after(0, lambda: self._push_message_var.set("Creating missing ledgers and retrying..."))
-                                push_to_tally(generate_ledger_xml(final_miss, company), host=host, port=port)
-                                existing_jnl_ledgers.update(
-                                    str(e.get("Name", "")).strip() for e in final_miss
-                                    if str(e.get("Name", "")).strip()
-                                )
-                                retry_resp = push_to_tally(xml_payload, host=host, port=port)
-                                retry_parsed = _parse_tally_response_details(retry_resp)
-                                if retry_parsed.get("success"):
-                                    parsed = retry_parsed
+
+                                if nonparty_miss_j:
+                                    self.after(0, lambda: self._push_message_var.set(
+                                        "Waiting for user input: resolve missing ledgers..."))
+                                    retry_np_j = _ask_map_nonparty_ledgers(
+                                        self, nonparty_miss_j, existing_jnl_ledgers)
+                                    if retry_np_j is None:
+                                        raise _PushCancelledError(
+                                            "Push cancelled — missing ledger resolution was closed.")
+                                    for _res in retry_np_j:
+                                        if _res.get("action") == "map":
+                                            _old = str(_res.get("old_name") or "").strip()
+                                            _new = str(_res.get("new_name") or "").strip()
+                                            if _old and _new and _old.casefold() != _new.casefold():
+                                                _apply_generic_ledger_rename(jnl_rows_snap, _old, _new)
+                                        else:
+                                            final_miss.append(_res.get("def", {}))
+
+                                if final_miss:
+                                    self.after(0, lambda: self._push_message_var.set("Creating missing ledgers and retrying..."))
+                                    push_to_tally(generate_ledger_xml(final_miss, company), host=host, port=port)
+                                    existing_jnl_ledgers.update(
+                                        str(e.get("Name", "")).strip() for e in final_miss
+                                        if str(e.get("Name", "")).strip()
+                                    )
+                                    retry_payload = _build_journal_xml(jnl_rows_snap)
+                                    retry_resp = push_to_tally(retry_payload, host=host, port=port)
+                                    retry_parsed = _parse_tally_response_details(retry_resp)
+                                    if retry_parsed.get("success"):
+                                        parsed = retry_parsed
 
                     result = {"ok": True, "parsed": parsed}
+
+                except _PushCancelledError as _cancel_exc:
+                    result = {"ok": False, "cancelled": True, "error": str(_cancel_exc)}
+
                 except Exception as exc:
                     result = {"ok": False, "error": str(exc)}
 
                 def done():
                     self._set_push_loading_state(False)
+                    if result.get("cancelled"):
+                        self.status_var.set("Push cancelled — ledger not resolved")
+                        messagebox.showwarning(
+                            "Push Cancelled",
+                            "The push was cancelled because one or more missing ledgers "
+                            "were not resolved.\n\nPlease resolve all ledger mappings and try again.",
+                        )
+                        return
                     if not result.get("ok"):
                         err = str(result.get("error", "Unknown error"))
                         self.status_var.set(f"Push failed: {err}")

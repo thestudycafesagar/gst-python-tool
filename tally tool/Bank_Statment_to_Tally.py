@@ -1,7 +1,7 @@
 ﻿"""
 TallyBankPro - Bank Statement to Tally Payment/Receipt Voucher Creator
 Reads bank statement Excel (template format) and pushes Payment/Receipt
-vouchers to TallyPrime via HTTP API. modi
+vouchers to TallyPrime via HTTP API.
 Author: Studycafe | Built with CustomTkinter
 """
 
@@ -51,6 +51,45 @@ TEXT_MUTED = COLORS["text_muted"]
 
 PUSH_REQUEST_TIMEOUT_SEC = 300
 PUSH_BATCH_SIZE = 40
+
+# ── Ledger-creation helpers (shared by mapping dialog) ──────────────────
+
+LEDGER_PARENT_OPTIONS = [
+    "Sundry Debtors", "Sundry Creditors", "Bank Accounts", "Cash-in-Hand",
+    "Direct Incomes", "Indirect Incomes", "Direct Expenses", "Indirect Expenses",
+    "Fixed Assets", "Duties & Taxes", "Suspense A/c",
+]
+
+LEDGER_GST_APPLICABLE_OPTIONS = ["Applicable", "Not Applicable"]
+
+LEDGER_STATE_OPTIONS = [
+    "Not Applicable",
+    "Andaman & Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam",
+    "Bihar", "Chandigarh", "Chhattisgarh",
+    "Dadra & Nagar Haveli and Daman & Diu", "Delhi", "Goa", "Gujarat",
+    "Haryana", "Himachal Pradesh", "Jammu & Kashmir", "Jharkhand", "Karnataka",
+    "Kerala", "Ladakh", "Lakshadweep", "Madhya Pradesh", "Maharashtra",
+    "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Punjab",
+    "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura",
+    "Uttar Pradesh", "Uttarakhand", "West Bengal",
+]
+
+
+def _pan_from_gstin(gstin: str) -> str:
+    g = (gstin or "").strip().upper()
+    return g[2:12] if len(g) == 15 else ""
+
+
+def _normalize_state_for_ledger(value: str) -> str:
+    text = str(value or "").strip()
+    if text.casefold() in {"not applicable", "* not applicable", "na", "n/a"}:
+        return ""
+    return text
+
+
+def _is_party_parent(parent: str) -> bool:
+    key = re.sub(r"\s+", " ", str(parent or "")).strip().casefold()
+    return key in {"sundry debtors", "sundry creditors"}
 
 
 # ─── XML / Tally Helpers ────────────────────────────────────────────────
@@ -206,14 +245,8 @@ def _count_voucher_entries(rows: list, contra_ledger_names: set = None) -> tuple
 
         dr = r.get("Debit") or r.get("DEBIT") or r.get("debit") or 0
         cr = r.get("Credit") or r.get("CREDIT") or r.get("credit") or 0
-        try:
-            dr_val = float(dr) if dr not in (None, "", "None") else 0.0
-        except (TypeError, ValueError):
-            dr_val = 0.0
-        try:
-            cr_val = float(cr) if cr not in (None, "", "None") else 0.0
-        except (TypeError, ValueError):
-            cr_val = 0.0
+        dr_val = _parse_amount(dr)
+        cr_val = _parse_amount(cr)
 
         if dr_val > 0:
             if is_contra:
@@ -392,6 +425,31 @@ def _safe_int(text, default=0) -> int:
         return int(float(str(text).strip()))
     except (TypeError, ValueError):
         return default
+
+
+def _parse_amount(val) -> float:
+    """Parse a numeric amount that may be formatted in Indian or International
+    numbering (e.g. '1,00,000.50' or '1,000,000.50') or already a number."""
+    if val is None or val == "" or val == "None":
+        return 0.0
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return float(val)
+    s = str(val).strip()
+    # Detect leading negative sign or accounting parentheses
+    negative = s.startswith("-") or (s.startswith("(") and s.endswith(")"))
+    # Strip currency symbols (₹, Rs, INR), commas, spaces, parentheses
+    s = re.sub(r"[₹₹]", "", s)
+    s = re.sub(r"(?i)\b(?:rs|inr)\b\.?\s*", "", s)
+    s = s.replace(",", "").replace("(", "").replace(")", "").strip()
+    # Keep only digits and decimal point
+    s = re.sub(r"[^\d.]", "", s)
+    if not s:
+        return 0.0
+    try:
+        result = float(s)
+        return -result if negative else result
+    except ValueError:
+        return 0.0
 
 
 def _parse_tally_response_details(response_text: str) -> dict:
@@ -767,18 +825,11 @@ def generate_bank_voucher_xml(
             narration_parts.append(f"Chq: {cheque_no}")
         narration = xml_escape(" | ".join(narration_parts))
 
-        # Parse debit and credit amounts
+        # Parse debit and credit amounts (handles Indian and International formatting)
         debit_raw = r.get("Debit") or r.get("DEBIT") or r.get("debit") or 0
         credit_raw = r.get("Credit") or r.get("CREDIT") or r.get("credit") or 0
-
-        try:
-            debit_amt = float(debit_raw) if debit_raw not in (None, "", "None") else 0.0
-        except (TypeError, ValueError):
-            debit_amt = 0.0
-        try:
-            credit_amt = float(credit_raw) if credit_raw not in (None, "", "None") else 0.0
-        except (TypeError, ValueError):
-            credit_amt = 0.0
+        debit_amt = _parse_amount(debit_raw)
+        credit_amt = _parse_amount(credit_raw)
 
         if debit_amt <= 0 and credit_amt <= 0:
             continue  # Skip empty rows
@@ -3468,14 +3519,8 @@ class TallyBankApp(ctk.CTk):
         for row in rows:
             dr = row.get("Debit") or row.get("DEBIT") or row.get("debit") or 0
             cr = row.get("Credit") or row.get("CREDIT") or row.get("credit") or 0
-            try:
-                dr_val = float(dr) if dr not in (None, "", "None") else 0.0
-            except (TypeError, ValueError):
-                dr_val = 0.0
-            try:
-                cr_val = float(cr) if cr not in (None, "", "None") else 0.0
-            except (TypeError, ValueError):
-                cr_val = 0.0
+            dr_val = _parse_amount(dr)
+            cr_val = _parse_amount(cr)
 
             if dr_val > 0:
                 total_debit += dr_val
@@ -3778,6 +3823,241 @@ class TallyBankApp(ctk.CTk):
             lb.bind("<Return>", _sel)
             se.focus_set()
 
+        _create_parent_options = [
+            "Sundry Debtors", "Sundry Creditors", "Bank Accounts", "Cash-in-Hand",
+            "Direct Incomes", "Indirect Incomes", "Direct Expenses", "Indirect Expenses",
+            "Fixed Assets", "Duties & Taxes", "Suspense A/c",
+        ]
+
+        def _open_create_ledger(entry_widget):
+            led_name = entry_widget.get().strip()
+
+            pop = ctk.CTkToplevel(dialog)
+            pop.title("Create Ledger")
+            pop.geometry("520x340")
+            pop.resizable(False, True)
+            pop.transient(dialog)
+            pop.grab_set()
+            pop.configure(fg_color=COLORS["bg_dark"])
+            pop.lift()
+            pop.focus_force()
+            pop.protocol("WM_DELETE_WINDOW", pop.destroy)
+
+            # ── Header ───────────────────────────────────────────────
+            header = ctk.CTkFrame(pop, fg_color=("#FEF3C7", "#78350F"), corner_radius=0)
+            header.pack(fill="x")
+            ctk.CTkLabel(header, text="⚠  Ledger Not Found in Tally",
+                         font=("Segoe UI", 13, "bold"),
+                         text_color=("#92400E", "#FCD34D")).pack(padx=16, pady=10)
+
+            # ── View 1: choice frame ──────────────────────────────────
+            choice_frame = ctk.CTkFrame(pop, fg_color="transparent")
+            choice_frame.pack(fill="both", expand=True, padx=20, pady=10)
+
+            ctk.CTkLabel(choice_frame,
+                         text=f'The ledger  "{led_name}"  was not found in Tally.',
+                         font=("Segoe UI", 12), wraplength=460,
+                         justify="left").pack(anchor="w")
+            ctk.CTkLabel(choice_frame, text="How would you like to create it?",
+                         font=("Segoe UI", 11),
+                         text_color=("gray50", "gray60")).pack(anchor="w", pady=(4, 6))
+
+            grp_row = ctk.CTkFrame(choice_frame, fg_color="transparent")
+            grp_row.pack(fill="x", pady=(0, 10))
+            ctk.CTkLabel(grp_row, text="Parent Group:", width=120,
+                         anchor="w", font=("Segoe UI", 11)).pack(side="left")
+            parent_var = ctk.StringVar(value=LEDGER_PARENT_OPTIONS[0])
+            ctk.CTkComboBox(grp_row, variable=parent_var,
+                            values=LEDGER_PARENT_OPTIONS, width=280,
+                            font=("Segoe UI", 10)).pack(side="left", padx=(8, 0))
+
+            ctk.CTkButton(
+                choice_frame,
+                text="\U0001f310  Fetch from GST Portal (not available in this module)",
+                fg_color=COLORS["accent"],
+                text_color="#FFFFFF", height=44, font=("Segoe UI", 12),
+                state="disabled",
+            ).pack(fill="x", pady=(0, 8))
+
+            manual_btn = ctk.CTkButton(
+                choice_frame,
+                text="✏  Create Manually",
+                fg_color=("gray70", "gray30"), hover_color=("gray60", "gray40"),
+                text_color="#FFFFFF", height=44, font=("Segoe UI", 12),
+            )
+            manual_btn.pack(fill="x")
+
+            # ── View 2: full form ─────────────────────────────────────
+            form_frame = ctk.CTkScrollableFrame(pop, fg_color="transparent")
+
+            mf = {}
+
+            def _form_row(parent_fr, label, key, placeholder="", required=False):
+                row = ctk.CTkFrame(parent_fr, fg_color="transparent")
+                row.pack(fill="x", pady=3)
+                lbl_text = f"{label} *" if required else label
+                ctk.CTkLabel(row, text=lbl_text, width=130, anchor="w",
+                             font=("Segoe UI", 11)).pack(side="left")
+                ent = ctk.CTkEntry(row, height=28, fg_color=COLORS["bg_input"],
+                                   border_color=COLORS["border"],
+                                   text_color=COLORS["text_primary"],
+                                   font=("Segoe UI", 10), corner_radius=6,
+                                   placeholder_text=placeholder)
+                ent.pack(side="left", fill="x", expand=True, padx=(6, 0))
+                mf[key] = ent
+                return ent
+
+            def _combo_row(parent_fr, label, key, values, default=""):
+                row = ctk.CTkFrame(parent_fr, fg_color="transparent")
+                row.pack(fill="x", pady=3)
+                ctk.CTkLabel(row, text=label, width=130, anchor="w",
+                             font=("Segoe UI", 11)).pack(side="left")
+                var = ctk.StringVar(value=default or values[0])
+                cb = ctk.CTkComboBox(row, variable=var, values=values,
+                                     width=280, font=("Segoe UI", 10))
+                cb.pack(side="left", padx=(6, 0))
+                mf[key] = var
+                return var
+
+            _form_row(form_frame, "Ledger Name", "name", required=True)
+            mf["name"].insert(0, led_name)
+
+            _combo_row(form_frame, "Parent Group *", "parent",
+                       LEDGER_PARENT_OPTIONS, LEDGER_PARENT_OPTIONS[0])
+
+            _combo_row(form_frame, "GST Applicable", "gst_app",
+                       LEDGER_GST_APPLICABLE_OPTIONS, LEDGER_GST_APPLICABLE_OPTIONS[1])
+
+            _form_row(form_frame, "GSTIN", "gstin", "e.g. 29ABCDE1234F1Z5")
+            _form_row(form_frame, "PAN", "pan", "auto-filled from GSTIN")
+            _combo_row(form_frame, "State", "state",
+                       LEDGER_STATE_OPTIONS, LEDGER_STATE_OPTIONS[0])
+            _form_row(form_frame, "Address Line 1", "addr1")
+            _form_row(form_frame, "Address Line 2", "addr2")
+
+            def _sync_pan(*_):
+                g = mf["gstin"].get().strip().upper()
+                pan = _pan_from_gstin(g)
+                if pan:
+                    mf["pan"].delete(0, "end")
+                    mf["pan"].insert(0, pan)
+            mf["gstin"].bind("<FocusOut>", _sync_pan)
+
+            form_btns = ctk.CTkFrame(form_frame, fg_color="transparent")
+            form_btns.pack(fill="x", pady=(8, 4))
+            create_form_btn = ctk.CTkButton(
+                form_btns, text="✓ Create in Tally",
+                fg_color=COLORS["success"], hover_color="#047857",
+                text_color="#FFFFFF", height=36, font=("Segoe UI", 11),
+            )
+            create_form_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
+            back_btn = ctk.CTkButton(
+                form_btns, text="← Back",
+                fg_color=("gray70", "gray30"), hover_color=("gray60", "gray40"),
+                text_color="#FFFFFF", height=36, font=("Segoe UI", 11), width=80,
+            )
+            back_btn.pack(side="left")
+
+            # ── Status bar (always visible) ───────────────────────────
+            status_var2 = ctk.StringVar(value="")
+            status_bar = ctk.CTkLabel(pop, textvariable=status_var2,
+                                      font=("Segoe UI", 10),
+                                      text_color=COLORS["text_muted"],
+                                      anchor="w")
+            status_bar.pack(fill="x", padx=20, pady=(0, 6))
+
+            # ── Helpers ───────────────────────────────────────────────
+            def _to_choice():
+                form_frame.pack_forget()
+                status_bar.pack_forget()
+                choice_frame.pack(fill="both", expand=True, padx=20, pady=10)
+                status_bar.pack(fill="x", padx=20, pady=(0, 6))
+                pop.geometry("520x340")
+                status_var2.set("")
+
+            def _to_form():
+                choice_frame.pack_forget()
+                status_bar.pack_forget()
+                mf["parent"].set(parent_var.get() or LEDGER_PARENT_OPTIONS[0])
+                form_frame.pack(fill="both", expand=True, padx=8, pady=(4, 4))
+                status_bar.pack(fill="x", padx=20, pady=(0, 6))
+                pop.geometry("520x560")
+                mf["name"].focus_set()
+
+            def _do_push(led_def):
+                try:
+                    company = self._get_selected_company()
+                    host = self.tally_host_var.get().strip() or "localhost"
+                    port_text = self.tally_port_var.get().strip()
+                    port = int(port_text) if port_text.isdigit() else 9000
+                except Exception as exc:
+                    status_var2.set(f"⚠ Settings error: {exc}")
+                    return
+                manual_btn.configure(state="disabled")
+                create_form_btn.configure(state="disabled")
+                status_var2.set("Pushing to Tally…")
+                name = str(led_def.get("Name", "") or "").strip()
+
+                def _worker():
+                    try:
+                        xml = generate_ledger_xml([led_def], company)
+                        resp = push_to_tally(xml, host, port)
+                        parsed = _parse_tally_response_details(resp)
+                        def _done():
+                            if parsed.get("success") or parsed.get("created", 0) > 0 or parsed.get("altered", 0) > 0:
+                                status_var2.set(f"✓ '{name}' created successfully!")
+                                if name not in _tally_ledgers:
+                                    _tally_ledgers.append(name)
+                                    _tally_ledgers.sort(key=str.upper)
+                                entry_widget.delete(0, "end")
+                                entry_widget.insert(0, name)
+                                pop.after(1500, pop.destroy)
+                            else:
+                                errs = "; ".join(parsed.get("line_errors") or [])
+                                status_var2.set(f"✗ {errs or 'Tally returned an error.'}")
+                                manual_btn.configure(state="normal")
+                                create_form_btn.configure(state="normal")
+                        pop.after(0, _done)
+                    except Exception as exc:
+                        def _err():
+                            status_var2.set(f"✗ {exc}")
+                            manual_btn.configure(state="normal")
+                            create_form_btn.configure(state="normal")
+                        pop.after(0, _err)
+                threading.Thread(target=_worker, daemon=True).start()
+
+            def _on_form_create():
+                name = mf["name"].get().strip()
+                parent = mf["parent"].get().strip()
+                if not name:
+                    status_var2.set("⚠ Ledger name is required.")
+                    return
+                if not parent:
+                    status_var2.set("⚠ Parent group is required.")
+                    return
+                gstin = mf["gstin"].get().strip().upper()
+                pan = mf["pan"].get().strip().upper() or _pan_from_gstin(gstin)
+                state = _normalize_state_for_ledger(mf["state"].get())
+                _do_push({
+                    "Name": name,
+                    "Parent": parent,
+                    "MailingName": name,
+                    "GSTIN": gstin,
+                    "PAN": pan,
+                    "GSTApplicable": mf["gst_app"].get().strip(),
+                    "StateOfSupply": state,
+                    "Address1": mf["addr1"].get().strip(),
+                    "Address2": mf["addr2"].get().strip(),
+                    "Country": "India",
+                    "Billwise": "Yes" if _is_party_parent(parent) else "No",
+                    "TypeOfTaxation": "",
+                    "GSTRate": "",
+                })
+
+            manual_btn.configure(command=_to_form)
+            back_btn.configure(command=_to_choice)
+            create_form_btn.configure(command=_on_form_create)
+
         row_colors = (COLORS["bg_card"], COLORS["bg_card_hover"])
         global_idx = 0
 
@@ -3808,6 +4088,11 @@ class TallyBankApp(ctk.CTk):
                                      text_color=COLORS["accent"],
                                      font=("Segoe UI", 11), corner_radius=4)
             pick_btn.pack(side="right", padx=(0, 6))
+            create_btn = ctk.CTkButton(row_fr, text="➕", width=32, height=26,
+                                       fg_color=COLORS["success"], hover_color="#047857",
+                                       text_color="#FFFFFF",
+                                       font=("Segoe UI", 11), corner_radius=4)
+            create_btn.pack(side="right", padx=(0, 2))
             ent = ctk.CTkEntry(row_fr, height=28, fg_color=COLORS["bg_input"],
                                border_color=COLORS["border"],
                                text_color=COLORS["text_primary"],
@@ -3816,6 +4101,7 @@ class TallyBankApp(ctk.CTk):
             ent.pack(side="left", fill="x", expand=True, padx=(4, 4))
             entry_map[key] = ent
             pick_btn.configure(command=lambda e=ent: _open_picker(e))
+            create_btn.configure(command=lambda e=ent: _open_create_ledger(e))
 
         # ── non-matching LEDGER section ──────────────────────────────────
         if nonmatch_ledgers:
@@ -3844,6 +4130,11 @@ class TallyBankApp(ctk.CTk):
                                       text_color=COLORS["accent"],
                                       font=("Segoe UI", 11), corner_radius=4)
             pick_btn2.pack(side="right", padx=(0, 6))
+            create_btn2 = ctk.CTkButton(row_fr, text="➕", width=32, height=26,
+                                        fg_color=COLORS["success"], hover_color="#047857",
+                                        text_color="#FFFFFF",
+                                        font=("Segoe UI", 11), corner_radius=4)
+            create_btn2.pack(side="right", padx=(0, 2))
             ent2 = ctk.CTkEntry(row_fr, height=28, fg_color=COLORS["bg_input"],
                                 border_color=COLORS["error"],
                                 text_color=COLORS["text_primary"],
@@ -3852,6 +4143,7 @@ class TallyBankApp(ctk.CTk):
             ent2.pack(side="left", fill="x", expand=True, padx=(4, 4))
             entry_map[key] = ent2
             pick_btn2.configure(command=lambda e=ent2: _open_picker(e))
+            create_btn2.configure(command=lambda e=ent2: _open_create_ledger(e))
 
         # ── fetch button logic ───────────────────────────────────────────
         def _do_fetch():

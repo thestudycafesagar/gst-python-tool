@@ -1390,7 +1390,7 @@ class GSTR2BEngine:
     def _build_voucher_xml(self, parent, rec, purchase_ledger, narration, voucher_date, round_off_ledger: str = ""):
         # RCM invoices get a separate Journal voucher structure
         if str(rec.get("reverse_charge") or "").strip().upper() == "YES":
-            self._build_rcm_journal_voucher_xml(parent, rec, purchase_ledger, narration, voucher_date)
+            self._build_rcm_journal_voucher_xml(parent, rec, purchase_ledger, narration, voucher_date, round_off_ledger=round_off_ledger)
             return
 
         itc_status = str(rec.get("itc_avail") or "Yes").strip().upper()
@@ -1754,7 +1754,7 @@ class GSTR2BEngine:
             ET.SubElement(ba, "BILLTYPE").text = "New Ref"
             ET.SubElement(ba, "AMOUNT").text = f"{_ro_total_jnl:.2f}"
 
-    def _build_rcm_journal_voucher_xml(self, parent, rec, purchase_ledger, narration, voucher_date):
+    def _build_rcm_journal_voucher_xml(self, parent, rec, purchase_ledger, narration, voucher_date, round_off_ledger: str = ""):
         """
         RCM (Reverse Charge Mechanism) Journal voucher.
         Dr: Expense ledger (taxable), Dr: CGST/SGST/IGST Inward RCM
@@ -1775,6 +1775,9 @@ class GSTR2BEngine:
 
         if taxable == 0 and not has_gst:
             return
+
+        _ro_amt_rcm   = round(round(taxable, 0) - taxable, 2) if round_off_ledger else 0.0
+        _party_credit = round(taxable + _ro_amt_rcm, 2)
 
         actual_voucher_date = rec.get("voucher_date") or rec.get("invoice_date") or voucher_date
         tally_date = self._tally_date(actual_voucher_date, fallback_today=True)
@@ -1890,9 +1893,17 @@ class GSTR2BEngine:
             if abs(sgst_amt) > 0:
                 _dr(sgst_inward, sgst_amt)
 
-        # Cr Party ledger (taxable amount with bill ref + GST details)
-        if taxable:
-            _cr_party(party_ledger_name, taxable, inv_no=supplier_invoice_no)
+        # Dr Round-off (when rounding up — extra expense)
+        if round_off_ledger and abs(_ro_amt_rcm) >= 0.005 and _ro_amt_rcm > 0:
+            ro = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
+            ET.SubElement(ro, "LEDGERNAME").text = round_off_ledger
+            self._add_common_ledger_flags(ro, is_party="No")
+            ro.find("ISDEEMEDPOSITIVE").text = "Yes"
+            ET.SubElement(ro, "AMOUNT").text = f"{-_ro_amt_rcm:.2f}"
+
+        # Cr Party ledger (rounded taxable amount with bill ref + GST details)
+        if _party_credit:
+            _cr_party(party_ledger_name, _party_credit, inv_no=supplier_invoice_no)
 
         # Cr GST Outward RCM ledgers
         if is_igst:
@@ -1906,6 +1917,14 @@ class GSTR2BEngine:
                 _cr(cgst_outward, cgst_amt)
             if abs(sgst_amt) > 0:
                 _cr(sgst_outward, sgst_amt)
+
+        # Cr Round-off (when rounding down — saving/income)
+        if round_off_ledger and abs(_ro_amt_rcm) >= 0.005 and _ro_amt_rcm < 0:
+            ro = ET.SubElement(voucher, "LEDGERENTRIES.LIST")
+            ET.SubElement(ro, "LEDGERNAME").text = round_off_ledger
+            self._add_common_ledger_flags(ro, is_party="No")
+            ro.find("ISDEEMEDPOSITIVE").text = "No"
+            ET.SubElement(ro, "AMOUNT").text = f"{abs(_ro_amt_rcm):.2f}"
 
 
 # ═══════════════════════════════════════════════════════════
