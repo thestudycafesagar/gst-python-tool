@@ -7001,21 +7001,27 @@ class TallySalesApp(ctk.CTk):
         return mode, custom_tally_date
 
     def _view_workflow_demo(self):
-        demo_url = (self.workflow_demo_url or "").strip()
+        _demo_urls = {
+            "accounting":             "https://youtu.be/SlVhqglVSzU",
+            "item":                   "https://youtu.be/bERcC0uTVws",
+            "purchase_accounting":    "https://youtu.be/9FSOjQoHmk8",
+            "purchase_item":          "https://youtu.be/DbXzZsqb9q8",
+            "debit_note_accounting":  "https://youtu.be/g1VX4NCLJHg",
+            "credit_note_accounting": "https://youtu.be/8zgUBTDyCzY",
+            "journal":                "https://youtu.be/jgt5eQiBjZM",
+        }
+        current_option = self._panel_var.get() if hasattr(self, "_panel_var") else ""
+        mode_key = self._panel_option_to_key.get(current_option, "") if hasattr(self, "_panel_option_to_key") else ""
+        demo_url = _demo_urls.get(mode_key, "")
         if demo_url:
             try:
                 opened = webbrowser.open(demo_url)
+                if not opened:
+                    messagebox.showwarning("View Demo", "Could not open demo link in your default browser.")
             except webbrowser.Error as exc:
                 messagebox.showwarning("View Demo", f"Could not open demo link.\n\n{exc}")
-                return
-            if not opened:
-                messagebox.showwarning("View Demo", "Could not open demo link in your default browser.")
-            return
-
-        messagebox.showinfo(
-            "View Demo",
-            "Demo link is not set yet.\n\nSet self.workflow_demo_url in code to your YouTube link later.",
-        )
+        else:
+            messagebox.showinfo("View Demo", "No demo available for the selected mode.")
 
     def _append_debug_log(self, mode, target_company, xml_payload, response_text, parsed, note=""):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
