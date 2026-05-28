@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════╗
 ║     GSTR-2B + Tally Sheet → Tally Converter v4.1         ║
@@ -4407,6 +4407,968 @@ class _GSTFetchDialog(ctk.CTkToplevel):
 
 
 # ═══════════════════════════════════════════════════════════
+#  MANUAL VOUCHER DIALOG  (Tax-mismatch "No" path)
+# ═══════════════════════════════════════════════════════════
+
+_GSTIN_STATE_MAP = {
+    "01": "Jammu And Kashmir",    "02": "Himachal Pradesh",  "03": "Punjab",
+    "04": "Chandigarh",           "05": "Uttarakhand",       "06": "Haryana",
+    "07": "Delhi",                "08": "Rajasthan",         "09": "Uttar Pradesh",
+    "10": "Bihar",                "11": "Sikkim",            "12": "Arunachal Pradesh",
+    "13": "Nagaland",             "14": "Manipur",           "15": "Mizoram",
+    "16": "Tripura",              "17": "Meghalaya",         "18": "Assam",
+    "19": "West Bengal",          "20": "Jharkhand",         "21": "Odisha",
+    "22": "Chhattisgarh",         "23": "Madhya Pradesh",    "24": "Gujarat",
+    "25": "Daman And Diu",        "26": "Dadra And Nagar Haveli And Daman And Diu",
+    "27": "Maharashtra",          "29": "Karnataka",         "30": "Goa",
+    "31": "Lakshadweep",          "32": "Kerala",            "33": "Tamil Nadu",
+    "34": "Puducherry",           "35": "Andaman And Nicobar Islands",
+    "36": "Telangana",            "37": "Andhra Pradesh",    "38": "Ladakh",
+    "97": "Other Territory",      "99": "Centre Jurisdiction",
+}
+
+def _gstin_to_state(gstin: str) -> str:
+    """Return the state name for a given GSTIN (first 2-digit state code)."""
+    return _GSTIN_STATE_MAP.get(str(gstin or "").strip().upper()[:2], "")
+
+
+class _ManualVoucherDialog(ctk.CTkToplevel):
+    """Manual Add Voucher dialog — pre-filled from the mismatch record, posts to Tally."""
+
+    def __init__(self, parent, tally_url: str, tally_timeout: float,
+                 company_name: str, party_gstin_map: dict = None,
+                 initial_record: dict = None,
+                 company_gstin: str = "",
+                 company_registration_name: str = "",
+                 company_registration_state: str = ""):
+        super().__init__(parent)
+        self.title("Add Voucher")
+        self.transient(parent)
+        self.grab_set()
+        self.lift()
+        self.focus_force()
+
+        # Size dialog to fit screen — leave 80px for taskbar/decorations
+        scr_w = self.winfo_screenwidth()
+        scr_h = self.winfo_screenheight()
+        win_w = min(1120, scr_w - 40)
+        win_h = min(860,  scr_h - 80)
+        pos_x = max(0, (scr_w - win_w) // 2)
+        pos_y = max(0, (scr_h - win_h) // 2)
+        self.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
+        self.minsize(min(980, scr_w - 40), min(640, scr_h - 80))
+
+        self._tally_url       = tally_url
+        self._tally_timeout   = tally_timeout
+        self._company_name    = company_name
+        self._party_gstin_map = dict(party_gstin_map or {})
+        self._initial_record  = dict(initial_record or {})
+        self._company_gstin              = str(company_gstin or "").strip().upper()
+        self._company_registration_name  = str(company_registration_name or "").strip()
+        self._company_registration_state = str(company_registration_state or "").strip()
+        self._ledger_names: list     = []  # all ledgers from Tally
+        self._stock_item_names: list = []  # stock items from Tally
+        self._invoice_mode    = tk.StringVar(value="accounting")
+        # Track all active autocomplete popups so we can close them on scroll
+        self._active_ac_popups: list = []
+
+        self._inv_no_var  = tk.StringVar()
+        self._date_var    = tk.StringVar(value=datetime.date.today().strftime("%d/%m/%Y"))
+        self._party_var   = tk.StringVar()
+        self._gst_var     = tk.StringVar()
+
+        self._sub_total_var        = tk.StringVar(value="0.00")
+        self._tax_amt_var          = tk.StringVar(value="0.00")
+        self._total_amt_var        = tk.StringVar(value="0.00")
+        self._ledger_section_total = tk.StringVar(value="₹ 0.00")
+        self._tax_section_total    = tk.StringVar(value="₹ 0.00")
+
+        self._item_rows:   list = []
+        self._ledger_rows: list = []
+        self._tax_rows:    list = []
+
+        self._build_ui()
+        self._add_ledger_row()
+        self._add_tax_row("IGST", "0.01")
+        self._prefill_from_record()   # after rows exist
+        self._fetch_ledgers_async()
+        self._party_var.trace_add("write", self._on_party_changed)
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        # Close any open autocomplete popups when user scrolls the dialog
+        self.bind("<MouseWheel>", lambda e: self._close_all_popups(), add="+")
+        self.bind("<Button-4>",   lambda e: self._close_all_popups(), add="+")
+        self.bind("<Button-5>",   lambda e: self._close_all_popups(), add="+")
+
+    # ── Close all autocomplete popups ──────────────────────────────────────
+
+    def _close_all_popups(self):
+        for p in list(self._active_ac_popups):
+            try:
+                p.destroy()
+            except Exception:
+                pass
+        self._active_ac_popups.clear()
+
+    # ── Pre-fill from mismatch record ─────────────────────────────────────
+
+    def _display_date(self, val) -> str:
+        s = str(val or "").strip()
+        if not s:
+            return datetime.date.today().strftime("%d/%m/%Y")
+        for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%Y%m%d"):
+            try:
+                return datetime.datetime.strptime(s, fmt).strftime("%d/%m/%Y")
+            except ValueError:
+                continue
+        return s
+
+    def _prefill_from_record(self):
+        rec = self._initial_record
+        if not rec:
+            return
+        inv_no = str(rec.get("supplier_invoice_no") or rec.get("invoice_no") or "").strip()
+        if inv_no:
+            self._inv_no_var.set(inv_no)
+        party = str(rec.get("trade_name") or rec.get("party_name") or "").strip()
+        if party:
+            self._party_var.set(party)
+        date_raw = str(rec.get("invoice_date") or rec.get("supplier_invoice_date") or "").strip()
+        if date_raw:
+            self._date_var.set(self._display_date(date_raw))
+        gstin = str(rec.get("gstin") or "").strip().upper()
+        if gstin:
+            self._gst_var.set(gstin)
+
+        taxable = round(float(rec.get("taxable_value") or 0), 2)
+        if taxable and self._ledger_rows:
+            self._ledger_rows[0]["data"]["amount"].set(f"{taxable:.2f}")
+
+        igst = round(float(rec.get("igst") or 0), 2)
+        cgst = round(float(rec.get("cgst") or 0), 2)
+        sgst = round(float(rec.get("sgst") or 0), 2)
+        if igst and self._tax_rows:
+            self._tax_rows[0]["data"]["ledger"].set("IGST")
+            self._tax_rows[0]["data"]["amount"].set(f"{igst:.2f}")
+        elif cgst and self._tax_rows:
+            self._tax_rows[0]["data"]["ledger"].set("CGST")
+            self._tax_rows[0]["data"]["amount"].set(f"{cgst:.2f}")
+            if sgst:
+                self._add_tax_row("SGST", f"{sgst:.2f}")
+        self._recalc_summary()
+
+    # ── UI construction ────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        # Fixed title bar (top)
+        titlebar = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=0, height=50)
+        titlebar.pack(fill="x", side="top")
+        titlebar.pack_propagate(False)
+        ctk.CTkLabel(titlebar, text="Add Voucher",
+                     font=("Segoe UI", 14, "bold"),
+                     text_color=COLORS["text_primary"]).pack(side="left", padx=16)
+        tog = ctk.CTkFrame(titlebar, fg_color="transparent")
+        tog.pack(side="right", padx=16)
+        ctk.CTkLabel(tog, text="Accounting Invoice",
+                     font=("Segoe UI", 10)).pack(side="left", padx=(0, 4))
+        self._mode_switch = ctk.CTkSwitch(
+            tog, text="Item Invoice",
+            variable=self._invoice_mode, onvalue="item", offvalue="accounting",
+            command=self._on_mode_toggle, font=("Segoe UI", 10), width=44)
+        self._mode_switch.pack(side="left")
+
+        # Fixed button bar (bottom) — packed before scrollable so it's always visible
+        btn_bar = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=0, height=60)
+        btn_bar.pack(fill="x", side="bottom")
+        btn_bar.pack_propagate(False)
+        ctk.CTkButton(btn_bar, text="Cancel", width=110, height=36,
+                      fg_color=("gray60", "gray30"),
+                      command=self.destroy).pack(side="right", padx=(6, 16), pady=12)
+        self._save_btn = ctk.CTkButton(
+            btn_bar, text="Save & Close", width=160, height=36,
+            fg_color=COLORS["success"], command=self._on_save)
+        self._save_btn.pack(side="right", pady=12)
+
+        # Scrollable content area
+        outer = ctk.CTkScrollableFrame(self, fg_color=COLORS["bg_dark"])
+        outer.pack(fill="both", expand=True)
+        self._outer = outer
+
+        # ── Header: all 4 fields in one row ──────────────────────────────
+        hdr_card = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=10)
+        hdr_card.pack(fill="x", padx=14, pady=(12, 6))
+        self._hdr_card = hdr_card
+
+        fields = ctk.CTkFrame(hdr_card, fg_color="transparent")
+        fields.pack(fill="x", padx=16, pady=(12, 14))
+
+        self._grid_field(fields, 0, "* Supplier Invoice No.", self._inv_no_var, 210)
+        self._grid_field(fields, 1, "* Voucher Date  (DD/MM/YYYY)", self._date_var, 190)
+
+        # Party Name – autocomplete entry with "+" button
+        pf = ctk.CTkFrame(fields, fg_color="transparent")
+        pf.grid(row=0, column=2, sticky="ew", padx=(0, 14))
+        ctk.CTkLabel(pf, text="* Party Name", font=("Segoe UI", 10),
+                     text_color=COLORS["text_secondary"]).pack(anchor="w")
+        pr = ctk.CTkFrame(pf, fg_color="transparent")
+        pr.pack(anchor="w")
+        self._build_autocomplete_entry(
+            pr, self._party_var, width=272,
+            get_items_fn=self._party_suggestions, font=("Segoe UI", 11))
+        ctk.CTkButton(pr, text="+", width=30, height=30,
+                      fg_color=COLORS["success"], font=("Segoe UI", 13, "bold"),
+                      command=lambda: None).pack(side="left")
+
+        self._grid_field(fields, 3, "GST Number", self._gst_var, 200)
+        fields.columnconfigure(0, weight=1, minsize=220)
+        fields.columnconfigure(1, weight=1, minsize=200)
+        fields.columnconfigure(2, weight=2, minsize=300)
+        fields.columnconfigure(3, weight=1, minsize=210)
+
+        # ── Item Details (hidden by default) ──────────────────────────────
+        self._item_section = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=10)
+        ctk.CTkLabel(self._item_section, text="Item Details",
+                     font=("Segoe UI", 12, "bold"),
+                     text_color=COLORS["tally_gold"]).pack(anchor="w", padx=14, pady=(8, 4))
+        self._make_table_hdr(self._item_section,
+            [("Sr.No", 42), ("* Item Name", 150), ("* Purchase Ledger", 150),
+             ("* HSN", 60), ("* Qty", 50), ("Unit", 58), ("* Rate", 72), ("Disc%", 48),
+             ("Amount", 75), ("", 30)])
+        self._item_table = ctk.CTkScrollableFrame(
+            self._item_section, fg_color="transparent", height=90, corner_radius=0)
+        self._item_table.pack(fill="x", padx=14, pady=(0, 2))
+        item_foot = ctk.CTkFrame(self._item_section, fg_color="transparent")
+        item_foot.pack(fill="x", padx=14, pady=(2, 8))
+        ctk.CTkButton(item_foot, text="+ Add Item Row", width=130, height=28,
+                      fg_color=COLORS["accent"], font=("Segoe UI", 10),
+                      command=self._add_item_row).pack(side="left")
+        # Item section starts hidden
+
+        # ── Ledger Details ────────────────────────────────────────────────
+        self._ldg_sec = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=10)
+        self._ldg_sec.pack(fill="x", padx=14, pady=6)
+        ctk.CTkLabel(self._ldg_sec, text="Ledger Details",
+                     font=("Segoe UI", 12, "bold"),
+                     text_color=COLORS["tally_gold"]).pack(anchor="w", padx=14, pady=(8, 4))
+        self._make_table_hdr(self._ldg_sec,
+            [("Sr.No", 42), ("Ledger Name", 370), ("Amount", 130), ("", 30)])
+        self._ledger_table = ctk.CTkScrollableFrame(
+            self._ldg_sec, fg_color="transparent", height=110, corner_radius=0)
+        self._ledger_table.pack(fill="x", padx=14, pady=(0, 2))
+        ldg_foot = ctk.CTkFrame(self._ldg_sec, fg_color="transparent")
+        ldg_foot.pack(fill="x", padx=14, pady=(2, 8))
+        ctk.CTkButton(ldg_foot, text="+ Add Row", width=100, height=28,
+                      fg_color=COLORS["accent"], font=("Segoe UI", 10),
+                      command=self._add_ledger_row).pack(side="left")
+        ctk.CTkLabel(ldg_foot, textvariable=self._ledger_section_total,
+                     font=("Segoe UI", 11, "bold"),
+                     text_color=COLORS["success"]).pack(side="right", padx=(0, 6))
+        ctk.CTkLabel(ldg_foot, text="Total:", font=("Segoe UI", 10, "bold")).pack(side="right")
+
+        # ── Tax Ledger Details ────────────────────────────────────────────
+        self._tax_sec = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=10)
+        self._tax_sec.pack(fill="x", padx=14, pady=6)
+        ctk.CTkLabel(self._tax_sec, text="Tax Ledger Details",
+                     font=("Segoe UI", 12, "bold"),
+                     text_color=COLORS["tally_gold"]).pack(anchor="w", padx=14, pady=(8, 4))
+        self._make_table_hdr(self._tax_sec,
+            [("Sr.No", 42), ("* Ledger Name", 250), ("Description", 215), ("Amount", 130), ("", 30)])
+        self._tax_table = ctk.CTkScrollableFrame(
+            self._tax_sec, fg_color="transparent", height=90, corner_radius=0)
+        self._tax_table.pack(fill="x", padx=14, pady=(0, 2))
+        tax_foot = ctk.CTkFrame(self._tax_sec, fg_color="transparent")
+        tax_foot.pack(fill="x", padx=14, pady=(2, 8))
+        ctk.CTkButton(tax_foot, text="Add Ledger", width=100, height=28,
+                      fg_color=COLORS["accent"], font=("Segoe UI", 10),
+                      command=lambda: self._add_tax_row()).pack(side="left")
+        ctk.CTkLabel(tax_foot, textvariable=self._tax_section_total,
+                     font=("Segoe UI", 11, "bold"),
+                     text_color=COLORS["success"]).pack(side="right", padx=(0, 6))
+        ctk.CTkLabel(tax_foot, text="Total:", font=("Segoe UI", 10, "bold")).pack(side="right")
+
+        # ── Narration + Summary ───────────────────────────────────────────
+        self._bot = ctk.CTkFrame(outer, fg_color="transparent")
+        self._bot.pack(fill="x", padx=14, pady=(6, 14))
+        nf = ctk.CTkFrame(self._bot, fg_color=COLORS["bg_card"], corner_radius=10)
+        nf.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        ctk.CTkLabel(nf, text="Narration", font=("Segoe UI", 11, "bold"),
+                     text_color=COLORS["text_secondary"]).pack(anchor="w", padx=14, pady=(8, 2))
+        self._narration_box = ctk.CTkTextbox(nf, height=92, font=("Segoe UI", 11))
+        self._narration_box.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+
+        sf = ctk.CTkFrame(self._bot, fg_color=COLORS["bg_card"], corner_radius=10, width=285)
+        sf.pack(side="right", fill="y", padx=(6, 0))
+        sf.pack_propagate(False)
+        ctk.CTkLabel(sf, text="Summary", font=("Segoe UI", 11, "bold"),
+                     text_color=COLORS["text_secondary"]).pack(anchor="w", padx=16, pady=(10, 4))
+        ctk.CTkFrame(sf, fg_color=COLORS["border"], height=1).pack(fill="x", padx=12, pady=(0, 4))
+        for _lbl, _var, _big in [
+            ("Sub Total:", self._sub_total_var, False),
+            ("Tax Amount:", self._tax_amt_var, False),
+            ("Total Amount:", self._total_amt_var, True),
+        ]:
+            _sr = ctk.CTkFrame(sf, fg_color="transparent")
+            _sr.pack(fill="x", padx=16, pady=(2, 5 if _big else 1))
+            ctk.CTkLabel(_sr, text=_lbl, anchor="w",
+                         font=("Segoe UI", 12 if _big else 10,
+                               "bold" if _big else "normal")).pack(side="left")
+            ctk.CTkLabel(_sr, textvariable=_var, anchor="e",
+                         font=("Segoe UI", 12, "bold"),
+                         text_color=COLORS["success"]).pack(side="right")
+            if _big:
+                ctk.CTkFrame(sf, fg_color=COLORS["border"], height=1).pack(
+                    fill="x", padx=12, pady=(0, 4))
+
+    # ── Helper builders ───────────────────────────────────────────────────
+
+    def _grid_field(self, parent, col, label, var, width):
+        f = ctk.CTkFrame(parent, fg_color="transparent")
+        f.grid(row=0, column=col, sticky="ew", padx=(0, 14))
+        ctk.CTkLabel(f, text=label, font=("Segoe UI", 10),
+                     text_color=COLORS["text_secondary"]).pack(anchor="w")
+        ctk.CTkEntry(f, textvariable=var, width=width, font=("Segoe UI", 11)).pack(anchor="w")
+
+    def _section_card(self, parent, title: str):
+        f = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=10)
+        f.pack(fill="x", padx=14, pady=6)
+        ctk.CTkLabel(f, text=title, font=("Segoe UI", 12, "bold"),
+                     text_color=COLORS["tally_gold"]).pack(anchor="w", padx=14, pady=(8, 4))
+        return f
+
+    def _make_table_hdr(self, parent, cols):
+        hdr = ctk.CTkFrame(parent, fg_color=COLORS["table_header"], corner_radius=6, height=30)
+        hdr.pack(fill="x", padx=14, pady=(0, 0))
+        hdr.pack_propagate(False)
+        for txt, w in cols:
+            ctk.CTkLabel(hdr, text=txt, width=w, font=("Segoe UI", 9, "bold"),
+                         text_color=COLORS["tally_gold"], anchor="w").pack(side="left", padx=(4, 2))
+
+    # ── Autocomplete entry (Toplevel popup below field) ────────────────────
+
+    def _party_suggestions(self) -> list:
+        return sorted(set(self._ledger_names) | set(self._party_gstin_map.keys()))
+
+    def _build_autocomplete_entry(self, parent, var, width=250,
+                                   get_items_fn=None, font=("Segoe UI", 10)):
+        """Entry with a Toplevel dropdown that appears below it. Single click to select."""
+        if get_items_fn is None:
+            get_items_fn = lambda: self._ledger_names
+
+        is_dark = ctk.get_appearance_mode().lower() == "dark"
+        bg_clr  = "#1E293B" if is_dark else "#FFFFFF"
+        fg_clr  = "#F1F5F9" if is_dark else "#0F172A"
+        sel_bg  = "#2563EB"
+        bd_clr  = "#334155" if is_dark else "#CBD5E1"
+
+        entry = ctk.CTkEntry(parent, textvariable=var, width=width, font=font)
+        entry.pack(side="left", padx=(0, 2))
+
+        _st = {"popup": None, "lb": None}
+
+        def _destroy():
+            p = _st.get("popup")
+            if p:
+                try:
+                    if p in self._active_ac_popups:
+                        self._active_ac_popups.remove(p)
+                    p.destroy()
+                except Exception:
+                    pass
+            _st["popup"] = None
+            _st["lb"]    = None
+
+        def _get_pos():
+            entry.update_idletasks()
+            ex = entry.winfo_rootx()
+            ey = entry.winfo_rooty() + entry.winfo_height()
+            ew = max(entry.winfo_width(), width)
+            return ex, ey, ew
+
+        def _show(items):
+            _destroy()
+            if not items:
+                return
+            ex, ey, ew = _get_pos()
+            rows = min(len(items), 8)
+            ph   = rows * 24 + 4
+
+            # Keep popup on screen vertically
+            scr_h = self.winfo_screenheight()
+            if ey + ph > scr_h - 10:
+                ey = entry.winfo_rooty() - ph  # show above instead
+
+            popup = tk.Toplevel(self)
+            popup.wm_overrideredirect(True)
+            popup.wm_attributes("-topmost", True)
+            popup.geometry(f"{ew}x{ph}+{ex}+{ey}")
+            popup.config(bg=bd_clr)
+
+            lb = tk.Listbox(
+                popup, font=("Segoe UI", 10), relief="flat", bd=0,
+                highlightthickness=0, selectmode="single",
+                bg=bg_clr, fg=fg_clr,
+                selectbackground=sel_bg, selectforeground="#FFFFFF",
+                activestyle="dotbox",
+            )
+            lb.pack(fill="both", expand=True, padx=1, pady=1)
+            for item in items:
+                lb.insert("end", item)
+
+            def _pick(e=None):
+                lb_ref = _st.get("lb")
+                if lb_ref is None:
+                    return "break"
+                try:
+                    idx = lb_ref.nearest(e.y) if e is not None else (
+                          lb_ref.curselection()[0] if lb_ref.curselection() else -1)
+                    if idx >= 0:
+                        var.set(lb_ref.get(idx))
+                except Exception:
+                    pass
+                _destroy()
+                try:
+                    entry.focus_set()
+                except Exception:
+                    pass
+                return "break"
+
+            def _hover(e):
+                try:
+                    lb.selection_clear(0, "end")
+                    idx = lb.nearest(e.y)
+                    if idx >= 0:
+                        lb.selection_set(idx)
+                        lb.activate(idx)
+                except Exception:
+                    pass
+
+            lb.bind("<Button-1>",    _pick)
+            lb.bind("<Motion>",      _hover)
+            lb.bind("<Return>",      lambda e: _pick())
+
+            def _kv_down(e):
+                p_ref  = _st.get("popup")
+                lb_ref = _st.get("lb")
+                if not p_ref or not lb_ref:
+                    return
+                try:
+                    if p_ref.winfo_exists():
+                        lb_ref.focus_set()
+                        if lb_ref.size():
+                            lb_ref.select_set(0)
+                            lb_ref.activate(0)
+                except Exception:
+                    pass
+
+            def _kv_up(e):
+                lb_ref = _st.get("lb")
+                if not lb_ref:
+                    return
+                try:
+                    sel = lb_ref.curselection()
+                    if sel and sel[0] > 0:
+                        lb_ref.selection_clear(0, "end")
+                        lb_ref.select_set(sel[0] - 1)
+                        lb_ref.activate(sel[0] - 1)
+                    elif sel and sel[0] == 0:
+                        try:
+                            entry.focus_set()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            entry.bind("<Down>", _kv_down, add="+")
+            lb.bind("<Down>", lambda e: (
+                lb.activate(min(lb.size() - 1,
+                    (lb.curselection()[0] + 1) if lb.curselection() else 0))
+                if _st.get("lb") else None))
+            lb.bind("<Up>", _kv_up)
+
+            _st["popup"] = popup
+            _st["lb"]    = lb
+            self._active_ac_popups.append(popup)
+
+        def _refresh(*_):
+            q = var.get().strip().lower()
+            all_items = get_items_fn()
+            items = ([n for n in all_items if q in n.lower()][:50]
+                     if q else all_items[:50])
+            _show(items)
+
+        def _on_key(e):
+            if e.keysym in ("Escape", "Tab"):
+                _destroy()
+                return
+            if e.keysym in ("Return", "Up", "Down"):
+                return
+            # Schedule refresh after tkinter updates the var
+            entry.after(10, _refresh)
+
+        def _on_focus_out(e):
+            # Only destroy if focus is NOT moving to our popup or listbox
+            try:
+                focused = self.focus_get()
+                lb = _st.get("lb")
+                if lb and focused == lb:
+                    return  # Focus went to our listbox — keep popup open
+            except Exception:
+                pass
+            entry.after(300, _destroy)
+
+        entry.bind("<KeyRelease>", _on_key)
+        entry.bind("<FocusIn>",    lambda e: entry.after(50, _refresh))
+        entry.bind("<FocusOut>",   _on_focus_out)
+        return entry
+
+    def _build_ledger_combo(self, parent, var, width=250):
+        """Autocomplete entry for ledger/tax fields (uses self._ledger_names)."""
+        return self._build_autocomplete_entry(parent, var, width=width,
+                                               get_items_fn=lambda: self._ledger_names)
+
+    # ── Mode toggle ────────────────────────────────────────────────────────
+
+    def _on_mode_toggle(self):
+        """Re-pack all sections in correct order based on mode."""
+        self._hdr_card.pack_forget()
+        self._item_section.pack_forget()
+        self._ldg_sec.pack_forget()
+        self._tax_sec.pack_forget()
+        self._bot.pack_forget()
+
+        self._hdr_card.pack(fill="x", padx=14, pady=(12, 6))
+        if self._invoice_mode.get() == "item":
+            self._item_section.pack(fill="x", padx=14, pady=6)
+        self._ldg_sec.pack(fill="x", padx=14, pady=6)
+        self._tax_sec.pack(fill="x", padx=14, pady=6)
+        self._bot.pack(fill="x", padx=14, pady=(6, 14))
+
+    # ── Party → GSTIN auto-fill ────────────────────────────────────────────
+
+    def _on_party_changed(self, *_):
+        name = self._party_var.get().strip()
+        gstin = self._party_gstin_map.get(name, "")
+        if gstin:
+            self._gst_var.set(gstin)
+
+    # ── Item rows ──────────────────────────────────────────────────────────
+
+    def _add_item_row(self):
+        d = {
+            "name":   tk.StringVar(),
+            "ledger": tk.StringVar(),
+            "hsn":    tk.StringVar(),
+            "qty":    tk.StringVar(value="1"),
+            "unit":   tk.StringVar(value="Nos"),
+            "rate":   tk.StringVar(value="0.00"),
+            "disc":   tk.StringVar(value="0"),
+            "amount": tk.StringVar(value="0.00"),
+        }
+        row = ctk.CTkFrame(self._item_table, fg_color="transparent")
+        row.pack(fill="x", pady=1)
+        ctk.CTkLabel(row, text=str(len(self._item_rows) + 1),
+                     width=42, anchor="center", font=("Segoe UI", 10)).pack(side="left", padx=2)
+        # Item name with autocomplete (uses stock items from Tally)
+        self._build_autocomplete_entry(row, d["name"], width=150,
+                                        get_items_fn=lambda: self._stock_item_names or self._ledger_names,
+                                        font=("Segoe UI", 10))
+        # Purchase ledger autocomplete
+        self._build_ledger_combo(row, d["ledger"], width=150)
+        ctk.CTkEntry(row, textvariable=d["hsn"],   width=60,  font=("Segoe UI", 10)).pack(side="left", padx=2)
+        ctk.CTkEntry(row, textvariable=d["qty"],   width=50,  font=("Segoe UI", 10)).pack(side="left", padx=2)
+        # Unit entry — must match unit defined in Tally stock item master (e.g. Nos, Pcs, Kg)
+        ctk.CTkEntry(row, textvariable=d["unit"],  width=58,  font=("Segoe UI", 10)).pack(side="left", padx=2)
+        ctk.CTkEntry(row, textvariable=d["rate"],  width=72,  font=("Segoe UI", 10)).pack(side="left", padx=2)
+        ctk.CTkEntry(row, textvariable=d["disc"],  width=48,  font=("Segoe UI", 10)).pack(side="left", padx=2)
+        ctk.CTkLabel(row, textvariable=d["amount"],
+                     width=75, anchor="e", font=("Segoe UI", 10)).pack(side="left", padx=2)
+        ctk.CTkButton(row, text="✕", width=28, height=26,
+                      fg_color=COLORS["error"], font=("Segoe UI", 10),
+                      command=lambda r=row, rd=d: self._remove_item_row(r, rd)).pack(side="left", padx=2)
+
+        def _recalc(*_):
+            try:
+                amt = round(
+                    float(d["qty"].get() or 0) *
+                    float(d["rate"].get() or 0) *
+                    (1 - float(d["disc"].get() or 0) / 100), 2)
+                d["amount"].set(f"{amt:.2f}")
+                self._recalc_summary()
+            except ValueError:
+                pass
+
+        d["qty"].trace_add("write", _recalc)
+        d["rate"].trace_add("write", _recalc)
+        d["disc"].trace_add("write", _recalc)
+        self._item_rows.append({"frame": row, "data": d})
+
+    def _remove_item_row(self, frame, data):
+        frame.destroy()
+        self._item_rows = [r for r in self._item_rows if r["data"] is not data]
+        self._recalc_summary()
+
+    # ── Ledger rows ────────────────────────────────────────────────────────
+
+    def _add_ledger_row(self):
+        d = {"ledger": tk.StringVar(), "amount": tk.StringVar(value="0.00")}
+        row = ctk.CTkFrame(self._ledger_table, fg_color="transparent")
+        row.pack(fill="x", pady=1)
+        ctk.CTkLabel(row, text=str(len(self._ledger_rows) + 1),
+                     width=42, anchor="center", font=("Segoe UI", 10)).pack(side="left", padx=2)
+        self._build_ledger_combo(row, d["ledger"], width=370)
+        ctk.CTkEntry(row, textvariable=d["amount"],
+                     width=130, font=("Segoe UI", 10)).pack(side="left", padx=2)
+        d["amount"].trace_add("write", lambda *_: self._recalc_summary())
+        ctk.CTkButton(row, text="✕", width=28, height=26,
+                      fg_color=COLORS["error"], font=("Segoe UI", 10),
+                      command=lambda r=row, rd=d: self._remove_ledger_row(r, rd)).pack(side="left", padx=2)
+        self._ledger_rows.append({"frame": row, "data": d})
+
+    def _remove_ledger_row(self, frame, data):
+        frame.destroy()
+        self._ledger_rows = [r for r in self._ledger_rows if r["data"] is not data]
+        self._recalc_summary()
+
+    # ── Tax rows ───────────────────────────────────────────────────────────
+
+    def _add_tax_row(self, name: str = "", amount: str = "0.00"):
+        d = {"ledger": tk.StringVar(value=name), "desc": tk.StringVar(),
+             "amount": tk.StringVar(value=amount)}
+        row = ctk.CTkFrame(self._tax_table, fg_color="transparent")
+        row.pack(fill="x", pady=1)
+        ctk.CTkLabel(row, text=str(len(self._tax_rows) + 1),
+                     width=42, anchor="center", font=("Segoe UI", 10)).pack(side="left", padx=2)
+        self._build_ledger_combo(row, d["ledger"], width=250)
+        ctk.CTkEntry(row, textvariable=d["desc"],   width=215, font=("Segoe UI", 10)).pack(side="left", padx=2)
+        ctk.CTkEntry(row, textvariable=d["amount"], width=130, font=("Segoe UI", 10)).pack(side="left", padx=2)
+        d["amount"].trace_add("write", lambda *_: self._recalc_summary())
+        ctk.CTkButton(row, text="✕", width=28, height=26,
+                      fg_color=COLORS["error"], font=("Segoe UI", 10),
+                      command=lambda r=row, rd=d: self._remove_tax_row(r, rd)).pack(side="left", padx=2)
+        self._tax_rows.append({"frame": row, "data": d})
+
+    def _remove_tax_row(self, frame, data):
+        frame.destroy()
+        self._tax_rows = [r for r in self._tax_rows if r["data"] is not data]
+        self._recalc_summary()
+
+    # ── Summary ────────────────────────────────────────────────────────────
+
+    def _recalc_summary(self):
+        try:
+            sub = sum(float(r["data"]["amount"].get() or 0)
+                      for r in (self._item_rows if self._invoice_mode.get() == "item"
+                                else self._ledger_rows))
+            tax = sum(float(r["data"]["amount"].get() or 0) for r in self._tax_rows)
+            self._sub_total_var.set(f"{sub:.2f}")
+            self._tax_amt_var.set(f"{tax:.2f}")
+            self._total_amt_var.set(f"{round(sub + tax, 2):.2f}")
+            self._ledger_section_total.set(f"₹ {sub:.2f}")
+            self._tax_section_total.set(f"₹ {tax:.2f}")
+        except Exception:
+            pass
+
+    # ── Fetch all Tally names (ledgers + stock items) ─────────────────────
+
+    def _fetch_ledgers_async(self):
+        """Fetch ledgers and stock items from Tally in parallel threads."""
+        import threading as _threading
+
+        _results = {"ledgers": [], "stock_items": [], "_done": 0}
+        _lock = _threading.Lock()
+
+        def _maybe_update():
+            with _lock:
+                _results["_done"] += 1
+                if _results["_done"] < 2:
+                    return  # wait for both threads
+            ledger_names = _results["ledgers"]
+            stock_names  = _results["stock_items"]
+            try:
+                self.after(0, lambda: self._on_all_fetched(ledger_names, stock_names))
+            except Exception:
+                pass
+
+        def _fetch_ledgers():
+            try:
+                result = _fetch_tally_ledgers(
+                    self._tally_url, timeout=20, company_name=self._company_name)
+                _results["ledgers"] = sorted(result.get("ledgers", []))
+            except Exception:
+                _results["ledgers"] = []
+            _maybe_update()
+
+        def _fetch_stock():
+            try:
+                result = _fetch_stock_items_from_tally(
+                    self._tally_url, timeout=20, company_name=self._company_name)
+                _results["stock_items"] = sorted(result.get("items", []))
+            except Exception:
+                _results["stock_items"] = []
+            _maybe_update()
+
+        threading.Thread(target=_fetch_ledgers, daemon=True).start()
+        threading.Thread(target=_fetch_stock,   daemon=True).start()
+
+    def _on_all_fetched(self, ledger_names: list, stock_names: list):
+        self._stock_item_names = stock_names
+        # Ledger dropdowns show ledgers + stock items so user can pick either
+        combined = sorted(set(ledger_names) | set(stock_names),
+                          key=lambda x: x.lower())
+        self._ledger_names = combined
+
+    # ── Save & post ────────────────────────────────────────────────────────
+
+    def _on_save(self):
+        inv_no     = self._inv_no_var.get().strip()
+        date_raw   = self._date_var.get().strip()
+        party_name = self._party_var.get().strip()
+
+        if not inv_no:
+            messagebox.showwarning("Required Field", "Please enter Supplier Invoice No.", parent=self)
+            return
+        if not date_raw:
+            messagebox.showwarning("Required Field", "Please enter Voucher Date.", parent=self)
+            return
+        if not party_name:
+            messagebox.showwarning("Required Field", "Please enter Party Name.", parent=self)
+            return
+
+        tally_date = ""
+        for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y"):
+            try:
+                tally_date = datetime.datetime.strptime(date_raw, fmt).strftime("%Y%m%d")
+                break
+            except ValueError:
+                continue
+        if not tally_date:
+            messagebox.showwarning("Invalid Date",
+                f"Cannot parse date '{date_raw}'.\nUse DD/MM/YYYY format.", parent=self)
+            return
+
+        ledger_entries, tax_entries, item_entries = [], [], []
+
+        if self._invoice_mode.get() == "item":
+            # Collect full item data for proper Tally item invoice XML
+            for r in self._item_rows:
+                item_name   = r["data"]["name"].get().strip()
+                ledger_name = r["data"]["ledger"].get().strip()
+                if not ledger_name:
+                    continue
+                try:
+                    qty  = float(r["data"]["qty"].get()  or 1)
+                    rate = float(r["data"]["rate"].get() or 0)
+                    disc = float(r["data"]["disc"].get() or 0)
+                    amt  = round(qty * rate * (1 - disc / 100), 2)
+                except ValueError:
+                    continue
+                if amt:
+                    item_entries.append({
+                        "name":   item_name or ledger_name,
+                        "ledger": ledger_name,
+                        "hsn":    r["data"]["hsn"].get().strip(),
+                        "qty":    qty,
+                        "unit":   r["data"]["unit"].get().strip() or "Nos",
+                        "rate":   rate,
+                        "amount": amt,
+                    })
+        else:
+            for r in self._ledger_rows:
+                name = r["data"]["ledger"].get().strip()
+                if not name:
+                    continue
+                try:
+                    amt = round(float(r["data"]["amount"].get() or 0), 2)
+                except ValueError:
+                    amt = 0.0
+                if amt:
+                    ledger_entries.append({"ledger": name, "amount": amt})
+
+        for r in self._tax_rows:
+            name = r["data"]["ledger"].get().strip()
+            if not name:
+                continue
+            try:
+                amt = round(float(r["data"]["amount"].get() or 0), 2)
+            except ValueError:
+                amt = 0.0
+            if amt:
+                tax_entries.append({"ledger": name, "amount": amt})
+
+        if not item_entries and not ledger_entries and not tax_entries:
+            messagebox.showwarning("No Entries",
+                "Please add at least one Ledger or Tax Ledger entry.", parent=self)
+            return
+
+        if item_entries:
+            total = round(sum(e["amount"] for e in item_entries) +
+                          sum(e["amount"] for e in tax_entries), 2)
+        else:
+            total = round(sum(e["amount"] for e in ledger_entries + tax_entries), 2)
+
+        narration = self._narration_box.get("1.0", "end").strip()
+        gst_no    = self._gst_var.get().strip().upper()
+
+        xml_content = self._build_voucher_xml(
+            inv_no, tally_date, party_name, gst_no,
+            ledger_entries, tax_entries, total, narration,
+            item_entries=item_entries)
+
+        self._save_btn.configure(state="disabled", text="Posting…")
+        threading.Thread(target=self._post_worker, args=(xml_content,), daemon=True).start()
+
+    def _build_voucher_xml(self, inv_no, tally_date, party_name, gst_no,
+                            ledger_entries, tax_entries, party_amount, narration,
+                            item_entries=None):
+        env      = ET.Element("ENVELOPE")
+        hdr      = ET.SubElement(env, "HEADER")
+        ET.SubElement(hdr, "TALLYREQUEST").text = "Import Data"
+        body     = ET.SubElement(env, "BODY")
+        imp      = ET.SubElement(body, "IMPORTDATA")
+        req_d    = ET.SubElement(imp, "REQUESTDESC")
+        ET.SubElement(req_d, "REPORTNAME").text = "Vouchers"
+        sv       = ET.SubElement(req_d, "STATICVARIABLES")
+        ET.SubElement(sv, "SVEXPORTFORMAT").text = "$$SysName:XML"
+        if self._company_name:
+            ET.SubElement(sv, "SVCURRENTCOMPANY").text = self._company_name
+        req_data = ET.SubElement(imp, "REQUESTDATA")
+
+        tm = ET.SubElement(req_data, "TALLYMESSAGE")
+        tm.set("xmlns:UDF", "TallyUDF")
+        v = ET.SubElement(tm, "VOUCHER")
+        v.set("REMOTEID", ""); v.set("VCHTYPE", "Purchase")
+        v.set("ACTION", "Create"); v.set("OBJVIEW", "Invoice Voucher View")
+
+        is_item_mode = bool(item_entries)
+
+        # Derive party state and company info for GST fields
+        party_state  = _gstin_to_state(gst_no) if gst_no else ""
+        cmp_gstin    = self._company_gstin
+        cmp_state    = (self._company_registration_state
+                        or (_gstin_to_state(cmp_gstin) if cmp_gstin else ""))
+        reg_name     = (self._company_registration_name
+                        or (f"{cmp_state} Registration" if cmp_state else cmp_gstin))
+
+        # ── Voucher header fields (matches normal purchase entry order) ──
+        ET.SubElement(v, "DATE").text                = tally_date
+        ET.SubElement(v, "REFERENCEDATE").text       = tally_date
+        ET.SubElement(v, "GSTREGISTRATIONTYPE").text = "Regular"
+        ET.SubElement(v, "VATDEALERTYPE").text        = "Regular"
+        if party_state:
+            ET.SubElement(v, "STATENAME").text       = party_state
+        ET.SubElement(v, "COUNTRYOFRESIDENCE").text  = "India"
+        if gst_no:
+            ET.SubElement(v, "PARTYGSTIN").text      = gst_no
+        if party_state:
+            ET.SubElement(v, "PLACEOFSUPPLY").text   = party_state
+        ET.SubElement(v, "VOUCHERTYPENAME").text     = "Purchase"
+        ET.SubElement(v, "PARTYNAME").text           = party_name
+        if cmp_gstin:
+            gst_reg = ET.SubElement(v, "GSTREGISTRATION")
+            gst_reg.set("TAXTYPE", "GST")
+            gst_reg.set("TAXREGISTRATION", cmp_gstin)
+            gst_reg.text = reg_name
+            ET.SubElement(v, "CMPGSTIN").text              = cmp_gstin
+            ET.SubElement(v, "CMPGSTREGISTRATIONTYPE").text = "Regular"
+            if cmp_state:
+                ET.SubElement(v, "CMPGSTSTATE").text       = cmp_state
+        ET.SubElement(v, "PARTYLEDGERNAME").text    = party_name
+        ET.SubElement(v, "REFERENCE").text          = inv_no
+        ET.SubElement(v, "PARTYMAILINGNAME").text   = party_name
+        ET.SubElement(v, "BASICBASEPARTYNAME").text = party_name
+        ET.SubElement(v, "PERSISTEDVIEW").text      = "Invoice Voucher View"
+        ET.SubElement(v, "VCHENTRYMODE").text       = "Item Invoice" if is_item_mode else "Accounting Invoice"
+        ET.SubElement(v, "ISINVOICE").text          = "Yes"
+        ET.SubElement(v, "ISGSTOVERRIDDEN").text    = "No"
+        ET.SubElement(v, "GSTTRANSACTIONTYPE").text = "Tax Invoice" if gst_no else "Unregistered"
+        ET.SubElement(v, "ISELIGIBLEFORITC").text   = "Yes"
+        ET.SubElement(v, "EFFECTIVEDATE").text      = tally_date
+        ET.SubElement(v, "NARRATION").text          = narration
+
+        def _le(parent_el, name, deemed, amount, is_party="No", from_item="No"):
+            le = ET.SubElement(parent_el, "LEDGERENTRIES.LIST")
+            ET.SubElement(le, "LEDGERNAME").text                     = name
+            ET.SubElement(le, "GSTCLASS").text                       = "Not Applicable"
+            ET.SubElement(le, "ISDEEMEDPOSITIVE").text               = deemed
+            ET.SubElement(le, "LEDGERFROMITEM").text                 = from_item
+            ET.SubElement(le, "REMOVEZEROENTRIES").text              = "No"
+            ET.SubElement(le, "ISPARTYLEDGER").text                  = is_party
+            ET.SubElement(le, "GSTOVERRIDDEN").text                  = "No"
+            ET.SubElement(le, "ISGSTASSESSABLEVALUEOVERRIDDEN").text = "No"
+            ET.SubElement(le, "AMOUNT").text                         = f"{amount:.2f}"
+            return le
+
+        # Party credit ledger entry (always present)
+        pe = _le(v, party_name, "No", party_amount, is_party="Yes")
+        ba = ET.SubElement(pe, "BILLALLOCATIONS.LIST")
+        ET.SubElement(ba, "NAME").text     = inv_no
+        ET.SubElement(ba, "BILLTYPE").text = "New Ref"
+        ET.SubElement(ba, "AMOUNT").text   = f"{party_amount:.2f}"
+
+        if is_item_mode:
+            # Tax ledger debits as top-level entries
+            for e in tax_entries:
+                _le(v, e["ledger"], "Yes", -e["amount"], from_item="No")
+
+            # Stock item entries with purchase ledger inside ACCOUNTINGALLOCATIONS
+            for itm in item_entries:
+                amt  = itm["amount"]
+                qty  = itm["qty"]
+                rate = itm["rate"]
+                unit = itm.get("unit") or "Nos"
+                # Format qty: strip trailing .0 for whole numbers
+                qty_str = f"{qty:g}"
+                inv_entry = ET.SubElement(v, "ALLINVENTORYENTRIES.LIST")
+                ET.SubElement(inv_entry, "STOCKITEMNAME").text    = itm["name"]
+                ET.SubElement(inv_entry, "ISDEEMEDPOSITIVE").text = "Yes"
+                ET.SubElement(inv_entry, "RATE").text             = f"{rate:.2f}/{unit}"
+                ET.SubElement(inv_entry, "AMOUNT").text           = f"{-amt:.2f}"
+                ET.SubElement(inv_entry, "ACTUALQTY").text        = f"{qty_str} {unit}"
+                ET.SubElement(inv_entry, "BILLEDQTY").text        = f"{qty_str} {unit}"
+                if itm.get("hsn"):
+                    ET.SubElement(inv_entry, "HSNCODE").text      = itm["hsn"]
+                # Batch allocation (required by Tally)
+                ba_inv = ET.SubElement(inv_entry, "BATCHALLOCATIONS.LIST")
+                ET.SubElement(ba_inv, "GODOWNNAME").text   = "Main Location"
+                ET.SubElement(ba_inv, "BATCHNAME").text    = "Primary Batch"
+                ET.SubElement(ba_inv, "AMOUNT").text       = f"{-amt:.2f}"
+                ET.SubElement(ba_inv, "ACTUALQTY").text    = f"{qty_str} {unit}"
+                ET.SubElement(ba_inv, "BILLEDQTY").text    = f"{qty_str} {unit}"
+                # Accounting allocation — purchase ledger debit
+                aa = ET.SubElement(inv_entry, "ACCOUNTINGALLOCATIONS.LIST")
+                ET.SubElement(aa, "LEDGERNAME").text       = itm["ledger"]
+                ET.SubElement(aa, "ISDEEMEDPOSITIVE").text = "Yes"
+                ET.SubElement(aa, "AMOUNT").text           = f"{-amt:.2f}"
+        else:
+            # Accounting mode — direct ledger debit entries
+            for e in ledger_entries:
+                _le(v, e["ledger"], "Yes", -e["amount"])
+            for e in tax_entries:
+                _le(v, e["ledger"], "Yes", -e["amount"])
+
+        return ET.tostring(env, encoding="unicode")
+
+    def _post_worker(self, xml_content: str):
+        try:
+            result = _post_xml_to_tally(self._tally_url, xml_content, timeout=self._tally_timeout)
+        except Exception as exc:
+            result = {"success": False, "error": str(exc)}
+        try:
+            self.after(0, lambda: self._on_post_done(result))
+        except Exception:
+            pass
+
+    def _on_post_done(self, result):
+        self._save_btn.configure(state="normal", text="Save & Close")
+        if result.get("success"):
+            messagebox.showinfo("Success", "Voucher posted to Tally successfully!", parent=self)
+            self.destroy()
+        else:
+            err = str(result.get("error") or "Unknown error")
+            messagebox.showerror("Post Failed",
+                f"Failed to post voucher to Tally:\n\n{err}", parent=self)
+
+
+# ═══════════════════════════════════════════════════════════
 #  MAIN APPLICATION WINDOW
 # ═══════════════════════════════════════════════════════════
 
@@ -4478,16 +5440,15 @@ class GSTR2BTallyApp(ctk.CTk):
         self.right_col = ctk.CTkFrame(main, fg_color="transparent")
         self.right_col.pack(side="left", fill="both", expand=True, padx=(8, 0))
 
-        # ─── LEFT: Mode Selector ───
-        mode_card = ctk.CTkFrame(self.left_col, fg_color=COLORS["bg_card"], corner_radius=12,
-                                  border_width=1, border_color=COLORS["border"])
-        mode_card.pack(fill="x", pady=(0, 8))
-        mode_head = ctk.CTkFrame(mode_card, fg_color="transparent")
-        mode_head.pack(fill="x", padx=16, pady=(14, 8))
-        ctk.CTkLabel(mode_head, text="Workflow Steps", font=("Segoe UI", 13, "bold"),
-                     text_color=COLORS["text_primary"]).pack(side="left")
+        # mode_buttons kept as empty dict so _refresh_mode_selector_text_colors
+        # and _on_mode_change don't crash (iterating an empty dict is harmless)
+        self.mode_buttons = {}
+
+        # ─── View Demo button — compact row at top of left panel ───
+        _demo_row = ctk.CTkFrame(self.left_col, fg_color="transparent")
+        _demo_row.pack(fill="x", pady=(0, 6))
         ctk.CTkButton(
-            mode_head,
+            _demo_row,
             text="▶ View Demo",
             width=132,
             height=28,
@@ -4498,26 +5459,6 @@ class GSTR2BTallyApp(ctk.CTk):
             corner_radius=6,
             command=self._view_workflow_demo,
         ).pack(side="right")
-        mode_grid = ctk.CTkFrame(mode_card, fg_color="transparent")
-        mode_grid.pack(fill="x", padx=16, pady=(0, 14))
-        mode_grid.grid_columnconfigure((0, 1), weight=1)
-        self.mode_buttons = {}
-        mode_labels = ["Step 1: GSTR-2B → XML", "Step 2: Push To Tally", "Create Ledger"]
-        for idx, label in enumerate(mode_labels):
-            btn = ctk.CTkButton(
-                mode_grid,
-                text=label,
-                height=34,
-                font=("Segoe UI", 11, "bold"),
-                corner_radius=8,
-                fg_color=COLORS["bg_input"],
-                hover_color=COLORS["bg_card_hover"],
-                text_color=COLORS["text_primary"],
-                command=lambda value=label: self._on_mode_change(value),
-            )
-            btn.grid(row=idx // 2, column=idx % 2, sticky="ew", padx=3, pady=3)
-            self.mode_buttons[label] = btn
-        self._refresh_mode_selector_text_colors("Step 1: GSTR-2B → XML")
 
         # ─── LEFT: GSTR-2B Upload Card ───
         self.gstr2b_card = ctk.CTkFrame(self.left_col, fg_color=COLORS["bg_card"], corner_radius=12,
@@ -10444,8 +11385,53 @@ class GSTR2BTallyApp(ctk.CTk):
                             "warning",
                         )
                 else:
-                    records_to_generate = list(self.engine.records)
-                    self.log_panel.log("User chose No: proceeding with all records (old behavior).", "warning")
+                    try:
+                        _mv_url     = self._get_tally_push_url()
+                        _mv_timeout = self._get_tally_push_timeout()
+                    except ValueError:
+                        _mv_url     = "http://localhost:9000"
+                        _mv_timeout = 30
+                    _mv_company = self._get_effective_push_company()
+                    # Build party-name → GSTIN map from the loaded records
+                    _pgmap: dict = {}
+                    for _rec in (self.engine.records or []):
+                        _pname = (
+                            _rec.get("trade_name") or _rec.get("party_name") or ""
+                        ).strip()
+                        _gstin = str(_rec.get("gstin") or "").strip().upper()
+                        if _pname and _gstin and _pname not in _pgmap:
+                            _pgmap[_pname] = _gstin
+                    # Build initial_record from the first invalid issue
+                    # Try to find the full record in engine.records first
+                    _initial_rec: dict = {}
+                    if invalid_issues:
+                        _inv_no = str(invalid_issues[0].get("invoice_no", "")).strip()
+                        for _r in (self.engine.records or []):
+                            if str(_r.get("invoice_no", "") or _r.get("supplier_invoice_no", "")).strip() == _inv_no:
+                                _initial_rec = _r
+                                break
+                        # Fall back to building a partial dict from the invalid_issues entry
+                        if not _initial_rec:
+                            _initial_rec = {
+                                "invoice_no":    invalid_issues[0].get("invoice_no", ""),
+                                "trade_name":    invalid_issues[0].get("party_name", ""),
+                                "taxable_value": invalid_issues[0].get("taxable_value", 0),
+                                "igst":          invalid_issues[0].get("igst", 0),
+                                "cgst":          invalid_issues[0].get("cgst", 0),
+                                "sgst":          invalid_issues[0].get("sgst", 0),
+                            }
+                    _ManualVoucherDialog(
+                        self,
+                        tally_url=_mv_url,
+                        tally_timeout=_mv_timeout,
+                        company_name=_mv_company,
+                        party_gstin_map=_pgmap,
+                        initial_record=_initial_rec,
+                        company_gstin=str(self.engine.company_gstin or "").strip().upper(),
+                        company_registration_name=str(getattr(self, "company_registration_name", "") or "").strip(),
+                        company_registration_state=str(getattr(self, "company_registration_state", "") or "").strip(),
+                    )
+                    return
 
             if not self.engine.party_ledger_map:
                 # Check whether all records have purchase_ledger embedded
