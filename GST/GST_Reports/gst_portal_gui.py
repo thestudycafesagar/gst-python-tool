@@ -114,9 +114,9 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
         self._logged_in   = False
         self._otp_pending = False
         self._yearly_stop = False
-        # Default to the current user's Documents folder
+        # Default to the unified AutomationCafe Downloads folder
         _default_out = os.path.join(
-            os.path.expanduser("~"), "Documents"
+            os.path.expanduser("~"), "Documents", "AutomationCafe Downloads", "GST", "GST Reports"
         )
         os.makedirs(_default_out, exist_ok=True)
         self._output_dir  = _default_out
@@ -1001,7 +1001,7 @@ class GstPortalApp(ctk.CTk if CTK_AVAILABLE else tk.Tk):
     def _open_output_folder(self, form: str, year_var):
         year_str = year_var.get().split("-")[0].strip()
         if not year_str.isdigit(): return
-        d = self._json_dir(form, int(year_str))
+        d = self._excel_dir(form, int(year_str))
         if os.path.exists(d):
             os.startfile(d)
         else:
