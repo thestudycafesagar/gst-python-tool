@@ -3199,8 +3199,8 @@ class TallyBankApp(ctk.CTk):
         self.template_btn = ctk.CTkButton(
             template_row,
             text="📋  Download Template",
-            fg_color="#94A3B8",
-            hover_color="#64748B",
+            fg_color=("#94A3B8", "#DC2626"),
+            hover_color=("#64748B", "#FCA5A5"),
             text_color="#FFFFFF",
             width=170,
             command=self._save_template,
@@ -3860,7 +3860,7 @@ class TallyBankApp(ctk.CTk):
                          justify="left").pack(anchor="w")
             ctk.CTkLabel(choice_frame, text="How would you like to create it?",
                          font=("Segoe UI", 11),
-                         text_color=("gray50", "gray60")).pack(anchor="w", pady=(4, 6))
+                         text_color=("gray50", "#FFFFFF")).pack(anchor="w", pady=(4, 6))
 
             grp_row = ctk.CTkFrame(choice_frame, fg_color="transparent")
             grp_row.pack(fill="x", pady=(0, 10))
@@ -3882,7 +3882,7 @@ class TallyBankApp(ctk.CTk):
             manual_btn = ctk.CTkButton(
                 choice_frame,
                 text="✏  Create Manually",
-                fg_color=("gray70", "gray30"), hover_color=("gray60", "gray40"),
+                fg_color=("gray70", "#DC2626"), hover_color=("gray60", "#FCA5A5"),
                 text_color="#FFFFFF", height=44, font=("Segoe UI", 12),
             )
             manual_btn.pack(fill="x")
@@ -3953,7 +3953,7 @@ class TallyBankApp(ctk.CTk):
             create_form_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
             back_btn = ctk.CTkButton(
                 form_btns, text="← Back",
-                fg_color=("gray70", "gray30"), hover_color=("gray60", "gray40"),
+                fg_color=("gray70", "#DC2626"), hover_color=("gray60", "#FCA5A5"),
                 text_color="#FFFFFF", height=36, font=("Segoe UI", 11), width=80,
             )
             back_btn.pack(side="left")

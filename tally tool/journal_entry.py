@@ -1255,8 +1255,8 @@ class TallyJournalApp(ctk.CTk):
         self.template_btn = ctk.CTkButton(
             template_row,
             text="Download Template",
-            fg_color="#94A3B8",
-            hover_color="#64748B",
+            fg_color=("#94A3B8", "#DC2626"),
+            hover_color=("#64748B", "#FCA5A5"),
             text_color="#FFFFFF",
             width=170,
             command=self._download_template,

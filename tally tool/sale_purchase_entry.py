@@ -5672,7 +5672,7 @@ class _GSTFetchDialog(ctk.CTkToplevel):
                       command=self._on_fetch).pack(side="left")
 
         ctk.CTkLabel(self, textvariable=self._status_var, anchor="w",
-                      text_color=("gray40", "gray70"), font=("Segoe UI", 11)).pack(
+                  text_color=("gray40", "#FFFFFF"), font=("Segoe UI", 11)).pack(
             fill="x", padx=14, pady=(0, 8))
 
         # Fetched data preview (editable)
@@ -5699,7 +5699,7 @@ class _GSTFetchDialog(ctk.CTkToplevel):
                                            fg_color=("#059669", "#10B981"),
                                            command=self._on_confirm, state="disabled")
         self._confirm_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray60", "gray30"),
+        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray60", "#DC2626"),
                        command=self._on_cancel, width=90).pack(side="left")
 
     def _on_load_captcha(self):
@@ -5848,15 +5848,15 @@ class _MissingLedgerDialog(ctk.CTkToplevel):
                       text=f"The ledger  \"{ledger_name}\"  was not found in Tally.",
                       font=("Segoe UI", 12), wraplength=440, justify="left").pack(anchor="w")
         ctk.CTkLabel(body,
-                      text="How would you like to create it?",
-                      font=("Segoe UI", 11), text_color=("gray50", "gray60")).pack(
+                  text="How would you like to create it?",
+                  font=("Segoe UI", 11), text_color=("gray50", "#FFFFFF")).pack(
             anchor="w", pady=(4, 0))
 
         if gstin_hint:
             ctk.CTkLabel(body,
                           text=f"GSTIN: {gstin_hint}",
                           font=("Segoe UI", 10, "italic"),
-                          text_color=("gray50", "gray60")).pack(anchor="w")
+                          text_color=("gray50", "#FFFFFF")).pack(anchor="w")
 
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=(0, 14))
@@ -5878,8 +5878,8 @@ class _MissingLedgerDialog(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_frame,
             text="✏  Create Manually",
-            fg_color=("gray70", "gray30"),
-            hover_color=("gray60", "gray40"),
+            fg_color=("gray70", "#DC2626"),
+            hover_color=("gray60", "#FCA5A5"),
             height=40,
             font=("Segoe UI", 12),
             command=self._choose_manual,
@@ -6064,8 +6064,8 @@ class _MissingLedgerDialog(ctk.CTkToplevel):
         ctk.CTkButton(btn_row, text="Create", fg_color=COLORS["success"],
                        hover_color="#047857", command=_confirm).pack(
             side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray70", "gray30"),
-                       hover_color=("gray60", "gray40"), command=_cancel, width=90).pack(side="left")
+        ctk.CTkButton(btn_row, text="Cancel", fg_color=("gray70", "#DC2626"),
+                   hover_color=("gray60", "#FCA5A5"), command=_cancel, width=90).pack(side="left")
 
         name_entry.bind("<Return>", lambda _e: _confirm())
         pop.wait_window()
@@ -8854,7 +8854,7 @@ class TallySalesApp(ctk.CTk):
                          justify="left").pack(anchor="w")
             ctk.CTkLabel(choice_frame, text="How would you like to create it?",
                          font=("Segoe UI", 11),
-                         text_color=("gray50", "gray60")).pack(anchor="w", pady=(4, 6))
+                         text_color=("gray50", "#FFFFFF")).pack(anchor="w", pady=(4, 6))
 
             grp_row = ctk.CTkFrame(choice_frame, fg_color="transparent")
             grp_row.pack(fill="x", pady=(0, 10))
@@ -8879,7 +8879,7 @@ class TallySalesApp(ctk.CTk):
             manual_btn = ctk.CTkButton(
                 choice_frame,
                 text="✏  Create Manually",
-                fg_color=("gray70", "gray30"), hover_color=("gray60", "gray40"),
+                fg_color=("gray70", "#DC2626"), hover_color=("gray60", "#FCA5A5"),
                 text_color="#FFFFFF", height=44, font=("Segoe UI", 12),
             )
             manual_btn.pack(fill="x")
@@ -8953,7 +8953,7 @@ class TallySalesApp(ctk.CTk):
             create_form_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
             back_btn = ctk.CTkButton(
                 form_btns, text="← Back",
-                fg_color=("gray70", "gray30"), hover_color=("gray60", "gray40"),
+                fg_color=("gray70", "#DC2626"), hover_color=("gray60", "#FCA5A5"),
                 text_color="#FFFFFF", height=36, font=("Segoe UI", 11), width=80,
             )
             back_btn.pack(side="left")
@@ -9839,8 +9839,8 @@ class TallySalesApp(ctk.CTk):
                                         fg_color=ACCENT, hover_color=ACCENT_HOVER,
                                         command=add_manual_ledger)
         add_ledger_btn.pack(fill="x", padx=12, pady=(10, 4))
-        ctk.CTkButton(form, text="✏️  Edit Selected", fg_color="#94A3B8", hover_color="#64748B",
-                       text_color="#FFFFFF", command=edit_selected_ledger).pack(fill="x", padx=12, pady=(0, 12))
+        ctk.CTkButton(form, text="✏️  Edit Selected", fg_color=("#94A3B8", "#DC2626"), hover_color=("#64748B", "#FCA5A5"),
+                   text_color="#FFFFFF", command=edit_selected_ledger).pack(fill="x", padx=12, pady=(0, 12))
 
         # ════════════════════════════════════════════════════════════════
         #  FETCH FROM GST TAB
@@ -9914,8 +9914,8 @@ class TallySalesApp(ctk.CTk):
         g["fetch_btn"].pack(side="left")
 
         g["status"] = ctk.CTkLabel(gst_frame, text="Enter GSTIN and click Load Captcha.",
-                                    anchor="w", font=("Segoe UI", 10),
-                                    text_color=("gray45","gray65"), wraplength=340)
+                        anchor="w", font=("Segoe UI", 10),
+                        text_color=("gray45", "#FFFFFF"), wraplength=340)
         g["status"].pack(fill="x", padx=12, pady=(0,6))
 
         # Separator
@@ -10144,13 +10144,13 @@ class TallySalesApp(ctk.CTk):
         btn2_row.grid_columnconfigure(0, weight=1)
         btn2_row.grid_columnconfigure(1, weight=1)
         ctk.CTkButton(btn2_row, text="✏️  Edit Selected",
-                       fg_color=("#94A3B8","#475569"), hover_color=("#64748B","#334155"),
-                       text_color="#FFFFFF", command=_gst_edit_selected
-                       ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+                   fg_color=("#94A3B8", "#DC2626"), hover_color=("#64748B", "#FCA5A5"),
+                   text_color="#FFFFFF", command=_gst_edit_selected
+                   ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
         ctk.CTkButton(btn2_row, text="🔄  Clear Fields",
-                       fg_color=("gray65","gray35"), hover_color=("gray55","gray45"),
-                       command=_gst_reset_form_state
-                       ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+                   fg_color=("gray65", "#DC2626"), hover_color=("gray55", "#FCA5A5"),
+                   command=_gst_reset_form_state
+                   ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
         # ── RIGHT: Queue action buttons ───────────────────────────────────
         btn_row = ctk.CTkFrame(right, fg_color="transparent")
@@ -10259,8 +10259,8 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkButton(
             btn_row,
             text="📂 Load Excel",
-            fg_color="#94A3B8",
-            hover_color="#64748B",
+            fg_color=("#94A3B8", "#DC2626"),
+            hover_color=("#64748B", "#FCA5A5"),
             text_color="#FFFFFF",
             command=load_ledgers_excel,
         ).grid(row=1, column=1, sticky="ew", padx=(6,0))
@@ -10435,8 +10435,8 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkButton(
             form,
             text="✏️  Edit Selected",
-            fg_color="#94A3B8",
-            hover_color="#64748B",
+            fg_color=("#94A3B8", "#DC2626"),
+            hover_color=("#64748B", "#FCA5A5"),
             text_color="#FFFFFF",
             command=edit_selected_item,
         ).pack(fill="x", padx=12, pady=(0,12))
@@ -10644,8 +10644,8 @@ class TallySalesApp(ctk.CTk):
         ctk.CTkButton(
             btn_row,
             text="📂 Load Excel",
-            fg_color="#94A3B8",
-            hover_color="#64748B",
+            fg_color=("#94A3B8", "#DC2626"),
+            hover_color=("#64748B", "#FCA5A5"),
             text_color="#FFFFFF",
             command=load_stock_excel,
         ).grid(row=1, column=1, sticky="ew", padx=(6,0))

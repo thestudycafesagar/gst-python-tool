@@ -4288,8 +4288,8 @@ class _GSTFetchDialog(ctk.CTkToplevel):
                       command=self._on_fetch).pack(side="left")
 
         ctk.CTkLabel(self, textvariable=self._status_var, anchor="w",
-                      text_color=("gray40", "gray70"),
-                      font=("Segoe UI", 11)).pack(fill="x", padx=14, pady=(0, 8))
+                  text_color=("gray40", "#FFFFFF"),
+                  font=("Segoe UI", 11)).pack(fill="x", padx=14, pady=(0, 8))
 
         ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(fill="x", padx=14, pady=(0, 8))
         ctk.CTkLabel(self, text="Fetched Details (editable):",
@@ -4315,8 +4315,8 @@ class _GSTFetchDialog(ctk.CTkToplevel):
             command=self._on_confirm, state="disabled")
         self._confirm_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ctk.CTkButton(btn_row, text="Cancel",
-                       fg_color=("gray60", "gray30"),
-                       command=self._on_cancel, width=90).pack(side="left")
+                   fg_color=("gray60", "#DC2626"),
+                   command=self._on_cancel, width=90).pack(side="left")
 
     def _on_load_captcha(self):
         gstin = self._gstin_var.get().strip().upper()
@@ -4581,8 +4581,8 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         btn_bar.pack(fill="x", side="bottom")
         btn_bar.pack_propagate(False)
         ctk.CTkButton(btn_bar, text="Cancel", width=110, height=36,
-                      fg_color=("gray60", "gray30"),
-                      command=self.destroy).pack(side="right", padx=(6, 16), pady=12)
+                  fg_color=("gray60", "#DC2626"),
+                  command=self.destroy).pack(side="right", padx=(6, 16), pady=12)
         self._save_btn = ctk.CTkButton(
             btn_bar, text="Save & Close", width=160, height=36,
             fg_color=COLORS["success"], command=self._on_save)
@@ -8280,8 +8280,8 @@ class GSTR2BTallyApp(ctk.CTk):
             ctk.CTkButton(
                 bf,
                 text="Create Manually",
-                fg_color=("gray70", "gray30"),
-                hover_color=("gray60", "gray40"),
+                fg_color=("gray70", "#DC2626"),
+                hover_color=("gray60", "#FCA5A5"),
                 height=44,
                 font=("Segoe UI", 12),
                 command=_choose_manual,
