@@ -533,14 +533,14 @@ class Gstr1Downloader:
                     self._log("ZIP not available for this period â€” using API mode.")
                     return []
 
-                # Poll for ZIP readiness â€” max 8 attempts, 5s apart (~40s total)
+                # Poll for ZIP readiness â€” max 3 attempts, 5s apart (~15s total)
                 found_zip = False
-                for attempt in range(1, 9):
+                for attempt in range(1, 4):
                     stop = getattr(self, "_yearly_stop", False)
                     if stop:
                         self._log("Stop requested during ZIP wait.")
                         return []
-                    self._log(f"Waiting for ZIP generation (attempt {attempt}/8)...")
+                    self._log(f"Waiting for ZIP generation (attempt {attempt}/3)...")
                     time.sleep(5)
                     check_resp = self._get_json(check_url, referer=nav_url)
                     if check_resp and '"status":1' in check_resp and rtn in check_resp:
@@ -549,7 +549,7 @@ class Gstr1Downloader:
                         break
 
                 if not found_zip:
-                    self._log("ZIP not ready after 40s â€” falling back to API mode.")
+                    self._log("ZIP not ready after 15s â€” falling back to API mode.")
                     return []
 
             # Parse number of files

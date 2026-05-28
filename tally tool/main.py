@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════╗
 ║     GSTR-2B + Tally Sheet → Tally Converter v4.1         ║

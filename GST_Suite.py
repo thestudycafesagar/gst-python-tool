@@ -1136,18 +1136,14 @@ class GSTSuite(_RealCTk):
 
     def _show_update_dialog(self, latest: str, url: str, notes: str):
         """Show update prompt on the main thread."""
-        msg = f"A new version is available!\n\nCurrent: v{VERSION}\nLatest:  v{latest}"
-        if notes:
-            msg += f"\n\nWhat's new:\n{notes}"
-        msg += "\n\nUpdate now?"
+        msg = f"New update found (v{latest}).\nInstalling the update..."
 
-        answer = _tk.messagebox.askyesno(
-            title="Update Available",
+        _tk.messagebox.showinfo(
+            title="Update Installing",
             message=msg,
             icon="info",
         )
-        if answer:
-            self._launch_updater(url)
+        self._launch_updater(url)
 
     def _launch_updater(self, download_url: str):
         """Extract bundled updater.exe to temp dir, launch it, then close."""
@@ -1303,7 +1299,7 @@ class GSTSuite(_RealCTk):
             self._theme_btn.set("☀️  Light" if mode == "Light" else "🌙  Dark")
 
     # Tool keys that are always accessible regardless of plan
-    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom", "GST_Reports", "GST_Reco_Cards"}
+    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom"}
 
     def _is_tool_allowed(self, tool_key: str) -> bool:
         if self._allowed is None:
@@ -1328,10 +1324,6 @@ class GSTSuite(_RealCTk):
         # Backward-compatible aliases from older auth payloads.
         aliases = {
             "Tally_Automation": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
-            "Tally_Bank": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
-            "Tally_Sales": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
-            # "Tally_Credit_Debit_Note": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
-            "Tally_Journal": {"TALLY", "TALLY_TOOLS", "TALLY_AUTOMATION", "TALLY TOOL", "TALLY TOOLS"},
             "Email_Suite": {
                 "EMAIL", "EMAIL_TOOLS", "OUTLOOK", "OUTLOOK TOOLS", "OUTLOOK EMAIL TOOLS",
                 "EMAIL_GST_REQUEST", "EMAIL_INVOICE", "EMAIL_PAYMENT",
@@ -1994,6 +1986,8 @@ class GSTSuite(_RealCTk):
                 if table_name == "gst_profiles":
                     try: conn.execute(f"ALTER TABLE {table_name} ADD COLUMN filing_frequency TEXT")
                     except: pass
+                    try: conn.execute(f"ALTER TABLE {table_name} ADD COLUMN gstin TEXT")
+                    except: pass
                 conn.commit()
                 return conn
 
@@ -2021,8 +2015,8 @@ class GSTSuite(_RealCTk):
 
             # ══════════════════ PROFILE ID TAB ══════════════════
             gst_tab = cv_tabs.tab(f"  {cat_label} ID  ")
-            gst_tab.grid_columnconfigure(0, weight=3)
-            gst_tab.grid_columnconfigure(1, weight=2)
+            gst_tab.grid_columnconfigure(0, weight=1)
+            gst_tab.grid_columnconfigure(1, weight=1)
             gst_tab.grid_rowconfigure(0, weight=1)
 
             cv_left = ctk.CTkFrame(gst_tab, fg_color=_C["surface"], corner_radius=12,
@@ -2061,25 +2055,33 @@ class GSTSuite(_RealCTk):
                     cname = rdata.get("client_name") or ""
                     pwd = rdata.get("password", "")
                     dob = rdata.get("dob", "")
+                    gstin_val = rdata.get("gstin", "")
                     row_f = ctk.CTkFrame(list_box, fg_color=("#ffffff", "#273549"),
                                           corner_radius=8, border_width=1,
                                           border_color=("#e2e8f0", "#334155"))
                     row_f.pack(fill="x", padx=6, pady=4)
                     row_f.grid_columnconfigure(0, weight=1)
                     freq = rdata.get("filing_frequency") or "Monthly"
-                    disp_text = f"  {cname} ({uname})" if cname else f"  {uname}"
+                    
                     if not is_it:
-                        disp_text += f" [{freq}]"
+                        disp_name = cname if cname else "Unnamed Client"
+                        disp_gstin = gstin_val if gstin_val else uname
+                        disp_text = f"  {disp_name} ({disp_gstin}) [{freq}]"
+                    else:
+                        disp_text = f"  {cname} ({uname})" if cname else f"  {uname}"
+                        
                     ctk.CTkLabel(row_f, text=disp_text,
                                  font=("Segoe UI", 13, "bold"),
                                  anchor="w").grid(row=0, column=0, sticky="w", padx=12, pady=10)
 
-                    def _edit(u=uname, p=pwd, c=cname, d=dob, f=freq):
+                    def _edit(u=uname, p=pwd, c=cname, d=dob, f=freq, g=gstin_val):
                         ent_u.delete(0, "end"); ent_u.insert(0, u)
                         ent_p.delete(0, "end"); ent_p.insert(0, p)
                         ent_client.delete(0, "end"); ent_client.insert(0, c)
                         if ent_dob: ent_dob.delete(0, "end"); ent_dob.insert(0, d)
-                        if not is_it and cb_freq: cb_freq.set(f)
+                        if ent_gstin: ent_gstin.delete(0, "end"); ent_gstin.insert(0, g)
+                        if cb_freq: cb_freq.set(f)
+
                     ctk.CTkButton(row_f, text="Edit", width=60, height=30, fg_color="#2563EB", hover_color="#1D4ED8",
                                   font=("Segoe UI", 11, "bold"), command=_edit).grid(row=0, column=2, padx=(0, 5))
                     def _del(r=rid, u=uname):
@@ -2100,13 +2102,13 @@ class GSTSuite(_RealCTk):
             cv_right.grid_columnconfigure(0, weight=1)
             ctk.CTkFrame(cv_right, height=4, fg_color=cat_acc, corner_radius=0).pack(fill="x")
             rf = ctk.CTkFrame(cv_right, fg_color="transparent")
-            rf.pack(fill="both", expand=True, padx=20, pady=(6, 16))
+            rf.pack(fill="both", expand=True, padx=20, pady=(6, 12))
             ctk.CTkLabel(rf, text="Add New Profile",
                          font=("Segoe UI", 14, "bold"),
-                         text_color=cat_acc).pack(anchor="w", pady=(0, 10))
+                         text_color=cat_acc).pack(anchor="w", pady=(0, 6))
             
             row1 = ctk.CTkFrame(rf, fg_color="transparent")
-            row1.pack(fill="x", pady=(0, 10))
+            row1.pack(fill="x", pady=(0, 6))
             row1.grid_columnconfigure((0, 1), weight=1)
             
             f_client = ctk.CTkFrame(row1, fg_color="transparent")
@@ -2117,23 +2119,32 @@ class GSTSuite(_RealCTk):
 
             ent_dob = None
             cb_freq = None
-            f_dob = ctk.CTkFrame(row1, fg_color="transparent")
-            f_dob.grid(row=0, column=1, sticky="ew", padx=(5, 0))
+            ent_gstin = None
+            f_row1_col2 = ctk.CTkFrame(row1, fg_color="transparent")
+            f_row1_col2.grid(row=0, column=1, sticky="ew", padx=(5, 0))
             if is_it:
-                ctk.CTkLabel(f_dob, text="Date of Birth", font=("Segoe UI", 12)).pack(anchor="w")
-                ent_dob = ctk.CTkEntry(f_dob, placeholder_text="DD/MM/YYYY", height=36)
+                ctk.CTkLabel(f_row1_col2, text="Date of Birth", font=("Segoe UI", 12)).pack(anchor="w")
+                ent_dob = ctk.CTkEntry(f_row1_col2, placeholder_text="DD/MM/YYYY", height=36)
                 ent_dob.pack(fill="x", pady=(2, 0))
             else:
-                ctk.CTkLabel(f_dob, text="Filing Frequency", font=("Segoe UI", 12)).pack(anchor="w")
-                cb_freq = ctk.CTkComboBox(f_dob, values=["Monthly", "Quarterly"], height=36)
+                ctk.CTkLabel(f_row1_col2, text="Filing Frequency", font=("Segoe UI", 12)).pack(anchor="w")
+                cb_freq = ctk.CTkComboBox(f_row1_col2, values=["Monthly", "Quarterly"], height=36, state="readonly")
                 cb_freq.pack(fill="x", pady=(2, 0))
                 cb_freq.set("Monthly")
+                def _on_freq_key(event):
+                    if hasattr(event, "char") and event.char:
+                        c = event.char.lower()
+                        if c == 'm':
+                            cb_freq.set("Monthly")
+                        elif c == 'q':
+                            cb_freq.set("Quarterly")
+                cb_freq.bind("<Key>", _on_freq_key)
 
             row2 = ctk.CTkFrame(rf, fg_color="transparent")
-            row2.pack(fill="x", pady=(0, 10))
+            row2.pack(fill="x", pady=(0, 6))
             row2.grid_columnconfigure((0, 1), weight=1)
 
-            user_field_label = "PAN / User ID" if is_it else "Username / GST ID"
+            user_field_label = "PAN / User ID" if is_it else "GST Username"
             user_placeholder = "Enter PAN/User ID" if is_it else "Enter GST username"
             
             f_u = ctk.CTkFrame(row2, fg_color="transparent")
@@ -2157,6 +2168,16 @@ class GSTSuite(_RealCTk):
 
             if is_it:
                 ctk.CTkLabel(rf, text="* DOB is only required for AIS and TIS tools.", font=("Segoe UI", 10), text_color=("#64748b", "#94a3b8")).pack(anchor="w", pady=(0, 5))
+            else:
+                row3 = ctk.CTkFrame(rf, fg_color="transparent")
+                row3.pack(fill="x", pady=(0, 6))
+                row3.grid_columnconfigure((0, 1), weight=1)
+                
+                f_gstin = ctk.CTkFrame(row3, fg_color="transparent")
+                f_gstin.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+                ctk.CTkLabel(f_gstin, text="GSTIN (Optional)", font=("Segoe UI", 12)).pack(anchor="w")
+                ent_gstin = ctk.CTkEntry(f_gstin, placeholder_text="Enter GSTIN", height=36)
+                ent_gstin.pack(fill="x", pady=(2, 0))
 
             def _ov_save():
                 from tkinter import messagebox as _mb3
@@ -2164,10 +2185,13 @@ class GSTSuite(_RealCTk):
                 u = ent_u.get().strip()
                 p = ent_p.get().strip()
                 d = ent_dob.get().strip() if ent_dob else ""
-                f = cb_freq.get() if not is_it and cb_freq else "Monthly"
-                if not u or not p:
-                    _mb3.showerror("Missing", "Enter both username and password.")
+                f = cb_freq.get() if cb_freq else "Monthly"
+                g = ent_gstin.get().strip().upper() if ent_gstin else ""
+                
+                if not c or not u or not p:
+                    _mb3.showerror("Missing", "Client Name, Username, and Password are mandatory.")
                     return
+                
                 try:
                     conn = _get_ov_db()
                     existing = conn.execute(f"SELECT id FROM {table_name} WHERE username=?", (u,)).fetchone()
@@ -2175,12 +2199,12 @@ class GSTSuite(_RealCTk):
                         if is_it:
                             conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, dob=? WHERE username=?", (p, c, d, u))
                         else:
-                            conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, filing_frequency=? WHERE username=?", (p, c, f, u))
+                            conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, filing_frequency=?, gstin=? WHERE username=?", (p, c, f, g, u))
                     else:
                         if is_it:
                             conn.execute(f"INSERT INTO {table_name} (username, password, client_name, dob) VALUES (?,?,?,?)", (u, p, c, d))
                         else:
-                            conn.execute(f"INSERT INTO {table_name} (username, password, client_name, filing_frequency) VALUES (?,?,?,?)", (u, p, c, f))
+                            conn.execute(f"INSERT INTO {table_name} (username, password, client_name, filing_frequency, gstin) VALUES (?,?,?,?,?)", (u, p, c, f, g))
                     conn.commit()
                     conn.close()
                 except Exception as e:
@@ -2190,15 +2214,16 @@ class GSTSuite(_RealCTk):
                 ent_u.delete(0, "end")
                 ent_p.delete(0, "end")
                 if ent_dob: ent_dob.delete(0, "end")
+                if ent_gstin: ent_gstin.delete(0, "end")
                 if cb_freq: cb_freq.set("Monthly")
                 _ov_refresh()
             ctk.CTkButton(rf, text="✅  Save Profile", command=_ov_save,
                           fg_color="#059669", hover_color="#047857",
-                          height=50, font=("Segoe UI", 16, "bold")).pack(fill="x", pady=(15, 0))
+                          height=40, font=("Segoe UI", 14, "bold")).pack(fill="x", pady=(10, 0))
 
             # -- Import / Export Feature --
             import_frame = ctk.CTkFrame(rf, fg_color="transparent")
-            import_frame.pack(fill="x", pady=(15, 0))
+            import_frame.pack(fill="x", pady=(10, 0))
             import_frame.grid_columnconfigure((0,1), weight=1)
 
             def _dl_sample():
@@ -2210,7 +2235,7 @@ class GSTSuite(_RealCTk):
                 if is_it:
                     df = pd.DataFrame([{"Client Name": "John Doe", "Username (PAN)": "ABCDE1234F", "Password": "Pass123", "Date of Birth (DD/MM/YYYY)": "01/01/1990"}])
                 else:
-                    df = pd.DataFrame([{"Client Name": "Studycafe", "Username (GSTIN)": "07AAAAA0000A1Z5", "Password": "Pass123", "Filing Frequency": "Monthly"}])
+                    df = pd.DataFrame([{"Client Name": "Studycafe", "Filing Frequency": "Monthly", "Username": "", "Password": "Pass123", "GSTIN": "07AAAAA0000A1Z5"}])
                 try:
                     df.to_excel(path, index=False)
                     mb.showinfo("Success", f"Sample downloaded successfully to:\n{path}")
@@ -2230,13 +2255,13 @@ class GSTSuite(_RealCTk):
                     for _, row in df.iterrows():
                         row = row.fillna("")
                         c = str(row.get("Client Name", "")).strip()
-                        u = str(row.iloc[1] if "Username" not in str(df.columns[1]) else row.get(df.columns[1], "")).strip() 
-                        if not u: u = str(row.get("Username (GSTIN)", str(row.get("Username (PAN)", "")))).strip()
-                        p = str(row.get("Password", "")).strip()
-                        
-                        if not u or not p: continue
                         
                         if is_it:
+                            u = str(row.iloc[1] if "Username" not in str(df.columns[1]) else row.get(df.columns[1], "")).strip() 
+                            if not u: u = str(row.get("Username (PAN)", "")).strip()
+                            p = str(row.get("Password", "")).strip()
+                            if not u or not p: continue
+                            
                             d = str(row.get("Date of Birth (DD/MM/YYYY)", "")).strip()
                             existing = conn.execute(f"SELECT id FROM {table_name} WHERE username=?", (u,)).fetchone()
                             if existing:
@@ -2244,13 +2269,22 @@ class GSTSuite(_RealCTk):
                             else:
                                 conn.execute(f"INSERT INTO {table_name} (username, password, client_name, dob) VALUES (?,?,?,?)", (u, p, c, d))
                         else:
+                            g = str(row.get("GSTIN", "")).strip().upper()
+                            u = str(row.get("Username", str(row.get("GST Username", "")))).strip()
+                            p = str(row.get("Password", "")).strip()
                             f = str(row.get("Filing Frequency", "Monthly")).strip()
                             if not f: f = "Monthly"
+                            
+                            if not u:
+                                u = g
+                                
+                            if not g and not u: continue
+                            
                             existing = conn.execute(f"SELECT id FROM {table_name} WHERE username=?", (u,)).fetchone()
                             if existing:
-                                conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, filing_frequency=? WHERE username=?", (p, c, f, u))
+                                conn.execute(f"UPDATE {table_name} SET password=?, client_name=?, filing_frequency=?, gstin=? WHERE username=?", (p, c, f, g, u))
                             else:
-                                conn.execute(f"INSERT INTO {table_name} (username, password, client_name, filing_frequency) VALUES (?,?,?,?)", (u, p, c, f))
+                                conn.execute(f"INSERT INTO {table_name} (username, password, client_name, filing_frequency, gstin) VALUES (?,?,?,?,?)", (u, p, c, f, g))
                         count += 1
                     conn.commit()
                     conn.close()

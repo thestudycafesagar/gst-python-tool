@@ -38,17 +38,20 @@ code = code.replace(header_search, header_replace)
 # 4. Add _open_email_settings
 settings_method = r'''
     def _open_email_settings(self):
-        cred_path = os.path.join(os.path.dirname(__file__), "gmail_credentials.json")
+        import sqlite3
+        db_path = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
         email_val = ""
         pass_val = ""
-        if os.path.exists(cred_path):
-            try:
-                with open(cred_path, "r") as f:
-                    data = json.load(f)
-                    email_val = data.get("email", "")
-                    pass_val = data.get("password", "")
-            except:
-                pass
+        try:
+            os.makedirs(os.path.dirname(db_path), exist_ok=True)
+            conn = sqlite3.connect(db_path)
+            conn.execute("CREATE TABLE IF NOT EXISTS gmail_credentials (id INTEGER PRIMARY KEY, email TEXT, password TEXT)")
+            row = conn.execute("SELECT email, password FROM gmail_credentials ORDER BY id DESC LIMIT 1").fetchone()
+            if row:
+                email_val, pass_val = row
+            conn.close()
+        except Exception:
+            pass
             
         top = tk.Toplevel(self)
         top.title("⚙ Email Configuration")
@@ -73,8 +76,16 @@ settings_method = r'''
         e_pass.insert(0, pass_val)
         
         def save():
-            with open(cred_path, "w") as f:
-                json.dump({"email": e_email.get().strip(), "password": e_pass.get().strip()}, f)
+            try:
+                os.makedirs(os.path.dirname(db_path), exist_ok=True)
+                conn = sqlite3.connect(db_path)
+                conn.execute("CREATE TABLE IF NOT EXISTS gmail_credentials (id INTEGER PRIMARY KEY, email TEXT, password TEXT)")
+                conn.execute("DELETE FROM gmail_credentials")
+                conn.execute("INSERT INTO gmail_credentials (email, password) VALUES (?, ?)", (e_email.get().strip(), e_pass.get().strip()))
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
             top.destroy()
             messagebox.showinfo("Saved", "Settings saved successfully!", parent=self)
             
@@ -106,17 +117,16 @@ send_replace = r'''def send_emails(template, cfg, recipients, attachment_folder,
     from email.mime.text import MIMEText
     from email.mime.application import MIMEApplication
     import os
-    import json
-
-    cred_path = os.path.join(os.path.dirname(__file__), "gmail_credentials.json")
+    import sqlite3
+    db_path = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
     sender_email = ""
     app_password = ""
     try:
-        if os.path.exists(cred_path):
-            with open(cred_path, "r") as f:
-                creds = json.load(f)
-                sender_email = creds.get("email", "")
-                app_password = creds.get("password", "")
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT email, password FROM gmail_credentials ORDER BY id DESC LIMIT 1").fetchone()
+        if row:
+            sender_email, app_password = row
+        conn.close()
     except Exception:
         pass
 
@@ -128,12 +138,15 @@ code = code.replace(send_search, send_replace)
 preview_search = r'''        sender_email = str(self._cfg_vars.get("sender_email", tk.StringVar()).get())
         if not sender_email:
             sender_email = "Your Email"'''
-preview_replace = r'''        cred_path = os.path.join(os.path.dirname(__file__), "gmail_credentials.json")
+preview_replace = r'''        import sqlite3
+        db_path = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "GSTSuite", "suite_profiles.db")
         sender_email = "Your Email"
         try:
-            if os.path.exists(cred_path):
-                with open(cred_path, "r") as f:
-                    sender_email = json.load(f).get("email", "Your Email")
+            conn = sqlite3.connect(db_path)
+            row = conn.execute("SELECT email FROM gmail_credentials ORDER BY id DESC LIMIT 1").fetchone()
+            if row:
+                sender_email = row[0]
+            conn.close()
         except:
             pass'''
 code = code.replace(preview_search, preview_replace)

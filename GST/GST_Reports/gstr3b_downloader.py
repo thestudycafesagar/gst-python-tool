@@ -291,6 +291,7 @@ class Gstr3BDownloader:
         result = Gstr3BResult()
         result.period  = period
         result.year    = year
+        result.rtn_prd = self._build_rtn_prd(period, year)
         # Calculate FY string
         prd_int = int(period)
         fy_year = year - 1 if prd_int <= 3 else year

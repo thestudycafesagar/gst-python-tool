@@ -8,3 +8,18 @@
 22-05-2026 14:58:16  Logging in as: Studycafep
 22-05-2026 14:58:17  Fetching official company name from portal (ustatus API)...
 22-05-2026 14:58:17  SUCCESS: Company Name captured -> STUDYCAFE PRIVATE LIMITED
+22-05-2026 15:44:14  Gstr3BDownloader ready.
+22-05-2026 15:44:14  Captcha fetched (4674 bytes).
+22-05-2026 15:44:21  Logging in as: Studycafep
+22-05-2026 15:44:21  Fetching official company name from portal (ustatus API)...
+22-05-2026 15:44:21  SUCCESS: Company Name captured -> STUDYCAFE PRIVATE LIMITED
+22-05-2026 15:52:09  Gstr3BDownloader ready.
+22-05-2026 15:52:09  Captcha fetched (4894 bytes).
+22-05-2026 15:52:14  Logging in as: Studycafep
+22-05-2026 15:52:14  Fetching official company name from portal (ustatus API)...
+22-05-2026 15:52:14  SUCCESS: Company Name captured -> STUDYCAFE PRIVATE LIMITED
+22-05-2026 15:54:53  Gstr3BDownloader ready.
+22-05-2026 15:54:53  Captcha fetched (4785 bytes).
+22-05-2026 15:54:58  Logging in as: Studycafep
+22-05-2026 15:54:58  Fetching official company name from portal (ustatus API)...
+22-05-2026 15:54:58  SUCCESS: Company Name captured -> STUDYCAFE PRIVATE LIMITED
