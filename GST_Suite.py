@@ -807,7 +807,7 @@ MAIL_GROUP_TOOLS = [
     {"key": "Gmail_Suite", "tab": "✉  Gmail Email Tools",    "module": os.path.join(_GMAIL_BASE, "main.py"), "class": "BulkMailApp", "tk": False, "desc": "Gmail suite with 3 built-in templates: GST Return Request, Invoice Sender, Payment Reminder.", "is_card_only": True, "action_cat": "gmail"},
 ]
 
-TALLY_TOOLS = [ 
+TALLY_TOOLS = [                 
     {"key": "Tally_Automation", "tab": "🧾  GSTR-2B → Tally", "module": os.path.join(_TALLY_BASE, "main.py"), "class": "GSTR2BTallyApp", "desc": "Convert GSTR-2B and Tally sheets into Tally-ready outputs with XML generation, mapping and automation helpers."},
     {"key": "Tally_Bank", "tab": "🏦  Bank Statement → Tally", "module": os.path.join(_TALLY_BASE, "Bank_Statment_to_Tally.py"), "class": "TallyBankApp", "desc": "Convert bank statement Excel to Tally Payment/Receipt vouchers and push XML directly to Tally."},
     {"key": "Tally_Sales", "tab": "🛒  Tally Entry", "module": os.path.join(_TALLY_BASE, "sale_purchase_entry.py"), "class": "TallySalesApp", "desc": "Automate sales and purchase entries in Tally."},
@@ -949,8 +949,20 @@ class GSTSuite(_RealCTk):
             self.iconbitmap(_ico)
 
         self._user_info      = user_info or {}
-        # None = all modules allowed (enterprise / old API); set = restricted plan
-        _raw_allowed = (user_info or {}).get("allowed_modules")
+        _raw_allowed = (user_info or {}).get("allowed_modules") or (user_info or {}).get("CustomAllowedModules")
+        if isinstance(_raw_allowed, str):
+            import json, re
+            try:
+                parsed = json.loads(_raw_allowed)
+                if isinstance(parsed, list):
+                    _raw_allowed = parsed
+                else:
+                    raise ValueError("Not a list")
+            except Exception:
+                # Ultra-robust fallback: if the API sends malformed JSON or a single string, strip and split by comma
+                clean_str = re.sub(r'[\[\]"\'\s]', '', _raw_allowed)
+                _raw_allowed = [x for x in clean_str.split(',') if x]
+        
         self._allowed = set(_raw_allowed) if _raw_allowed is not None else None
         self._allowed_norm = (
             {str(m).strip().upper() for m in self._allowed}
@@ -1477,12 +1489,12 @@ class GSTSuite(_RealCTk):
             return not any(self._is_tool_allowed(t.get("key")) for t in visible_tools)  
         # ── Dynamic 3x3 Grid Layout   ───────────────────────────────────────────
         categories = [
+            (TALLY_TOOLS, "🧾", "Tally Automation Tools", "Convert GSTR-2B/Tally data\nto Tally-ready Excel and XML.", _C["tally_acc"], _C["tally_bg"], _C["tally_hover"], lambda: self._show_category("tally")),
             (GST_TOOLS, "🏛", "GST Tools", "Downloads, converters & verifiers\nfor GST portal automation.", _C["gst_acc"], _C["gst_bg"], _C["gst_hover"], lambda: self._show_category("gst")),
             (IT_TOOLS, "💼", "Income Tax Automation Suite", "26AS, Challan & ITR filing\nautomation tools.", _C["it_acc"], _C["it_bg"], _C["it_hover"], lambda: self._show_category("it")),
             (PDF_TOOLS, "📄", "PDF Tools", "Merge, split, extract, compress\n& redact PDF files.", _C["pdf_acc"], _C["pdf_bg"], _C["pdf_hover"], lambda: self._show_category("pdf")),
             # (BANK_TOOLS, "🏦", "Bank Statement → Excel (Beta)", "Convert bank statement PDFs\nto structured Excel sheets.", _C["bank_acc"], _C["bank_bg"], _C["bank_hover"], lambda: self._show_category("bank")),
             (COMBINED_EMAIL_TOOLS, "📨", "Email Tools", "Bulk personalised emails via Outlook & Gmail.\nGST reminders, invoices & more.", _C["mail_acc"], _C["mail_bg"], _C["mail_hover"], lambda: self._show_category("mail")),
-            (TALLY_TOOLS, "🧾", "Tally Automation Tools", "Convert GSTR-2B/Tally data\nto Tally-ready Excel and XML.", _C["tally_acc"], _C["tally_bg"], _C["tally_hover"], lambda: self._show_category("tally")),
         ]
 
         current_row_frame = None

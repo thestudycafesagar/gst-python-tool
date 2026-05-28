@@ -29,3 +29,4 @@ Thumbs.db
 # Logs
 *.log
 *.suite_debug.log
+*.auth_config.json

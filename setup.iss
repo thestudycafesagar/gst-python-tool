@@ -20,7 +20,16 @@ SolidCompression=yes
 WizardStyle=modern
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+
+[Code]
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = wpSelectTasks then
+  begin
+    WizardForm.TasksList.ItemEnabled[0] := False;
+  end;
+end;
 
 [Files]
 ; The executable we are packing
