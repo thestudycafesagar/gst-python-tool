@@ -3040,7 +3040,7 @@ class TallyBankApp(ctk.CTk):
         self.company_combo.pack(side="left", padx=(10, 8), fill="x", expand=True)
         self.company_refresh_btn = ctk.CTkButton(
             row_2, text="Refresh", width=96, height=34, font=("Segoe UI", 10, "bold"),
-            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            fg_color=("#F1F5F9", "#DC2626"), hover_color=("#E2E8F0", "#B91C1C"),
             text_color=COLORS["text_secondary"], corner_radius=8,
             command=lambda: self._fetch_companies_thread())
         self.company_refresh_btn.pack(side="right")
@@ -4083,8 +4083,8 @@ class TallyBankApp(ctk.CTk):
                          width=260, font=("Segoe UI", 10),
                          text_color=COLORS["text_primary"], anchor="w").pack(side="left", padx=8)
             pick_btn = ctk.CTkButton(row_fr, text="🔍", width=32, height=26,
-                                     fg_color=COLORS["bg_input"],
-                                     hover_color=COLORS["bg_card_hover"],
+                                     fg_color=("#F1F5F9", "#DC2626"),
+                                     hover_color=("#E2E8F0", "#B91C1C"),
                                      text_color=COLORS["accent"],
                                      font=("Segoe UI", 11), corner_radius=4)
             pick_btn.pack(side="right", padx=(0, 6))
@@ -4125,8 +4125,8 @@ class TallyBankApp(ctk.CTk):
                          width=260, font=("Segoe UI", 10),
                          text_color=COLORS["error"], anchor="w").pack(side="left", padx=8)
             pick_btn2 = ctk.CTkButton(row_fr, text="🔍", width=32, height=26,
-                                      fg_color=COLORS["bg_input"],
-                                      hover_color=COLORS["bg_card_hover"],
+                                      fg_color=("#F1F5F9", "#DC2626"),
+                                      hover_color=("#E2E8F0", "#B91C1C"),
                                       text_color=COLORS["accent"],
                                       font=("Segoe UI", 11), corner_radius=4)
             pick_btn2.pack(side="right", padx=(0, 6))
@@ -4228,7 +4228,7 @@ class TallyBankApp(ctk.CTk):
                       command=_do_skip).pack(side="left", fill="x", expand=True, padx=4)
         ctk.CTkButton(btn_frame, text="Cancel",
                       font=("Segoe UI", 11), height=40,
-                      fg_color=COLORS["bg_card_hover"], hover_color=COLORS["border"],
+                      fg_color=("#E2E8F0", "#DC2626"), hover_color=("#CBD5E1", "#B91C1C"),
                       text_color=COLORS["text_primary"], corner_radius=8,
                       command=_do_cancel).pack(side="right", padx=(4, 0))
 
