@@ -509,7 +509,7 @@ class _ScrollableTabview:
             self._btn_right.configure(text_color=_bright if self._overflow else _dim)
 
         self._ribbon_inner.bind("<Configure>", _update_sr)
-
+        self._ribbon_canvas.bind("<Configure>", _update_sr)
         def _mw(ev):
             if self._overflow:
                 self._ribbon_canvas.xview_scroll(-1 if ev.delta > 0 else 1, "units")
@@ -755,7 +755,7 @@ GST_TOOLS = [
     {"key": "GST_Challan",  "tab": "💰  GST Challan",      "module": os.path.join(_GST_BASE, "GST Challan Downloader","main.py"),        "class": "App",                "desc": "Download GST Challan PDFs in bulk (Monthly / Quarterly)."},
     {"key": "GST_Reports",  "tab": "📊  GST Reports",      "module": os.path.join(_GST_BASE, "GST_Reports",           "gst_portal_gui.py"), "class": "GstPortalApp",       "desc": "Download GSTR-1, GSTR-2A, GSTR-2B and GSTR-3B returns directly from the GST portal with login, OTP, Excel export and consolidated yearly downloads."},
     {"key": "GST_Reco",     "tab": "🔄  GST Reco",          "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
-    {"key": "GST_Reco_Cards", "tab": "⚖  GST Reconciliation", "builtin_ui": "reco_landing", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GST portal data against books — Sale vs GSTR-1, Purchase vs GSTR-2A/2B, 2A vs 2B and GSTR-9 reconciliation."},
+    {"key": "GST_Reco_Cards", "tab": "⚖  GST Reconciliation", "hide_tab": True, "builtin_ui": "reco_landing", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GST portal data against books — Sale vs GSTR-1, Purchase vs GSTR-2A/2B, 2A vs 2B and GSTR-9 reconciliation."},
 ]
 
 IT_TOOLS = [
