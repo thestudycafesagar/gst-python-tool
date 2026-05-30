@@ -124,8 +124,8 @@ COLORS = {
     "success_bg":    ("#D1FAE5", "#064E3B"),
     "warning":       ("#D97706", "#F59E0B"),
     "warning_bg":    ("#FEF3C7", "#78350F"),
-    "error":         ("#EA580C", "#EF4444"),
-    "error_bg":      ("#FEE2E2", "#7C2D12"),
+    "error":         ("#DC2626", "#EF4444"),
+    "error_bg":      ("#FEE2E2", "#7F1D1D"),
     "text_primary":  ("#0F172A", "#F1F5F9"),
     "text_secondary":("#475569", "#CBD5E1"),
     "text_muted":    ("#64748B", "#94A3B8"),
@@ -4288,8 +4288,8 @@ class _GSTFetchDialog(ctk.CTkToplevel):
                       command=self._on_fetch).pack(side="left")
 
         ctk.CTkLabel(self, textvariable=self._status_var, anchor="w",
-                  text_color=("gray40", "#FFFFFF"),
-                  font=("Segoe UI", 11)).pack(fill="x", padx=14, pady=(0, 8))
+                      text_color=("gray40", "gray70"),
+                      font=("Segoe UI", 11)).pack(fill="x", padx=14, pady=(0, 8))
 
         ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(fill="x", padx=14, pady=(0, 8))
         ctk.CTkLabel(self, text="Fetched Details (editable):",
@@ -4315,8 +4315,8 @@ class _GSTFetchDialog(ctk.CTkToplevel):
             command=self._on_confirm, state="disabled")
         self._confirm_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ctk.CTkButton(btn_row, text="Cancel",
-                   fg_color=("gray60", "#EA580C"),
-                   command=self._on_cancel, width=90).pack(side="left")
+                       fg_color=("gray60", "gray30"),
+                       command=self._on_cancel, width=90).pack(side="left")
 
     def _on_load_captcha(self):
         gstin = self._gstin_var.get().strip().upper()
@@ -4440,7 +4440,8 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
                  initial_record: dict = None,
                  company_gstin: str = "",
                  company_registration_name: str = "",
-                 company_registration_state: str = ""):
+                 company_registration_state: str = "",
+                 on_closed: callable = None):
         super().__init__(parent)
         self.title("Add Voucher")
         self.transient(parent)
@@ -4466,6 +4467,7 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         self._company_gstin              = str(company_gstin or "").strip().upper()
         self._company_registration_name  = str(company_registration_name or "").strip()
         self._company_registration_state = str(company_registration_state or "").strip()
+        self._on_closed = on_closed  # optional callback fired when dialog closes
         self._ledger_names: list     = []  # all ledgers from Tally
         self._stock_item_names: list = []  # stock items from Tally
         self._invoice_mode    = tk.StringVar(value="accounting")
@@ -4493,7 +4495,7 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         self._prefill_from_record()   # after rows exist
         self._fetch_ledgers_async()
         self._party_var.trace_add("write", self._on_party_changed)
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.protocol("WM_DELETE_WINDOW", self._close_dialog)
         # Close any open autocomplete popups when user scrolls the dialog
         self.bind("<MouseWheel>", lambda e: self._close_all_popups(), add="+")
         self.bind("<Button-4>",   lambda e: self._close_all_popups(), add="+")
@@ -4581,8 +4583,8 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         btn_bar.pack(fill="x", side="bottom")
         btn_bar.pack_propagate(False)
         ctk.CTkButton(btn_bar, text="Cancel", width=110, height=36,
-                  fg_color=("gray60", "#EA580C"),
-                  command=self.destroy).pack(side="right", padx=(6, 16), pady=12)
+                      fg_color=("gray60", "gray30"),
+                      command=self.destroy).pack(side="right", padx=(6, 16), pady=12)
         self._save_btn = ctk.CTkButton(
             btn_bar, text="Save & Close", width=160, height=36,
             fg_color=COLORS["success"], command=self._on_save)
@@ -5357,11 +5359,21 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         except Exception:
             pass
 
+    def _close_dialog(self):
+        """Destroy the dialog and fire the on_closed callback (if any)."""
+        cb = self._on_closed
+        self.destroy()
+        if callable(cb):
+            try:
+                cb()
+            except Exception:
+                pass
+
     def _on_post_done(self, result):
         self._save_btn.configure(state="normal", text="Save & Close")
         if result.get("success"):
             messagebox.showinfo("Success", "Voucher posted to Tally successfully!", parent=self)
-            self.destroy()
+            self._close_dialog()
         else:
             err = str(result.get("error") or "Unknown error")
             messagebox.showerror("Post Failed",
@@ -5453,8 +5465,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=132,
             height=28,
             font=("Segoe UI", 10, "bold"),
-            fg_color="#EA580C",
-            hover_color="#C2410C",
+            fg_color="#DC2626",
+            hover_color="#B91C1C",
             text_color="#FFFFFF",
             corner_radius=6,
             command=self._view_workflow_demo,
@@ -8280,8 +8292,8 @@ class GSTR2BTallyApp(ctk.CTk):
             ctk.CTkButton(
                 bf,
                 text="Create Manually",
-                fg_color=("gray70", "#EA580C"),
-                hover_color=("gray60", "#FCA5A5"),
+                fg_color=("gray70", "gray30"),
+                hover_color=("gray60", "gray40"),
                 height=44,
                 font=("Segoe UI", 12),
                 command=_choose_manual,
@@ -10659,8 +10671,8 @@ class GSTR2BTallyApp(ctk.CTk):
                     invoice_rows[inv].remove(r)
                     r["frame"].destroy()
             ctk.CTkButton(top, text="✕", width=COL_W[5], height=26,
-                          font=("Segoe UI", 10), fg_color=("#EA580C", "#991B1B"),
-                          hover_color="#7C2D12", text_color="#FFFFFF",
+                          font=("Segoe UI", 10), fg_color=("#DC2626", "#991B1B"),
+                          hover_color="#7F1D1D", text_color="#FFFFFF",
                           corner_radius=4, command=_del).pack(side="left", padx=(2, 4))
 
             rows_for_inv.append(rd)
@@ -11319,16 +11331,16 @@ class GSTR2BTallyApp(ctk.CTk):
                 if itc_info and itc_info.get("has_stock", "").strip().upper() in ("YES", "Y"):
                     party_has_stock.add(rec.get("trade_name", "").strip().upper())
                     
-            # Pass 2: Apply the ITC eligibility and Party-wide stock item flag
+            # Pass 2: Apply the ITC eligibility and per-invoice stock item flag
             for rec in records_to_generate:
                 inv_key = rec.get("invoice_no", "").strip().upper()
                 orig_key = rec.get("orig_invoice_no", "").strip().upper()
                 trade_key = rec.get("trade_name", "").strip().upper()
-                
+
                 itc_info = self.engine.itc_map.get(inv_key)
                 if not itc_info and orig_key:
                     itc_info = self.engine.itc_map.get(orig_key)
-                
+
                 if itc_info:
                     itc_val = itc_info.get("itc_claimed", "").strip().upper()
                     # "YES" → eligible (Purchase voucher), "NO" → ineligible (Journal)
@@ -11336,11 +11348,15 @@ class GSTR2BTallyApp(ctk.CTk):
                         rec["itc_avail"] = "Yes"
                     elif itc_val in ("NO", "N"):
                         rec["itc_avail"] = "Ineligible"
-                
-                # If this party has stock items, mark ALL their invoices (B2BA, IMPG, etc.) as stock items.
-                # The stock popup will filter out CDNR/notes automatically.
-                if trade_key in party_has_stock:
-                    rec["has_stock_item"] = True
+                    # has_stock_item is already set correctly from the template parse
+                    # (line: "has_stock_item": has_stock.upper() in ("YES", "Y"))
+                    # Do NOT override with party-level flag — respect the per-invoice choice.
+                else:
+                    # No ITC template row for this record (B2BA amendments, IMPG, etc.)
+                    # Use party-level propagation so they also go through the stock popup
+                    # when any other invoice of the same party has stock items.
+                    if trade_key in party_has_stock:
+                        rec["has_stock_item"] = True
 
         # Apply per-party TDS/ledger from itc_map (overrides engine defaults
         # if the template sets a ledger directly per party row)
@@ -11353,7 +11369,16 @@ class GSTR2BTallyApp(ctk.CTk):
 
         # ─── GSTR-2B: mandatory mapping check ───
         if self.current_mode == "gstr2b":
-            valid_records, invalid_issues = self.engine.validate_tax_configuration(records_to_generate)
+            # If _continue_generate_valid injected pre-validated records, use them directly
+            # and skip the mismatch check entirely.
+            _prevalidated = getattr(self, "_skip_mismatch_records", None)
+            if _prevalidated is not None:
+                records_to_generate = list(_prevalidated)
+                self._skip_mismatch_records = None
+                invalid_issues = []
+                valid_records  = records_to_generate
+            else:
+                valid_records, invalid_issues = self.engine.validate_tax_configuration(records_to_generate)
             if invalid_issues:
                 output_dir = self._resolve_output_dir()
                 report_path = self._save_tax_validation_report(output_dir, invalid_issues)
@@ -11385,6 +11410,8 @@ class GSTR2BTallyApp(ctk.CTk):
                             "warning",
                         )
                 else:
+                    # ── Sequential manual-voucher dialogs for all mismatched issues,
+                    #    then continue with valid records once all dialogs are done ──
                     try:
                         _mv_url     = self._get_tally_push_url()
                         _mv_timeout = self._get_tally_push_timeout()
@@ -11392,7 +11419,8 @@ class GSTR2BTallyApp(ctk.CTk):
                         _mv_url     = "http://localhost:9000"
                         _mv_timeout = 30
                     _mv_company = self._get_effective_push_company()
-                    # Build party-name → GSTIN map from the loaded records
+
+                    # Build party-name → GSTIN map
                     _pgmap: dict = {}
                     for _rec in (self.engine.records or []):
                         _pname = (
@@ -11401,36 +11429,54 @@ class GSTR2BTallyApp(ctk.CTk):
                         _gstin = str(_rec.get("gstin") or "").strip().upper()
                         if _pname and _gstin and _pname not in _pgmap:
                             _pgmap[_pname] = _gstin
-                    # Build initial_record from the first invalid issue
-                    # Try to find the full record in engine.records first
-                    _initial_rec: dict = {}
-                    if invalid_issues:
-                        _inv_no = str(invalid_issues[0].get("invoice_no", "")).strip()
+
+                    _mv_cgstin  = str(self.engine.company_gstin or "").strip().upper()
+                    _mv_regname = str(getattr(self, "company_registration_name", "") or "").strip()
+                    _mv_regst   = str(getattr(self, "company_registration_state", "") or "").strip()
+
+                    # Remaining mismatched issues (pop one at a time)
+                    _remaining_issues = list(invalid_issues)
+
+                    def _build_initial_rec(issue):
+                        """Look up the full engine record for an invalid issue."""
+                        inv_no = str(issue.get("invoice_no", "")).strip()
                         for _r in (self.engine.records or []):
-                            if str(_r.get("invoice_no", "") or _r.get("supplier_invoice_no", "")).strip() == _inv_no:
-                                _initial_rec = _r
-                                break
-                        # Fall back to building a partial dict from the invalid_issues entry
-                        if not _initial_rec:
-                            _initial_rec = {
-                                "invoice_no":    invalid_issues[0].get("invoice_no", ""),
-                                "trade_name":    invalid_issues[0].get("party_name", ""),
-                                "taxable_value": invalid_issues[0].get("taxable_value", 0),
-                                "igst":          invalid_issues[0].get("igst", 0),
-                                "cgst":          invalid_issues[0].get("cgst", 0),
-                                "sgst":          invalid_issues[0].get("sgst", 0),
-                            }
-                    _ManualVoucherDialog(
-                        self,
-                        tally_url=_mv_url,
-                        tally_timeout=_mv_timeout,
-                        company_name=_mv_company,
-                        party_gstin_map=_pgmap,
-                        initial_record=_initial_rec,
-                        company_gstin=str(self.engine.company_gstin or "").strip().upper(),
-                        company_registration_name=str(getattr(self, "company_registration_name", "") or "").strip(),
-                        company_registration_state=str(getattr(self, "company_registration_state", "") or "").strip(),
-                    )
+                            if str(_r.get("invoice_no", "") or _r.get("supplier_invoice_no", "")).strip() == inv_no:
+                                return _r
+                        return {
+                            "invoice_no":    issue.get("invoice_no", ""),
+                            "trade_name":    issue.get("party_name", ""),
+                            "taxable_value": issue.get("taxable_value", 0),
+                            "igst":          issue.get("igst", 0),
+                            "cgst":          issue.get("cgst", 0),
+                            "sgst":          issue.get("sgst", 0),
+                        }
+
+                    def _open_next_mismatch():
+                        if _remaining_issues:
+                            issue = _remaining_issues.pop(0)
+                            _ManualVoucherDialog(
+                                self,
+                                tally_url=_mv_url,
+                                tally_timeout=_mv_timeout,
+                                company_name=_mv_company,
+                                party_gstin_map=_pgmap,
+                                initial_record=_build_initial_rec(issue),
+                                company_gstin=_mv_cgstin,
+                                company_registration_name=_mv_regname,
+                                company_registration_state=_mv_regst,
+                                on_closed=_open_next_mismatch,
+                            )
+                        else:
+                            # All mismatched issues handled — now process valid records
+                            if valid_records:
+                                self.log_panel.log(
+                                    f"Mismatch entries done. Processing {len(valid_records)} valid record(s).",
+                                    "info",
+                                )
+                                self.after(0, lambda: self._continue_generate_valid(valid_records))
+
+                    _open_next_mismatch()
                     return
 
             if not self.engine.party_ledger_map:
@@ -11553,6 +11599,12 @@ class GSTR2BTallyApp(ctk.CTk):
                 return
 
         self._do_generate(excel, xml, records_to_generate=records_to_generate)
+
+    def _continue_generate_valid(self, valid_records):
+        """Continue generation with only the valid records after all mismatch dialogs are done."""
+        self._skip_mismatch_records = valid_records
+        # Determine current excel/xml flags (same defaults as the Generate button)
+        self._generate_output(excel=True, xml=True)
 
     def _do_generate(self, excel=True, xml=True, records_to_generate=None, extra_excel_records=None):
         """Actually perform the generation (called after mapping validation passes)."""

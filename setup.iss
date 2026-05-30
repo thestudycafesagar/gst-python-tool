@@ -1,8 +1,9 @@
 [Setup]
 ; Unique identifier for your app (DO NOT CHANGE THIS ONCE PUBLISHED, it's used for uninstalling)
 AppId={{94A7B1C8-5D8F-4E32-A1B9-7C6D2E1F4A9B}
-AppName=GST & Income Tax Automation Suite
+AppName=AutomationCafe Suite
 AppVersion=1.0
+AppVerName=AutomationCafe Suite
 AppPublisher=AutomationCafe
 DefaultDirName={userappdata}\AutomationCafe
 PrivilegesRequired=lowest
@@ -12,7 +13,7 @@ DisableProgramGroupPage=yes
 ; Where the final Installer.exe will be saved
 OutputDir=dist
 ; The name of the installer file your users will download
-OutputBaseFilename=GST_Suite_Installer
+OutputBaseFilename=AutomationCafe_Suite_Installer
 ; App Icon
 SetupIconFile=studycafelogo.ico
 Compression=lzma
@@ -24,10 +25,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Code]
 procedure CurPageChanged(CurPageID: Integer);
+var
+  i: Integer;
 begin
   if CurPageID = wpSelectTasks then
   begin
-    WizardForm.TasksList.ItemEnabled[0] := False;
+    for i := 0 to WizardForm.TasksList.Items.Count - 1 do
+      WizardForm.TasksList.ItemEnabled[i] := False;
   end;
 end;
 
