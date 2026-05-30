@@ -5403,8 +5403,6 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
             except Exception:
                 pass
 
-<<<<<<< HEAD
-=======
     # ── Create Stock Item popup ────────────────────────────────────────────
 
     def _show_create_stock_item_popup(self):
@@ -5682,7 +5680,6 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
                       fg_color=COLORS["bg_input"], text_color=COLORS["text_secondary"],
                       command=pop.destroy).pack(side="left")
 
->>>>>>> 3fafd18496641fea140b8d93bbbbb78acc9d9ac3
     def _on_post_done(self, result):
         self._save_btn.configure(state="normal", text="Save & Close")
         if result.get("success"):
