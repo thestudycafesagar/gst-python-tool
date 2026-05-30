@@ -2922,8 +2922,32 @@ def generate_purchase_accounting_xml(
         elif resolved_mode == "custom":
             source_date = resolved_custom_date
         else:
-            source_date = _row_get(r, "Date", "")
+            # Try all known date column name variants (new template + legacy)
+            source_date = (
+                _row_get(r, "Voucher Date", "")
+                or _row_get(r, "VoucherDate", "")
+                or _row_get(r, "Date", "")
+            )
+            if not source_date:
+                continue  # skip rows with no date in Excel Date mode
         dt = tally_date(source_date)
+
+        # Supplier invoice number: try new template column first, then legacy
+        supplier_inv_no_raw = (
+            _row_text(r, "SupplierInvoiceNo")
+            or _row_text(r, "Supplier Invoice No")
+            or _row_text(r, "ReferenceNo")
+            or _row_text(r, "InvoiceNo")
+            or _row_text(r, "BillNo")
+        )
+        # Supplier invoice date (new template column)
+        supplier_inv_date_raw = (
+            _row_get(r, "SupplierInvoiceDate", "")
+            or _row_get(r, "Supplier Invoice Date", "")
+            or _row_get(r, "ReferenceDate", "")
+        )
+        supplier_inv_date = tally_date(supplier_inv_date_raw) if supplier_inv_date_raw else dt
+
         excel_vno = _row_voucher_number(r, "")
         if excel_vno:
             vno_raw = excel_vno
@@ -2932,7 +2956,7 @@ def generate_purchase_accounting_xml(
         else:
             vno_raw = ""
         vno = xml_escape(vno_raw)
-        supplier_invoice_raw = _row_invoice_reference(r, vno_raw)
+        supplier_invoice_raw = supplier_inv_no_raw or vno_raw
         supplier_invoice = xml_escape(supplier_invoice_raw)
 
         party_raw = _ledger_or_suspense(_row_text(r, "PartyLedger"))
@@ -3016,6 +3040,7 @@ def generate_purchase_accounting_xml(
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
         a(f'    <VOUCHER VCHTYPE="{_vch_type_esc}" ACTION="Create" OBJVIEW="Invoice Voucher View">')
         a(f'     <DATE>{dt}</DATE>')
+        a(f'     <REFERENCEDATE>{supplier_inv_date}</REFERENCEDATE>')
         a(f'     <VOUCHERTYPENAME>{_vch_type_esc}</VOUCHERTYPENAME>')
         a(f'     <VOUCHERNUMBER>{vno}</VOUCHERNUMBER>')
         a(f'     <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>')
@@ -3161,6 +3186,16 @@ def _consolidate_accounting_rows(rows: list, resolved_mode: str, resolved_custom
     return consolidated_rows
 
 
+def _effective_tax_amount(row: dict, amount_key: str, rate_key: str) -> float:
+    """Return the explicit tax amount if non-zero, else compute rate × taxable / 100."""
+    amt = _row_float(row, amount_key, 0.0)
+    if amt > 0:
+        return amt
+    rate = _row_float(row, rate_key, 0.0)
+    taxable = abs(_row_float(row, "TaxableValue", 0.0))
+    return round(taxable * rate / 100, 2) if rate > 0 and taxable > 0 else 0.0
+
+
 def _consolidate_item_rows(rows: list, resolved_mode: str, resolved_custom_date: str) -> list:
     consolidated_rows = []
     group_map = {}
@@ -3190,16 +3225,25 @@ def _consolidate_item_rows(rows: list, resolved_mode: str, resolved_custom_date:
             if party_raw.strip().lower() != existing_party.strip().lower():
                 raise ValueError(f"Conflicting Party Ledgers for Invoice '{supplier_invoice_raw or vno_raw}': '{existing_party}' vs '{party_raw}'")
             
+            # Resolve each row's tax amounts BEFORE updating TaxableValue —
+            # _effective_tax_amount reads TaxableValue from the dict, so it must
+            # see the original (pre-merge) value, not the combined total.
+            ex_cgst = _effective_tax_amount(existing_r, "CGST Amount", "CGSTRate")
+            ex_sgst = _effective_tax_amount(existing_r, "SGST Amount", "SGSTRate")
+            ex_igst = _effective_tax_amount(existing_r, "IGST Amount", "IGSTRate")
+            new_cgst = _effective_tax_amount(r, "CGST Amount", "CGSTRate")
+            new_sgst = _effective_tax_amount(r, "SGST Amount", "SGSTRate")
+            new_igst = _effective_tax_amount(r, "IGST Amount", "IGSTRate")
+
             # Merge amounts
             existing_r["TaxableValue"] = _row_float(existing_r, "TaxableValue", 0.0) + _row_float(r, "TaxableValue", 0.0)
-            existing_r["IGST Amount"] = _row_float(existing_r, "IGST Amount", 0.0) + _row_float(r, "IGST Amount", 0.0)
-            existing_r["CGST Amount"] = _row_float(existing_r, "CGST Amount", 0.0) + _row_float(r, "CGST Amount", 0.0)
-            existing_r["SGST Amount"] = _row_float(existing_r, "SGST Amount", 0.0) + _row_float(r, "SGST Amount", 0.0)
+            existing_r["CGST Amount"] = ex_cgst + new_cgst
+            existing_r["SGST Amount"] = ex_sgst + new_sgst
+            existing_r["IGST Amount"] = ex_igst + new_igst
             existing_r["Cess Amount"] = _row_float(existing_r, "Cess Amount", 0.0) + _row_float(r, "Cess Amount", 0.0)
             existing_r["Invoice Value"] = _row_float(existing_r, "Invoice Value", 0.0) + _row_float(r, "Invoice Value", 0.0)
-            # Zero out rates so XML generator uses the summed explicit amounts
-            # instead of recalculating (which would apply one row's rate to the
-            # combined taxable value, producing wrong results when rates differ)
+            # Zero out rates: rows may have different rates per item; the summed
+            # explicit amounts above are now authoritative for the merged voucher.
             existing_r["CGSTRate"] = 0
             existing_r["SGSTRate"] = 0
             existing_r["IGSTRate"] = 0
@@ -5172,6 +5216,130 @@ def _find_nonmatching_voucher_ledgers(rows: list, tally_names_upper: set) -> lis
     return sorted(result)
 
 
+def _fetch_bank_cash_ledgers(tally_url: str, company_name: str = "", timeout: float = 15.0) -> list:
+    """Fetch ledger names under Bank Accounts and Cash-in-Hand groups from Tally.
+    Returns a sorted list of ledger name strings. Returns [] on error.
+    Strategy: try TDL-filtered query first; if that returns nothing, fetch ALL
+    ledgers and filter client-side by known bank/cash parent group names.
+    """
+    selected_company = _normalize_company_name(company_name)
+    static = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
+    if selected_company:
+        static += f"<SVCURRENTCOMPANY>{xml_escape(selected_company)}</SVCURRENTCOMPANY>"
+    static += "</STATICVARIABLES>"
+
+    # Known bank/cash group names (Tally standard + common aliases)
+    _BANK_CASH_GROUPS = {
+        "bank accounts", "bank account", "bank", "bank ods",
+        "bank od accounts", "bank overdraft", "bank overdrafts",
+        "cash-in-hand", "cash in hand", "cash",
+    }
+
+    def _sanitize(text: str) -> str:
+        return re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", text or "")
+
+    def _post(payload: str) -> str:
+        req = urllib.request.Request(
+            tally_url,
+            data=payload.encode("utf-8"),
+            headers={"Content-Type": "text/xml"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+
+    def _extract_names(raw: str, filter_by_group: bool = True) -> list:
+        """Parse Tally XML/fallback-regex and return bank/cash ledger names."""
+        names = []
+        # Try XML parse first
+        for candidate in (raw, _sanitize(raw)):
+            if not candidate:
+                continue
+            try:
+                root = ET.fromstring(candidate)
+                for node in root.iter():
+                    tag = str(node.tag or "").upper()
+                    if "LEDGER" not in tag:
+                        continue
+                    name = _normalize_ledger_name(
+                        node.attrib.get("NAME") or node.findtext("NAME") or
+                        node.findtext("LEDGERNAME") or ""
+                    )
+                    parent = ""
+                    for child in node:
+                        ctag = str(child.tag or "").upper()
+                        if ctag in ("PARENT", "PARENTGROUP"):
+                            parent = (child.text or "").strip().lower()
+                    if name and (not filter_by_group or parent in _BANK_CASH_GROUPS):
+                        names.append(name)
+                if names:
+                    return names
+            except ET.ParseError:
+                pass
+
+        # Regex fallback for malformed XML
+        ledger_re = re.compile(
+            r'<LEDGER\b[^>]*\bNAME="([^"]*)"[^>]*>(.*?)</LEDGER>',
+            re.IGNORECASE | re.DOTALL,
+        )
+        parent_re = re.compile(r'<PARENT[^>]*>(.*?)</PARENT>', re.IGNORECASE | re.DOTALL)
+        for m in ledger_re.finditer(_sanitize(raw)):
+            name = _normalize_ledger_name(m.group(1))
+            parent_m = parent_re.search(m.group(2))
+            parent = (parent_m.group(1).strip().lower()) if parent_m else ""
+            if name and (not filter_by_group or parent in _BANK_CASH_GROUPS):
+                names.append(name)
+        return names
+
+    # ── Primary: TDL-filtered query (Bank Accounts + Cash-in-Hand) ──────────
+    tdl_payload = (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+        "<TYPE>Collection</TYPE><ID>SPE_BankCashCol</ID></HEADER><BODY><DESC>"
+        f"{static}"
+        "<TDL><TDLMESSAGE>"
+        "<COLLECTION NAME='SPE_BankCashCol'>"
+        "<TYPE>Ledger</TYPE>"
+        "<NATIVEMETHOD>Name</NATIVEMETHOD>"
+        "<NATIVEMETHOD>Parent</NATIVEMETHOD>"
+        "<FILTER>SPE_BankCashFilter</FILTER>"
+        "</COLLECTION>"
+        "<SYSTEM TYPE='Formulae' NAME='SPE_BankCashFilter'>"
+        "$$IsSameOrBelongsTo:$Parent:$$GroupSundryParent:BankAccounts OR "
+        "$$IsSameOrBelongsTo:$Parent:$$GroupSundryParent:CashinHand"
+        "</SYSTEM>"
+        "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+    )
+    try:
+        raw = _post(tdl_payload)
+        names = _extract_names(raw, filter_by_group=True)
+        if names:
+            return sorted(set(names), key=str.upper)
+    except Exception:
+        pass
+
+    # ── Fallback: fetch ALL ledgers, filter client-side by parent group ──────
+    all_payload = (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+        "<TYPE>Collection</TYPE><ID>SPE_AllLedCol</ID></HEADER><BODY><DESC>"
+        f"{static}"
+        "<TDL><TDLMESSAGE>"
+        "<COLLECTION NAME='SPE_AllLedCol'>"
+        "<TYPE>Ledger</TYPE>"
+        "<NATIVEMETHOD>Name</NATIVEMETHOD>"
+        "<NATIVEMETHOD>Parent</NATIVEMETHOD>"
+        "</COLLECTION>"
+        "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+    )
+    try:
+        raw = _post(all_payload)
+        names = _extract_names(raw, filter_by_group=True)
+        if names:
+            return sorted(set(names), key=str.upper)
+    except Exception:
+        pass
+
+    return []
+
+
 def generate_single_voucher_xml(
     rows: list,
     company: str,
@@ -5180,13 +5348,19 @@ def generate_single_voucher_xml(
     date_mode: str = "excel",
     custom_tally_date: str = "",
     start_vno: int = None,
+    contra_ledger_names: set = None,
 ) -> str:
-    """Generate Payment or Receipt voucher XML from rows with an AMOUNT column.
+    """Generate Payment, Receipt, or Contra voucher XML from rows with an AMOUNT column.
 
-    voucher_type = "Payment" : contra-ledger DEBIT  + bank CREDIT  (money out)
-    voucher_type = "Receipt" : bank DEBIT           + contra-ledger CREDIT  (money in)
+    voucher_type = "Payment" : dest-ledger DEBIT + bank CREDIT  (money going out)
+                               Auto-switches to "Contra" when dest-ledger is a bank/cash account.
+    voucher_type = "Receipt" : bank DEBIT + src-ledger CREDIT   (money coming in)
+                               Auto-switches to "Contra" when src-ledger is a bank/cash account.
+    contra_ledger_names      : set of bank/cash ledger names; if row LEDGER is in this set
+                               the voucher type is forced to "Contra".
     """
     vtype = voucher_type.strip().title()
+    contra_set = {n.strip().upper() for n in (contra_ledger_names or []) if n}
     resolved_mode = str(date_mode or "excel").strip().lower()
     if resolved_mode not in {"current", "excel", "custom"}:
         resolved_mode = "excel"
@@ -5232,11 +5406,15 @@ def generate_single_voucher_xml(
         if amt <= 0:
             continue
 
-        # ── Contra ledger ──────────────────────────────────────────────
+        # ── Ledger (other side of the entry) ──────────────────────────
         contra_raw = str(r.get("LEDGER") or r.get("Ledger") or r.get("ledger") or "").strip()
         if not contra_raw:
             contra_raw = "Suspense A/c"
         contra_esc = xml_escape(contra_raw)
+
+        # Auto-detect Contra: if the LEDGER is a bank/cash account, switch to Contra
+        is_contra_row = bool(contra_set and contra_raw.upper() in contra_set)
+        row_vtype = "Contra" if is_contra_row else vtype
 
         # ── Narration ──────────────────────────────────────────────────
         description = str(r.get("DESCRIPTION") or r.get("Description") or r.get("description") or "").strip()
@@ -5254,23 +5432,23 @@ def generate_single_voucher_xml(
         vno = str(start_vno + vch_counter - 1) if start_vno is not None else str(vch_counter)
 
         a('   <TALLYMESSAGE xmlns:UDF="TallyUDF">')
-        a(f'    <VOUCHER VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">')
+        a(f'    <VOUCHER VCHTYPE="{row_vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">')
         a(f'     <DATE>{dt}</DATE>')
-        a(f'     <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>')
+        a(f'     <VOUCHERTYPENAME>{row_vtype}</VOUCHERTYPENAME>')
         a(f'     <VOUCHERNUMBER>{xml_escape(vno)}</VOUCHERNUMBER>')
         a(f'     <EFFECTIVEDATE>{dt}</EFFECTIVEDATE>')
         a('     <PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>')
         if narration:
             a(f'     <NARRATION>{narration}</NARRATION>')
 
-        if vtype == "Payment":
-            # Contra-ledger: DEBIT (receives money)
+        if row_vtype in ("Payment", "Contra"):
+            # Destination ledger: DEBIT (receives the money)
             a('     <ALLLEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{contra_esc}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(amt)}</AMOUNT>')
             a('     </ALLLEDGERENTRIES.LIST>')
-            # Bank: CREDIT (money goes out)
+            # Source bank: CREDIT (money goes out)
             a('     <ALLLEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{bank_esc}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
@@ -5283,7 +5461,7 @@ def generate_single_voucher_xml(
             a('      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>')
             a(f'      <AMOUNT>-{fmt_amt(amt)}</AMOUNT>')
             a('     </ALLLEDGERENTRIES.LIST>')
-            # Contra-ledger: CREDIT (source of money)
+            # Source ledger: CREDIT (money goes out from here)
             a('     <ALLLEDGERENTRIES.LIST>')
             a(f'      <LEDGERNAME>{contra_esc}</LEDGERNAME>')
             a('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>')
@@ -6605,6 +6783,8 @@ class TallySalesApp(ctk.CTk):
                 "loaded_rows": [],
                 "fp_var": ctk.StringVar(value=""),
                 "info_var": ctk.StringVar(value=""),
+                "bank_names": [],        # bank/cash ledger names for auto-contra detection
+                "contra_info_var": ctk.StringVar(value=""),
             }
 
         self._build_ui()
@@ -7705,26 +7885,29 @@ class TallySalesApp(ctk.CTk):
                 "sheet_name": "Sheet1",
                 "headers": [
                     "VoucherType",
-                    "Date",
-                    "InvoiceNo",
-                    "VoucherNo",
+                    "Voucher Date",
+                    "SupplierInvoiceNo",
+                    "SupplierInvoiceDate",
                     "PartyLedger",
                     "PlaceOfSupply",
                     "GSTIN/UIN",
                     "PurchaseLedger",
                     "TaxableValue",
                     "CGSTLedger",
-                    "CGST Amount",
+                    "CGST Rate",
                     "SGSTLedger",
-                    "SGST Amount",
+                    "SGST Rate",
                     "IGSTLedger",
-                    "IGST Amount",
+                    "IGST Rate",
+                    "TDS Ledger",
+                    "TDS Rate",
                     "Narration",
                 ],
                 "sample_rows": [
-                    ["Purchase", "20-04-2026", "SINV-001", "1", "PQR Suppliers", "Maharashtra",
-                     "27AAAPQ1234B1Z3", "Purchase Account", 10000, "CGST", 900,
-                     "SGST", 900, "IGST", 0, "Being goods purchased from PQR Suppliers"],
+                    ["Purchase", "20-04-2026", "SINV-001", "20-04-2026", "PQR Suppliers",
+                     "Maharashtra", "27AAAPQ1234B1Z3", "Purchase Account", 10000,
+                     "CGST", 9, "SGST", 9, "IGST", 0, "", "",
+                     "Being goods purchased from PQR Suppliers"],
                 ],
             },
             "purchase_item": {
@@ -9258,14 +9441,18 @@ class TallySalesApp(ctk.CTk):
                       command=_do_cancel).pack(side="right", padx=(4, 0))
 
     def _build_payment_or_receipt_panel(self, parent, mode: str):
-        """Panel for Payment or Receipt voucher creation (mode = 'payment' or 'receipt')."""
+        """Panel for Payment or Receipt voucher creation.
+        Rows whose LEDGER column matches a fetched bank/cash ledger are
+        automatically pushed as Contra vouchers instead of Payment/Receipt.
+        """
         is_payment = (mode == "payment")
         state = self._voucher_panel_state[mode]
         vtype = "Payment" if is_payment else "Receipt"
         icon  = "💸" if is_payment else "🧾"
         hdrs  = PAYMENT_HEADERS if is_payment else RECEIPT_HEADERS
-        sub   = "Contra-ledger Debit + Bank Credit (money going out)" if is_payment \
-                else "Bank Debit + Contra-ledger Credit (money coming in)"
+        sub   = ("Contra-ledger Debit + Bank Credit — ledgers matching a bank/cash account auto-become Contra"
+                 if is_payment else
+                 "Bank Debit + Contra-ledger Credit — ledgers matching a bank/cash account auto-become Contra")
 
         parent.grid_columnconfigure(0, weight=1)
         parent.grid_rowconfigure(5, weight=1)
@@ -9315,9 +9502,21 @@ class TallySalesApp(ctk.CTk):
                     leds = sorted(res.get("ledgers") or [], key=str.upper)
                 except Exception:
                     leds = []
+                # Also fetch bank/cash ledger names for auto-contra detection
+                try:
+                    bank_names = _fetch_bank_cash_ledgers(url, company_name=co, timeout=15)
+                except Exception:
+                    bank_names = []
 
                 def _done():
                     fetch_btn.configure(state="normal", text="Fetch Ledgers")
+                    state["bank_names"] = bank_names
+                    if bank_names:
+                        state["contra_info_var"].set(
+                            f"🔄 Auto-Contra: {len(bank_names)} bank/cash ledger(s) detected"
+                        )
+                    else:
+                        state["contra_info_var"].set("")
                     if leds:
                         _show_ledger_picker(leds)
                     else:
@@ -9468,6 +9667,7 @@ class TallySalesApp(ctk.CTk):
                 xml_content = generate_single_voucher_xml(
                     rows=rows, company=company, bank_ledger=bank,
                     voucher_type=vtype, date_mode=date_mode, custom_tally_date=custom_date,
+                    contra_ledger_names=set(state["bank_names"]),
                 )
                 with open(out_path, "w", encoding="utf-8") as f:
                     f.write(xml_content)
@@ -9519,6 +9719,7 @@ class TallySalesApp(ctk.CTk):
                     xml_content = generate_single_voucher_xml(
                         rows=rows, company=company, bank_ledger=bank,
                         voucher_type=vtype, date_mode=date_mode, custom_tally_date=custom_date,
+                        contra_ledger_names=set(state["bank_names"]),
                     )
                     url = self._get_tally_url()
                     response = push_to_tally(xml_content, host=url.split("//")[1].split(":")[0],
@@ -9632,6 +9833,22 @@ class TallySalesApp(ctk.CTk):
             command=_push_to_tally,
         )
         push_btn.pack(side="left")
+
+        # ── Row 4: Contra detection status ───────────────────────────────
+        r4 = ctk.CTkFrame(parent, fg_color="transparent")
+        r4.grid(row=4, column=0, sticky="ew", padx=10, pady=(2, 2))
+        ctk.CTkLabel(
+            r4,
+            textvariable=state["contra_info_var"],
+            font=("Segoe UI", 10),
+            text_color=COLORS["success"],
+        ).pack(side="left")
+        ctk.CTkLabel(
+            r4,
+            text="(Fetch Ledgers first — rows with bank/cash in LEDGER column auto-post as Contra)",
+            font=("Segoe UI", 9),
+            text_color=COLORS["text_muted"],
+        ).pack(side="left", padx=(6, 0))
 
     # ── LEDGER CREATION TAB ─────────────────────────────────────────────
 

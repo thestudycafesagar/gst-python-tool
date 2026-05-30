@@ -124,8 +124,8 @@ COLORS = {
     "success_bg":    ("#D1FAE5", "#064E3B"),
     "warning":       ("#D97706", "#F59E0B"),
     "warning_bg":    ("#FEF3C7", "#78350F"),
-    "error":         ("#EA580C", "#EF4444"),
-    "error_bg":      ("#FEE2E2", "#7C2D12"),
+    "error":         ("#DC2626", "#EF4444"),
+    "error_bg":      ("#FEE2E2", "#7F1D1D"),
     "text_primary":  ("#0F172A", "#F1F5F9"),
     "text_secondary":("#475569", "#CBD5E1"),
     "text_muted":    ("#64748B", "#94A3B8"),
@@ -4288,8 +4288,8 @@ class _GSTFetchDialog(ctk.CTkToplevel):
                       command=self._on_fetch).pack(side="left")
 
         ctk.CTkLabel(self, textvariable=self._status_var, anchor="w",
-                  text_color=("gray40", "#FFFFFF"),
-                  font=("Segoe UI", 11)).pack(fill="x", padx=14, pady=(0, 8))
+                      text_color=("gray40", "gray70"),
+                      font=("Segoe UI", 11)).pack(fill="x", padx=14, pady=(0, 8))
 
         ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(fill="x", padx=14, pady=(0, 8))
         ctk.CTkLabel(self, text="Fetched Details (editable):",
@@ -4315,8 +4315,8 @@ class _GSTFetchDialog(ctk.CTkToplevel):
             command=self._on_confirm, state="disabled")
         self._confirm_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ctk.CTkButton(btn_row, text="Cancel",
-                   fg_color=("gray60", "#EA580C"),
-                   command=self._on_cancel, width=90).pack(side="left")
+                       fg_color=("gray60", "gray30"),
+                       command=self._on_cancel, width=90).pack(side="left")
 
     def _on_load_captcha(self):
         gstin = self._gstin_var.get().strip().upper()
@@ -4440,7 +4440,8 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
                  initial_record: dict = None,
                  company_gstin: str = "",
                  company_registration_name: str = "",
-                 company_registration_state: str = ""):
+                 company_registration_state: str = "",
+                 on_closed: callable = None):
         super().__init__(parent)
         self.title("Add Voucher")
         self.transient(parent)
@@ -4466,6 +4467,7 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         self._company_gstin              = str(company_gstin or "").strip().upper()
         self._company_registration_name  = str(company_registration_name or "").strip()
         self._company_registration_state = str(company_registration_state or "").strip()
+        self._on_closed = on_closed  # optional callback fired when dialog closes
         self._ledger_names: list     = []  # all ledgers from Tally
         self._stock_item_names: list = []  # stock items from Tally
         self._invoice_mode    = tk.StringVar(value="accounting")
@@ -4493,7 +4495,7 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         self._prefill_from_record()   # after rows exist
         self._fetch_ledgers_async()
         self._party_var.trace_add("write", self._on_party_changed)
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.protocol("WM_DELETE_WINDOW", self._close_dialog)
         # Close any open autocomplete popups when user scrolls the dialog
         self.bind("<MouseWheel>", lambda e: self._close_all_popups(), add="+")
         self.bind("<Button-4>",   lambda e: self._close_all_popups(), add="+")
@@ -4581,8 +4583,8 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         btn_bar.pack(fill="x", side="bottom")
         btn_bar.pack_propagate(False)
         ctk.CTkButton(btn_bar, text="Cancel", width=110, height=36,
-                  fg_color=("gray60", "#EA580C"),
-                  command=self.destroy).pack(side="right", padx=(6, 16), pady=12)
+                      fg_color=("gray60", "gray30"),
+                      command=self.destroy).pack(side="right", padx=(6, 16), pady=12)
         self._save_btn = ctk.CTkButton(
             btn_bar, text="Save & Close", width=160, height=36,
             fg_color=COLORS["success"], command=self._on_save)
@@ -4630,35 +4632,51 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
                      font=("Segoe UI", 12, "bold"),
                      text_color=COLORS["tally_gold"]).pack(anchor="w", padx=14, pady=(8, 4))
         self._make_table_hdr(self._item_section,
-            [("Sr.No", 42), ("* Item Name", 150), ("* Purchase Ledger", 150),
-             ("* HSN", 60), ("* Qty", 50), ("Unit", 58), ("* Rate", 72), ("Disc%", 48),
-             ("Amount", 75), ("", 30)])
-        self._item_table = ctk.CTkScrollableFrame(
-            self._item_section, fg_color="transparent", height=90, corner_radius=0)
+            [("Sr.No", 42), ("* Item Name", 200), ("HSN", 70), ("* Qty", 50),
+             ("Unit", 58), ("* Rate", 72), ("Disc%", 48), ("Amount", 75), ("", 30)])
+        self._item_table = ctk.CTkFrame(
+            self._item_section, fg_color="transparent", corner_radius=0)
         self._item_table.pack(fill="x", padx=14, pady=(0, 2))
         item_foot = ctk.CTkFrame(self._item_section, fg_color="transparent")
         item_foot.pack(fill="x", padx=14, pady=(2, 8))
         ctk.CTkButton(item_foot, text="+ Add Item Row", width=130, height=28,
                       fg_color=COLORS["accent"], font=("Segoe UI", 10),
                       command=self._add_item_row).pack(side="left")
+        ctk.CTkButton(item_foot, text="+ Create Stock Item", width=150, height=28,
+                      fg_color="#16A34A", hover_color="#15803D",
+                      text_color="#FFFFFF", font=("Segoe UI", 10),
+                      command=self._show_create_stock_item_popup).pack(side="left", padx=(8, 0))
         # Item section starts hidden
 
         # ── Ledger Details ────────────────────────────────────────────────
         self._ldg_sec = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=10)
         self._ldg_sec.pack(fill="x", padx=14, pady=6)
-        ctk.CTkLabel(self._ldg_sec, text="Ledger Details",
+        _ldg_title_row = ctk.CTkFrame(self._ldg_sec, fg_color="transparent")
+        _ldg_title_row.pack(fill="x", padx=14, pady=(8, 2))
+        ctk.CTkLabel(_ldg_title_row, text="Ledger Details",
                      font=("Segoe UI", 12, "bold"),
-                     text_color=COLORS["tally_gold"]).pack(anchor="w", padx=14, pady=(8, 4))
+                     text_color=COLORS["tally_gold"]).pack(side="left")
+        self._ldg_subtitle = ctk.CTkLabel(
+            _ldg_title_row,
+            text="",
+            font=("Segoe UI", 9),
+            text_color=COLORS["text_muted"],
+        )
+        self._ldg_subtitle.pack(side="left", padx=(10, 0))
         self._make_table_hdr(self._ldg_sec,
             [("Sr.No", 42), ("Ledger Name", 370), ("Amount", 130), ("", 30)])
-        self._ledger_table = ctk.CTkScrollableFrame(
-            self._ldg_sec, fg_color="transparent", height=110, corner_radius=0)
+        self._ledger_table = ctk.CTkFrame(
+            self._ldg_sec, fg_color="transparent", corner_radius=0)
         self._ledger_table.pack(fill="x", padx=14, pady=(0, 2))
         ldg_foot = ctk.CTkFrame(self._ldg_sec, fg_color="transparent")
         ldg_foot.pack(fill="x", padx=14, pady=(2, 8))
         ctk.CTkButton(ldg_foot, text="+ Add Row", width=100, height=28,
                       fg_color=COLORS["accent"], font=("Segoe UI", 10),
                       command=self._add_ledger_row).pack(side="left")
+        ctk.CTkButton(ldg_foot, text="+ Create Purchase Ledger", width=170, height=28,
+                      fg_color="#16A34A", hover_color="#15803D",
+                      text_color="#FFFFFF", font=("Segoe UI", 10),
+                      command=self._show_create_purchase_ledger_popup).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(ldg_foot, textvariable=self._ledger_section_total,
                      font=("Segoe UI", 11, "bold"),
                      text_color=COLORS["success"]).pack(side="right", padx=(0, 6))
@@ -4672,8 +4690,8 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
                      text_color=COLORS["tally_gold"]).pack(anchor="w", padx=14, pady=(8, 4))
         self._make_table_hdr(self._tax_sec,
             [("Sr.No", 42), ("* Ledger Name", 250), ("Description", 215), ("Amount", 130), ("", 30)])
-        self._tax_table = ctk.CTkScrollableFrame(
-            self._tax_sec, fg_color="transparent", height=90, corner_radius=0)
+        self._tax_table = ctk.CTkFrame(
+            self._tax_sec, fg_color="transparent", corner_radius=0)
         self._tax_table.pack(fill="x", padx=14, pady=(0, 2))
         tax_foot = ctk.CTkFrame(self._tax_sec, fg_color="transparent")
         tax_foot.pack(fill="x", padx=14, pady=(2, 8))
@@ -4938,6 +4956,12 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         self._hdr_card.pack(fill="x", padx=14, pady=(12, 6))
         if self._invoice_mode.get() == "item":
             self._item_section.pack(fill="x", padx=14, pady=6)
+            if hasattr(self, "_ldg_subtitle"):
+                self._ldg_subtitle.configure(
+                    text="(First ledger here is used as the Purchase Ledger for all items)")
+        else:
+            if hasattr(self, "_ldg_subtitle"):
+                self._ldg_subtitle.configure(text="")
         self._ldg_sec.pack(fill="x", padx=14, pady=6)
         self._tax_sec.pack(fill="x", padx=14, pady=6)
         self._bot.pack(fill="x", padx=14, pady=(6, 14))
@@ -4955,7 +4979,6 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
     def _add_item_row(self):
         d = {
             "name":   tk.StringVar(),
-            "ledger": tk.StringVar(),
             "hsn":    tk.StringVar(),
             "qty":    tk.StringVar(value="1"),
             "unit":   tk.StringVar(value="Nos"),
@@ -4968,12 +4991,10 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         ctk.CTkLabel(row, text=str(len(self._item_rows) + 1),
                      width=42, anchor="center", font=("Segoe UI", 10)).pack(side="left", padx=2)
         # Item name with autocomplete (uses stock items from Tally)
-        self._build_autocomplete_entry(row, d["name"], width=150,
+        self._build_autocomplete_entry(row, d["name"], width=200,
                                         get_items_fn=lambda: self._stock_item_names or self._ledger_names,
                                         font=("Segoe UI", 10))
-        # Purchase ledger autocomplete
-        self._build_ledger_combo(row, d["ledger"], width=150)
-        ctk.CTkEntry(row, textvariable=d["hsn"],   width=60,  font=("Segoe UI", 10)).pack(side="left", padx=2)
+        ctk.CTkEntry(row, textvariable=d["hsn"],   width=70,  font=("Segoe UI", 10)).pack(side="left", padx=2)
         ctk.CTkEntry(row, textvariable=d["qty"],   width=50,  font=("Segoe UI", 10)).pack(side="left", padx=2)
         # Unit entry — must match unit defined in Tally stock item master (e.g. Nos, Pcs, Kg)
         ctk.CTkEntry(row, textvariable=d["unit"],  width=58,  font=("Segoe UI", 10)).pack(side="left", padx=2)
@@ -5011,7 +5032,7 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
     def _add_ledger_row(self):
         d = {"ledger": tk.StringVar(), "amount": tk.StringVar(value="0.00")}
         row = ctk.CTkFrame(self._ledger_table, fg_color="transparent")
-        row.pack(fill="x", pady=1)
+        row.pack(fill="x", pady=0)
         ctk.CTkLabel(row, text=str(len(self._ledger_rows) + 1),
                      width=42, anchor="center", font=("Segoe UI", 10)).pack(side="left", padx=2)
         self._build_ledger_combo(row, d["ledger"], width=370)
@@ -5148,11 +5169,26 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         ledger_entries, tax_entries, item_entries = [], [], []
 
         if self._invoice_mode.get() == "item":
+            # Derive purchase ledger from Ledger Details (first non-empty row)
+            _purchase_ledger = ""
+            for _lr in self._ledger_rows:
+                _ln = _lr["data"]["ledger"].get().strip()
+                if _ln:
+                    _purchase_ledger = _ln
+                    break
+            if not _purchase_ledger:
+                messagebox.showwarning(
+                    "Purchase Ledger Required",
+                    "In Item Invoice mode, add the Purchase Ledger (e.g. 'Purchase Taxable') "
+                    "in the Ledger Details section before saving.",
+                    parent=self,
+                )
+                return
+
             # Collect full item data for proper Tally item invoice XML
             for r in self._item_rows:
-                item_name   = r["data"]["name"].get().strip()
-                ledger_name = r["data"]["ledger"].get().strip()
-                if not ledger_name:
+                item_name = r["data"]["name"].get().strip()
+                if not item_name:
                     continue
                 try:
                     qty  = float(r["data"]["qty"].get()  or 1)
@@ -5163,8 +5199,8 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
                     continue
                 if amt:
                     item_entries.append({
-                        "name":   item_name or ledger_name,
-                        "ledger": ledger_name,
+                        "name":   item_name,
+                        "ledger": _purchase_ledger,
                         "hsn":    r["data"]["hsn"].get().strip(),
                         "qty":    qty,
                         "unit":   r["data"]["unit"].get().strip() or "Nos",
@@ -5357,11 +5393,298 @@ class _ManualVoucherDialog(ctk.CTkToplevel):
         except Exception:
             pass
 
+    def _close_dialog(self):
+        """Destroy the dialog and fire the on_closed callback (if any)."""
+        cb = self._on_closed
+        self.destroy()
+        if callable(cb):
+            try:
+                cb()
+            except Exception:
+                pass
+
+    # ── Create Stock Item popup ────────────────────────────────────────────
+
+    def _show_create_stock_item_popup(self):
+        pop = ctk.CTkToplevel(self)
+        pop.title("Create Stock Item in Tally")
+        pop.geometry("460x320")
+        pop.resizable(False, False)
+        pop.transient(self)
+        pop.grab_set()
+        pop.lift()
+
+        ctk.CTkLabel(pop, text="Create Stock Item", font=("Segoe UI", 13, "bold")).pack(pady=(14, 4))
+
+        frm = ctk.CTkFrame(pop, fg_color="transparent")
+        frm.pack(fill="x", padx=24, pady=2)
+
+        name_var     = tk.StringVar()
+        unit_var     = tk.StringVar(value="Nos")
+        hsn_var      = tk.StringVar()
+        gst_rate_var = tk.StringVar()
+        status_var   = tk.StringVar()
+
+        for lbl, var, ph in [
+            ("Stock Item Name *", name_var,     "e.g. Laptop, Mouse"),
+            ("Unit of Measure",   unit_var,     "e.g. Nos, pcs, Kg, Ltr"),
+            ("HSN/SAC Code",      hsn_var,      "e.g. 84713010  (optional)"),
+            ("GST Rate %",        gst_rate_var, "e.g. 18  (optional)"),
+        ]:
+            r = ctk.CTkFrame(frm, fg_color="transparent")
+            r.pack(fill="x", pady=3)
+            ctk.CTkLabel(r, text=lbl, width=160, anchor="w",
+                         font=("Segoe UI", 10)).pack(side="left")
+            ctk.CTkEntry(r, textvariable=var, width=220,
+                         placeholder_text=ph, font=("Segoe UI", 10)).pack(side="left")
+
+        ctk.CTkLabel(pop, textvariable=status_var, font=("Segoe UI", 10),
+                     text_color=COLORS["text_muted"]).pack(pady=(4, 0))
+
+        # ── helpers mirroring sale_purchase_entry.py ──────────────────────
+        def _norm_unit(v):
+            t = str(v or "").strip()
+            if not t:
+                return "Nos"
+            return {"no": "Nos", "no.": "Nos", "nos": "Nos", "nos.": "Nos",
+                    "number": "Nos", "numbers": "Nos",
+                    "piece": "pcs", "pieces": "pcs"}.get(t.casefold(), t)
+
+        def _post_xml(xml_str):
+            import urllib.request as _urllib_req
+            req = _urllib_req.Request(
+                self._tally_url,
+                data=xml_str.encode("utf-8"),
+                headers={"Content-Type": "text/xml"},
+            )
+            with _urllib_req.urlopen(req, timeout=self._tally_timeout) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+
+        def _created_ok(raw):
+            m = re.search(r"<CREATED>(\d+)</CREATED>", raw, re.IGNORECASE)
+            return m and int(m.group(1)) > 0
+
+        def _lineerror(raw):
+            m = re.search(r"<LINEERROR>(.*?)</LINEERROR>", raw, re.IGNORECASE | re.DOTALL)
+            return m.group(1).strip() if m else None
+
+        def _company_static_block():
+            s = "<STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
+            if self._company_name:
+                s += f"<SVCURRENTCOMPANY>{self._company_name}</SVCURRENTCOMPANY>"
+            return s + "</STATICVARIABLES>"
+
+        def _do_create():
+            name     = name_var.get().strip()
+            unit     = _norm_unit(unit_var.get())
+            hsn      = hsn_var.get().strip()
+            gst_rate = gst_rate_var.get().strip().replace("%", "")
+            if not name:
+                messagebox.showwarning("Required", "Please enter a Stock Item Name.", parent=pop)
+                return
+            status_var.set("Step 1/2: Creating unit…")
+            pop.update()
+
+            cs = _company_static_block()
+
+            # Step 1 — Create/Alter the unit (mirrors generate_unit_xml)
+            n_esc = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            u_esc = unit.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            unit_xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                "<ENVELOPE><HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>"
+                "<BODY><IMPORTDATA>"
+                f"<REQUESTDESC><REPORTNAME>All Masters</REPORTNAME>{cs}</REQUESTDESC>"
+                "<REQUESTDATA>"
+                f'<TALLYMESSAGE xmlns:UDF="TallyUDF">'
+                f'<UNIT NAME="{u_esc}" ACTION="Create Alter">'
+                f"<NAME>{u_esc}</NAME>"
+                "<ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>"
+                "<DECIMALPLACES>2</DECIMALPLACES>"
+                f"<FORMALNAME>{u_esc}</FORMALNAME>"
+                "</UNIT></TALLYMESSAGE>"
+                "</REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>"
+            )
+            try:
+                _post_xml(unit_xml)   # best-effort; ignore errors (unit may already exist)
+            except Exception:
+                pass
+
+            # Step 2 — Create the stock item (mirrors generate_stockitem_xml)
+            status_var.set("Step 2/2: Creating stock item…")
+            pop.update()
+
+            # Build GST details block if HSN or rate provided
+            gst_block = ""
+            if hsn or gst_rate:
+                gst_block = "<GSTAPPLICABLE>Applicable</GSTAPPLICABLE><GSTDETAILS.LIST>"
+                if hsn:
+                    h_esc = hsn.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    gst_block += f"<HSNCODE>{h_esc}</HSNCODE>"
+                gst_block += "<TAXABILITY>Taxable</TAXABILITY><SUPPLYTYPENAME>Goods</SUPPLYTYPENAME>"
+                if gst_rate:
+                    try:
+                        rv   = float(gst_rate)
+                        igst = f"{rv:.2f}"
+                        half = f"{rv / 2:.2f}"
+                        gst_block += (
+                            "<STATEWISEDETAILS.LIST><STATENAME>Not Applicable</STATENAME>"
+                            "<RATEDETAILS.LIST><GSTRATEDUTYHEAD>Integrated Tax</GSTRATEDUTYHEAD>"
+                            f"<GSTRATE>{igst}</GSTRATE></RATEDETAILS.LIST>"
+                            "<RATEDETAILS.LIST><GSTRATEDUTYHEAD>Central Tax</GSTRATEDUTYHEAD>"
+                            f"<GSTRATE>{half}</GSTRATE></RATEDETAILS.LIST>"
+                            "<RATEDETAILS.LIST><GSTRATEDUTYHEAD>State Tax</GSTRATEDUTYHEAD>"
+                            f"<GSTRATE>{half}</GSTRATE></RATEDETAILS.LIST>"
+                            "</STATEWISEDETAILS.LIST>"
+                        )
+                    except ValueError:
+                        pass
+                gst_block += "</GSTDETAILS.LIST>"
+
+            item_xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                "<ENVELOPE><HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>"
+                "<BODY><IMPORTDATA>"
+                f"<REQUESTDESC><REPORTNAME>All Masters</REPORTNAME>{cs}</REQUESTDESC>"
+                "<REQUESTDATA>"
+                f'<TALLYMESSAGE xmlns:UDF="TallyUDF">'
+                f'<STOCKITEM NAME="{n_esc}" ACTION="Create">'
+                f"<NAME>{n_esc}</NAME>"
+                # PARENT deliberately omitted — Tally uses root stock group by default
+                f"<BASEUNITS>{u_esc}</BASEUNITS>"
+                "<ISADDITIONALUNITS>NO</ISADDITIONALUNITS>"
+                f"{gst_block}"
+                "</STOCKITEM></TALLYMESSAGE>"
+                "</REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>"
+            )
+            try:
+                raw = _post_xml(item_xml)
+                err = _lineerror(raw)
+                if err or not _created_ok(raw):
+                    status_var.set("Error from Tally")
+                    messagebox.showerror("Create Failed",
+                        f"Tally error:\n{err or raw[:300]}", parent=pop)
+                    return
+                status_var.set(f"'{name}' created!")
+                self._fetch_ledgers_async()
+                messagebox.showinfo("Success",
+                    f"Stock item '{name}' (unit: {unit}) created in Tally.\n"
+                    "The autocomplete list has been refreshed.", parent=pop)
+                pop.destroy()
+            except Exception as exc:
+                status_var.set("Failed")
+                messagebox.showerror("Error", str(exc), parent=pop)
+
+        btn_row = ctk.CTkFrame(pop, fg_color="transparent")
+        btn_row.pack(pady=(8, 0))
+        ctk.CTkButton(btn_row, text="Create Stock Item", width=160, height=34,
+                      fg_color="#16A34A", hover_color="#15803D",
+                      text_color="#FFFFFF", font=("Segoe UI", 11, "bold"),
+                      command=_do_create).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btn_row, text="Cancel", width=90, height=34,
+                      fg_color=COLORS["bg_input"], text_color=COLORS["text_secondary"],
+                      command=pop.destroy).pack(side="left")
+
+    # ── Create Purchase Ledger popup ───────────────────────────────────────
+
+    def _show_create_purchase_ledger_popup(self):
+        pop = ctk.CTkToplevel(self)
+        pop.title("Create Purchase Ledger in Tally")
+        pop.geometry("420x240")
+        pop.resizable(False, False)
+        pop.transient(self)
+        pop.grab_set()
+        pop.lift()
+
+        ctk.CTkLabel(pop, text="Create Purchase Ledger", font=("Segoe UI", 13, "bold")).pack(pady=(16, 4))
+
+        frm = ctk.CTkFrame(pop, fg_color="transparent")
+        frm.pack(fill="x", padx=24, pady=4)
+
+        name_var   = tk.StringVar()
+        parent_var = tk.StringVar(value="Purchase Accounts")
+        status_var = tk.StringVar()
+
+        for lbl, var, ph in [
+            ("Ledger Name *",  name_var,   "e.g. Purchase - 5% GST"),
+            ("Parent Group",   parent_var, "e.g. Purchase Accounts"),
+        ]:
+            r = ctk.CTkFrame(frm, fg_color="transparent")
+            r.pack(fill="x", pady=3)
+            ctk.CTkLabel(r, text=lbl, width=160, anchor="w", font=("Segoe UI", 10)).pack(side="left")
+            ctk.CTkEntry(r, textvariable=var, width=200, placeholder_text=ph,
+                         font=("Segoe UI", 10)).pack(side="left")
+
+        ctk.CTkLabel(pop, textvariable=status_var, font=("Segoe UI", 10),
+                     text_color=COLORS["text_muted"]).pack(pady=(4, 0))
+
+        def _do_create():
+            name   = name_var.get().strip()
+            parent = parent_var.get().strip() or "Purchase Accounts"
+            if not name:
+                messagebox.showwarning("Required", "Please enter a Ledger Name.", parent=pop)
+                return
+            status_var.set("Creating…")
+            pop.update()
+
+            import xml.etree.ElementTree as _ET
+            env = _ET.Element("ENVELOPE")
+            hdr = _ET.SubElement(env, "HEADER")
+            _ET.SubElement(hdr, "TALLYREQUEST").text = "Import Data"
+            body = _ET.SubElement(env, "BODY")
+            imp  = _ET.SubElement(body, "IMPORTDATA")
+            rd   = _ET.SubElement(imp, "REQUESTDESC")
+            _ET.SubElement(rd, "REPORTNAME").text = "All Masters"
+            sv   = _ET.SubElement(rd, "STATICVARIABLES")
+            _ET.SubElement(sv, "SVEXPORTFORMAT").text = "$$SysName:XML"
+            if self._company_name:
+                _ET.SubElement(sv, "SVCURRENTCOMPANY").text = self._company_name
+            rdata = _ET.SubElement(imp, "REQUESTDATA")
+            tm    = _ET.SubElement(rdata, "TALLYMESSAGE")
+            tm.set("xmlns:UDF", "TallyUDF")
+            led = _ET.SubElement(tm, "LEDGER")
+            led.set("NAME", name); led.set("ACTION", "Create")
+            _ET.SubElement(led, "NAME").text   = name
+            _ET.SubElement(led, "PARENT").text = parent
+            xml_str = '<?xml version="1.0" encoding="UTF-8"?>' + _ET.tostring(env, encoding="unicode")
+
+            try:
+                import urllib.request as _ur
+                req = _ur.Request(self._tally_url, data=xml_str.encode("utf-8"),
+                                  headers={"Content-Type": "text/xml"})
+                with _ur.urlopen(req, timeout=self._tally_timeout) as resp:
+                    raw = resp.read().decode("utf-8", errors="replace")
+                if "LINEERROR" in raw.upper() or "ERROR" in raw.upper() and "CREATED" not in raw.upper():
+                    status_var.set("Error from Tally")
+                    messagebox.showerror("Create Failed",
+                        f"Tally returned an error:\n{raw[:300]}", parent=pop)
+                    return
+                status_var.set(f"'{name}' created successfully!")
+                # Refresh ledger list so it appears in autocomplete
+                self._fetch_ledgers_async()
+                messagebox.showinfo("Success",
+                    f"Ledger '{name}' created in Tally.\n"
+                    "Ledger list has been refreshed.", parent=pop)
+                pop.destroy()
+            except Exception as exc:
+                status_var.set("Failed")
+                messagebox.showerror("Error", str(exc), parent=pop)
+
+        btn_row = ctk.CTkFrame(pop, fg_color="transparent")
+        btn_row.pack(pady=(8, 0))
+        ctk.CTkButton(btn_row, text="Create Ledger", width=140, height=34,
+                      fg_color="#16A34A", hover_color="#15803D",
+                      text_color="#FFFFFF", font=("Segoe UI", 11, "bold"),
+                      command=_do_create).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btn_row, text="Cancel", width=90, height=34,
+                      fg_color=COLORS["bg_input"], text_color=COLORS["text_secondary"],
+                      command=pop.destroy).pack(side="left")
+
     def _on_post_done(self, result):
         self._save_btn.configure(state="normal", text="Save & Close")
         if result.get("success"):
             messagebox.showinfo("Success", "Voucher posted to Tally successfully!", parent=self)
-            self.destroy()
+            self._close_dialog()
         else:
             err = str(result.get("error") or "Unknown error")
             messagebox.showerror("Post Failed",
@@ -5453,8 +5776,8 @@ class GSTR2BTallyApp(ctk.CTk):
             width=132,
             height=28,
             font=("Segoe UI", 10, "bold"),
-            fg_color="#EA580C",
-            hover_color="#C2410C",
+            fg_color="#DC2626",
+            hover_color="#B91C1C",
             text_color="#FFFFFF",
             corner_radius=6,
             command=self._view_workflow_demo,
@@ -8280,8 +8603,8 @@ class GSTR2BTallyApp(ctk.CTk):
             ctk.CTkButton(
                 bf,
                 text="Create Manually",
-                fg_color=("gray70", "#EA580C"),
-                hover_color=("gray60", "#FCA5A5"),
+                fg_color=("gray70", "gray30"),
+                hover_color=("gray60", "gray40"),
                 height=44,
                 font=("Segoe UI", 12),
                 command=_choose_manual,
@@ -10659,8 +10982,8 @@ class GSTR2BTallyApp(ctk.CTk):
                     invoice_rows[inv].remove(r)
                     r["frame"].destroy()
             ctk.CTkButton(top, text="✕", width=COL_W[5], height=26,
-                          font=("Segoe UI", 10), fg_color=("#EA580C", "#991B1B"),
-                          hover_color="#7C2D12", text_color="#FFFFFF",
+                          font=("Segoe UI", 10), fg_color=("#DC2626", "#991B1B"),
+                          hover_color="#7F1D1D", text_color="#FFFFFF",
                           corner_radius=4, command=_del).pack(side="left", padx=(2, 4))
 
             rows_for_inv.append(rd)
@@ -10833,11 +11156,14 @@ class GSTR2BTallyApp(ctk.CTk):
                     "GSTIN":               rec.get("gstin") or "",
                     "TaxableValue":        taxable_total,
                     "CGSTRate":            cgst_rate,
-                    "CGSTLedger":          _cgst_ldr or ("CGST" if cgst_rate > 0 else ""),
+                    "CGST Amount":         cgst_v,   # explicit fallback (used when rate = 0 or rows are consolidated)
+                    "CGSTLedger":          _cgst_ldr or ("CGST" if (cgst_rate > 0 or cgst_v > 0) else ""),
                     "SGSTRate":            sgst_rate,
-                    "SGSTLedger":          _sgst_ldr or ("SGST" if sgst_rate > 0 else ""),
+                    "SGST Amount":         sgst_v,
+                    "SGSTLedger":          _sgst_ldr or ("SGST" if (sgst_rate > 0 or sgst_v > 0) else ""),
                     "IGSTRate":            igst_rate,
-                    "IGSTLedger":          _igst_ldr or ("IGST" if igst_rate > 0 else ""),
+                    "IGST Amount":         igst_v,
+                    "IGSTLedger":          _igst_ldr or ("IGST" if (igst_rate > 0 or igst_v > 0) else ""),
                     "Narration":           rec.get("narration") or "",
                     "SupplierInvoiceNo":   rec.get("invoice_no") or "",
                     "SupplierInvoiceDate": rec.get("invoice_date") or "",
@@ -11319,16 +11645,16 @@ class GSTR2BTallyApp(ctk.CTk):
                 if itc_info and itc_info.get("has_stock", "").strip().upper() in ("YES", "Y"):
                     party_has_stock.add(rec.get("trade_name", "").strip().upper())
                     
-            # Pass 2: Apply the ITC eligibility and Party-wide stock item flag
+            # Pass 2: Apply the ITC eligibility and per-invoice stock item flag
             for rec in records_to_generate:
                 inv_key = rec.get("invoice_no", "").strip().upper()
                 orig_key = rec.get("orig_invoice_no", "").strip().upper()
                 trade_key = rec.get("trade_name", "").strip().upper()
-                
+
                 itc_info = self.engine.itc_map.get(inv_key)
                 if not itc_info and orig_key:
                     itc_info = self.engine.itc_map.get(orig_key)
-                
+
                 if itc_info:
                     itc_val = itc_info.get("itc_claimed", "").strip().upper()
                     # "YES" → eligible (Purchase voucher), "NO" → ineligible (Journal)
@@ -11336,11 +11662,15 @@ class GSTR2BTallyApp(ctk.CTk):
                         rec["itc_avail"] = "Yes"
                     elif itc_val in ("NO", "N"):
                         rec["itc_avail"] = "Ineligible"
-                
-                # If this party has stock items, mark ALL their invoices (B2BA, IMPG, etc.) as stock items.
-                # The stock popup will filter out CDNR/notes automatically.
-                if trade_key in party_has_stock:
-                    rec["has_stock_item"] = True
+                    # has_stock_item is already set correctly from the template parse
+                    # (line: "has_stock_item": has_stock.upper() in ("YES", "Y"))
+                    # Do NOT override with party-level flag — respect the per-invoice choice.
+                else:
+                    # No ITC template row for this record (B2BA amendments, IMPG, etc.)
+                    # Use party-level propagation so they also go through the stock popup
+                    # when any other invoice of the same party has stock items.
+                    if trade_key in party_has_stock:
+                        rec["has_stock_item"] = True
 
         # Apply per-party TDS/ledger from itc_map (overrides engine defaults
         # if the template sets a ledger directly per party row)
@@ -11353,7 +11683,16 @@ class GSTR2BTallyApp(ctk.CTk):
 
         # ─── GSTR-2B: mandatory mapping check ───
         if self.current_mode == "gstr2b":
-            valid_records, invalid_issues = self.engine.validate_tax_configuration(records_to_generate)
+            # If _continue_generate_valid injected pre-validated records, use them directly
+            # and skip the mismatch check entirely.
+            _prevalidated = getattr(self, "_skip_mismatch_records", None)
+            if _prevalidated is not None:
+                records_to_generate = list(_prevalidated)
+                self._skip_mismatch_records = None
+                invalid_issues = []
+                valid_records  = records_to_generate
+            else:
+                valid_records, invalid_issues = self.engine.validate_tax_configuration(records_to_generate)
             if invalid_issues:
                 output_dir = self._resolve_output_dir()
                 report_path = self._save_tax_validation_report(output_dir, invalid_issues)
@@ -11385,6 +11724,8 @@ class GSTR2BTallyApp(ctk.CTk):
                             "warning",
                         )
                 else:
+                    # ── Sequential manual-voucher dialogs for all mismatched issues,
+                    #    then continue with valid records once all dialogs are done ──
                     try:
                         _mv_url     = self._get_tally_push_url()
                         _mv_timeout = self._get_tally_push_timeout()
@@ -11392,7 +11733,8 @@ class GSTR2BTallyApp(ctk.CTk):
                         _mv_url     = "http://localhost:9000"
                         _mv_timeout = 30
                     _mv_company = self._get_effective_push_company()
-                    # Build party-name → GSTIN map from the loaded records
+
+                    # Build party-name → GSTIN map
                     _pgmap: dict = {}
                     for _rec in (self.engine.records or []):
                         _pname = (
@@ -11401,36 +11743,54 @@ class GSTR2BTallyApp(ctk.CTk):
                         _gstin = str(_rec.get("gstin") or "").strip().upper()
                         if _pname and _gstin and _pname not in _pgmap:
                             _pgmap[_pname] = _gstin
-                    # Build initial_record from the first invalid issue
-                    # Try to find the full record in engine.records first
-                    _initial_rec: dict = {}
-                    if invalid_issues:
-                        _inv_no = str(invalid_issues[0].get("invoice_no", "")).strip()
+
+                    _mv_cgstin  = str(self.engine.company_gstin or "").strip().upper()
+                    _mv_regname = str(getattr(self, "company_registration_name", "") or "").strip()
+                    _mv_regst   = str(getattr(self, "company_registration_state", "") or "").strip()
+
+                    # Remaining mismatched issues (pop one at a time)
+                    _remaining_issues = list(invalid_issues)
+
+                    def _build_initial_rec(issue):
+                        """Look up the full engine record for an invalid issue."""
+                        inv_no = str(issue.get("invoice_no", "")).strip()
                         for _r in (self.engine.records or []):
-                            if str(_r.get("invoice_no", "") or _r.get("supplier_invoice_no", "")).strip() == _inv_no:
-                                _initial_rec = _r
-                                break
-                        # Fall back to building a partial dict from the invalid_issues entry
-                        if not _initial_rec:
-                            _initial_rec = {
-                                "invoice_no":    invalid_issues[0].get("invoice_no", ""),
-                                "trade_name":    invalid_issues[0].get("party_name", ""),
-                                "taxable_value": invalid_issues[0].get("taxable_value", 0),
-                                "igst":          invalid_issues[0].get("igst", 0),
-                                "cgst":          invalid_issues[0].get("cgst", 0),
-                                "sgst":          invalid_issues[0].get("sgst", 0),
-                            }
-                    _ManualVoucherDialog(
-                        self,
-                        tally_url=_mv_url,
-                        tally_timeout=_mv_timeout,
-                        company_name=_mv_company,
-                        party_gstin_map=_pgmap,
-                        initial_record=_initial_rec,
-                        company_gstin=str(self.engine.company_gstin or "").strip().upper(),
-                        company_registration_name=str(getattr(self, "company_registration_name", "") or "").strip(),
-                        company_registration_state=str(getattr(self, "company_registration_state", "") or "").strip(),
-                    )
+                            if str(_r.get("invoice_no", "") or _r.get("supplier_invoice_no", "")).strip() == inv_no:
+                                return _r
+                        return {
+                            "invoice_no":    issue.get("invoice_no", ""),
+                            "trade_name":    issue.get("party_name", ""),
+                            "taxable_value": issue.get("taxable_value", 0),
+                            "igst":          issue.get("igst", 0),
+                            "cgst":          issue.get("cgst", 0),
+                            "sgst":          issue.get("sgst", 0),
+                        }
+
+                    def _open_next_mismatch():
+                        if _remaining_issues:
+                            issue = _remaining_issues.pop(0)
+                            _ManualVoucherDialog(
+                                self,
+                                tally_url=_mv_url,
+                                tally_timeout=_mv_timeout,
+                                company_name=_mv_company,
+                                party_gstin_map=_pgmap,
+                                initial_record=_build_initial_rec(issue),
+                                company_gstin=_mv_cgstin,
+                                company_registration_name=_mv_regname,
+                                company_registration_state=_mv_regst,
+                                on_closed=_open_next_mismatch,
+                            )
+                        else:
+                            # All mismatched issues handled — now process valid records
+                            if valid_records:
+                                self.log_panel.log(
+                                    f"Mismatch entries done. Processing {len(valid_records)} valid record(s).",
+                                    "info",
+                                )
+                                self.after(0, lambda: self._continue_generate_valid(valid_records))
+
+                    _open_next_mismatch()
                     return
 
             if not self.engine.party_ledger_map:
@@ -11553,6 +11913,12 @@ class GSTR2BTallyApp(ctk.CTk):
                 return
 
         self._do_generate(excel, xml, records_to_generate=records_to_generate)
+
+    def _continue_generate_valid(self, valid_records):
+        """Continue generation with only the valid records after all mismatch dialogs are done."""
+        self._skip_mismatch_records = valid_records
+        # Determine current excel/xml flags (same defaults as the Generate button)
+        self._generate_output(excel=True, xml=True)
 
     def _do_generate(self, excel=True, xml=True, records_to_generate=None, extra_excel_records=None):
         """Actually perform the generation (called after mapping validation passes)."""
