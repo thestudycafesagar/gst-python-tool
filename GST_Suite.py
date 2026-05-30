@@ -755,7 +755,7 @@ GST_TOOLS = [
     {"key": "GST_Challan",  "tab": "💰  GST Challan",      "module": os.path.join(_GST_BASE, "GST Challan Downloader","main.py"),        "class": "App",                "desc": "Download GST Challan PDFs in bulk (Monthly / Quarterly)."},
     # {"key": "GST_Reports",  "tab": "📊  GST Reports",      "module": os.path.join(_GST_BASE, "GST_Reports",           "gst_portal_gui.py"), "class": "GstPortalApp",       "desc": "Download GSTR-1, GSTR-2A, GSTR-2B and GSTR-3B returns directly from the GST portal with login, OTP, Excel export and consolidated yearly downloads."},
     {"key": "GST_Reco",     "tab": "🔄  GST Reco",          "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
-    {"key": "GST_Reco_Cards", "tab": "⚖  GST Reconciliation", "hide_tab": True, "builtin_ui": "reco_landing", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GST portal data against books — Sale vs GSTR-1, Purchase vs GSTR-2A/2B, 2A vs 2B and GSTR-9 reconciliation."},
+    {"key": "GST_Reco_Cards", "tab": "⚖  GST Reconciliation", "builtin_ui": "reco_landing", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GST portal data against books — Sale vs GSTR-1, Purchase vs GSTR-2A/2B, 2A vs 2B and GSTR-9 reconciliation."},
 ]
 
 IT_TOOLS = [
@@ -1311,7 +1311,7 @@ class GSTSuite(_RealCTk):
             self._theme_btn.set("☀️  Light" if mode == "Light" else "🌙  Dark")
 
     # Tool keys that are always accessible regardless of plan
-    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom"}
+    _ALWAYS_FREE = {"Email_Custom", "Gmail_Custom", "GST_Reco", "GST_Reco_Cards"}
 
     def _is_tool_allowed(self, tool_key: str) -> bool:
         if self._allowed is None:
