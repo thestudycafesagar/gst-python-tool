@@ -206,7 +206,7 @@ import subprocess
 from datetime import datetime
 
 # ── Version & Update Manifest ─────────────────────────────────────────────────
-VERSION            = "1.0.13"
+VERSION            = "1.0.14"
 # !! REPLACE 'YOURNAME' and 'YOURREPO' with your actual GitHub username and
 #    the public releases repo you created (e.g. gst-suite-releases).
 UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/Mr-RohitNooB/gst-suite-releases/main/latest.json"
@@ -753,9 +753,9 @@ GST_TOOLS = [
     {"key": "GSTR3B",       "tab": "📥  GSTR 3B",      "module": os.path.join(_GST_BASE, "GST 3B Downloader",     "main.py"),        "class": "App",                "desc": "Bulk download GSTR-3B returns via automated browser."},
     {"key": "GSTR3B_Excel", "tab": "📊  GSTR 3B to Excel",   "module": os.path.join(_GST_BASE, "GST 3B to Excel",       "main.py"),        "class": "GSTR3BConverterPro", "desc": "Convert GSTR-3B PDF files to formatted Excel sheets."},
     {"key": "GST_Challan",  "tab": "💰  GST Challan",      "module": os.path.join(_GST_BASE, "GST Challan Downloader","main.py"),        "class": "App",                "desc": "Download GST Challan PDFs in bulk (Monthly / Quarterly)."},
-    # {"key": "GST_Reports",  "tab": "📊  GST Reports",      "module": os.path.join(_GST_BASE, "GST_Reports",           "gst_portal_gui.py"), "class": "GstPortalApp",       "desc": "Download GSTR-1, GSTR-2A, GSTR-2B and GSTR-3B returns directly from the GST portal with login, OTP, Excel export and consolidated yearly downloads."},
+    {"key": "GST_Reports",  "tab": "📊  GST Reports",      "module": os.path.join(_GST_BASE, "GST_Reports",           "gst_portal_gui.py"), "class": "GstPortalApp",       "desc": "Download GSTR-1, GSTR-2A, GSTR-2B and GSTR-3B returns directly from the GST portal with login, OTP, Excel export and consolidated yearly downloads."},
     {"key": "GST_Reco",     "tab": "🔄  GST Reco",          "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GSTR-2B portal data against Tally/books. Matches invoices, highlights mismatches and exports a detailed Excel report."},
-    {"key": "GST_Reco_Cards", "tab": "⚖  GST Reconciliation", "builtin_ui": "reco_landing", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GST portal data against books — Sale vs GSTR-1, Purchase vs GSTR-2A/2B, 2A vs 2B and GSTR-9 reconciliation."},
+    # {"key": "GST_Reco_Cards", "tab": "⚖  GST Reconciliation", "builtin_ui": "reco_landing", "module": os.path.join(_RECO_BASE, "mainpy-reco-speqtra.py"), "class": "App", "tk": False, "desc": "Reconcile GST portal data against books — Sale vs GSTR-1, Purchase vs GSTR-2A/2B, 2A vs 2B and GSTR-9 reconciliation."},
 ]
 
 IT_TOOLS = [
